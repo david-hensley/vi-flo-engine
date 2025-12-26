@@ -1,0 +1,84 @@
+PLAN FOR PERMANENT VI DATA ARCHITECTURE
+
+Use as much base R or only dplyr as possible! So that this will not become deprecated rapidly
+
+--Site naming system: watershed abbreviation (sr, tr, dor, cal, lag, generally name it after the largest downstream gut, and no more than 3 letters)
+	--numbers increase as the stations move downstream
+	--if numbers less than 1 or between two integers are required, use 0.5, original names will not change
+	--if a site is established alone, give it the integer 1 if in a upland area, 2 if in a lowland area
+
+--Code an API to automatically download Zentra data and add it to a raw archive
+--Automatic script to import new Zentra data, retain manual QAQC process
+--Code something cleaner to access and update GHCN 
+	--QA QC for GHCN?
+--Code something clean to export datashares (discrete) and prepare for a continuous or periodic
+automatic online upload to some repository
+
+START HERE ```````
+--Fix the field data QA QC process
+	--Archive the data for the manuscript and dissertation
+	--Restart from raw files and begin to compile:
+		--Maintenance metadata log (estimate where necessary)
+		Deal with edge cases better:
+			--Level loggers with no slope, no GZF, no rating curve yet - need to import but not archive this data
+			--Need to be able to easily do the actions QA QC requires:
+				--Inspect lines of data or date ranges in various variables
+				--Splice data in various ways, neighbor loggers, zeroes, linear interp, etc. 
+				--Record the action in a log (like "splices")
+				--Special rain process
+				--Highly stylized manual process when the automatic techniques fail, and a separate place to store these manual logs
+				--Note the version under which QA QC took place, and store an HTML log with graphs of the process
+
+--Every sensor should have some kind of unique ID
+--These should be associated with a site ID
+--Additional column for "slope" loggers for manning to ID A and B
+--Maintenance and deployment log for all sensors to accompany dataset as metadata
+
+--After a field run for data download or maintenance, an automatic script to update the database
+	--Ask a series of questions
+	--Always leave the ability to add a new entry for a new type of a certain category (e.g. sensor type)
+Fields:
+--Sensor type
+--Unique sensor ID
+--Date
+--Action taken: deployment, replacement, maintenance, download, removal, abandonment
+--Manual notes
+--Lat lon
+--Site ID
+--For level or VWC loggers, a sub-type column (well logger, slope logger A, slope logger B, rating curve single logger, HS, SB etc.)
+
+--Add a prompt in the field data import script to check whether the field maintenance log update script was run first
+
+Basic outline:
+
+1. Field maintenance or download occurs
+2. Run maintenance update
+3. Run raw data import - make QA QC optional, or parallel - the import script should intelligently reference the maintenance log to know if the logger is dead, moved etc
+4. Manually or automatically run Zentra updates and other cloud updates - QA QC is manual only
+5. A parallel script which may run automatically could upload the local database to a cloud location periodically
+6. A manual script can export the data on demand
+7. A master script can run any of these via text prompts - set up for later use as an app - this means discretize the action steps away from text embedding 
+	--E.g.: What do you want to do? Report maintenance, import raw data, download cloud data, export database, etc.
+8. Some kind of password or permitting to alter base archive and central cloud archive
+
+A meta script can also note the existence of a new data source or type -- or just have this as a simple spreadsheet?
+
+This entire architecture will require extensive documentation and versioning!!
+Look into GitHub for this and general guides for the correct conventions of this. E.g. version numbers and decimals - what do they really mean.
+
+You need scaffolding - to be able to successfully work on small pieces at a time.
+	0. Make it easy to move the entire repository to another device or cloud and run it there! This will require a lot of recoding in the internal functions - do it right one time
+	1. Set up maintenance log and code (possible use as app later, try to keep elements discrete/independent)
+	2. Get metadata set up and clean
+	3. 
+
+
+1. User downloads GitHub repository and stores it somewhere
+2. User opens and runs setup/install code
+	--This prompts user to provide directory location, need to re-run this if the repository moves
+3. User opens and runs master code
+	--Prompted for password, without password it runs in "safe" mode - generating backup of main archive and refusing to upload anything to cloud
+	--Prompted for user initials, capitalize these and use them in logging and datafile names (e.g. who generated an export, who made a QA QC change)
+4. In master code, user can update field notes, can import field data, etc. see above
+5. Eventually user will be able to use an .exe to do a similar thing instead of running R
+
