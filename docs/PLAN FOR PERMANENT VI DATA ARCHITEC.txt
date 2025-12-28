@@ -82,3 +82,6 @@ You need scaffolding - to be able to successfully work on small pieces at a time
 4. In master code, user can update field notes, can import field data, etc. see above
 5. Eventually user will be able to use an .exe to do a similar thing instead of running R
 
+How to assimilate or deal with non self collected data? GHCN, collaborator data, etc. We will
+clearly have a repository but to what degree can or should this be integrated into this codebase?
+
