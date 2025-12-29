@@ -1,0 +1,11 @@
+----How to build a .exe from .py----
+
+Write the python script, save as .py.
+Make sure PyInstaller is installed and downloaded
+In command prompt:
+
+# Set the directory where the .py is, e.g.:
+cd "C:\Users\david\vi-flo-engine\tools"
+
+# Run PyInstaller. The item --distpath causes the .exe to build in the parent directory
+python -m PyInstaller --onefile --distpath ../ setup_win.py
