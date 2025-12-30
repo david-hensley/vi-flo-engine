@@ -12,3 +12,6 @@ python -m PyInstaller --onefile --distpath ../ setup_win.py
 
 # Because of dependencies in datamapper.py, run this:
 python -m PyInstaller --onefile --distpath ../ --hidden-import=pandas --hidden-import=tkinter setup_win.py
+
+python -m PyInstaller --onefile --distpath ../ --hidden-import=tkinter setup_win.py
+

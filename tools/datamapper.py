@@ -1,7 +1,7 @@
 import os
 import sys
 import shutil
-import pandas as pd
+import csv
 import tkinter as tk
 from tkinter import filedialog
 from datetime import datetime
@@ -72,18 +72,17 @@ def main():
     print("\nProceeding with interactive data mapping...")
 
     # ---- Load named paths ----
-    named_paths_df = pd.read_csv(named_paths_csv)
-    if 'named_path' not in named_paths_df.columns:
-        print("Error: named_paths.csv must have a 'named_path' column")
-        sys.exit(1)
+    with open(named_paths_csv, newline='', encoding='utf-8') as f:
+        reader = csv.DictReader(f)
+        named_paths_list = [row['named_path'] for row in reader]
 
     # ---- Load existing datamap if present ----
     if datamap_csv.is_file():
-        print("Loading existing datamap...")
-        datamap_df = pd.read_csv(datamap_csv)
+        with open(datamap_csv, newline='', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            datamap_list = [row for row in reader]
     else:
-        print("Creating new datamap file...")
-        datamap_df = pd.DataFrame(columns=['named_path', 'absolute_path', 'date_set', 'repo_name'])
+        datamap_list = []
 
     # ---- GUI setup ----
     root = tk.Tk()
@@ -91,18 +90,18 @@ def main():
 
     updated_rows = []
 
-    for np_row in named_paths_df['named_path']:
-        existing_row = datamap_df.loc[datamap_df['named_path'] == np_row]
+    for np_row in named_paths_list:
+        existing_row = next((row for row in datamap_list if row['named_path'] == np_row), None)
 
-        if not existing_row.empty:
-            existing_path = existing_row.iloc[0]['absolute_path']
+        if existing_row:
+            existing_path = existing_row['absolute_path']
             print(f"\nNamed path '{np_row}' already exists: {existing_path}")
             response = input("Is this correct? (Y/N): ").strip().lower()
             if response in ['y', 'yes', '']:
                 updated_rows.append({
                     'named_path': np_row,
                     'absolute_path': existing_path,
-                    'date_set': existing_row.iloc[0]['date_set'],
+                    'date_set': existing_row['date_set'],
                     'repo_name': 'engine'
                 })
                 continue
@@ -125,10 +124,16 @@ def main():
         })
 
     # ---- Preserve untouched rows ----
-    untouched_rows = datamap_df.loc[~datamap_df['named_path'].isin(named_paths_df['named_path'])]
-    final_df = pd.concat([untouched_rows, pd.DataFrame(updated_rows)], ignore_index=True)
+    untouched_rows = [row for row in datamap_list if row['named_path'] not in named_paths_list]
+    final_rows = untouched_rows + updated_rows
 
-    final_df.to_csv(datamap_csv, index=False)
+    # ---- Write CSV ----
+    fieldnames = ['named_path', 'absolute_path', 'date_set', 'repo_name']
+    with open(datamap_csv, 'w', newline='', encoding='utf-8') as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(final_rows)
+
     print(f"\nDatamap saved to {datamap_csv}")
 
 if __name__ == "__main__":
