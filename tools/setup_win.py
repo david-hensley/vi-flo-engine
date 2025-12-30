@@ -3,57 +3,76 @@ import sys
 import subprocess
 import tkinter as tk
 from tkinter import filedialog
+from pathlib import Path
 
 def main():
-    # Detect folder of the running .exe (PyInstaller) or .py (development)
-    if getattr(sys, 'frozen', False):
-        # Running as compiled .exe
-        repo_dir = os.path.dirname(sys.executable)
-    else:
-        # Running as Python script in /tools
-        repo_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    # ---- Clear previous environment variables in THIS PROCESS ----
+    os.environ.pop("VI_FLO_ENGINE_ROOT", None)
+    os.environ.pop("VI_FLO_DATA_ROOT", None)
+    print("Cleared VI_FLO_ENGINE_ROOT and VI_FLO_DATA_ROOT for new setup.")
 
-    # Normalize to forward slashes
-    repo_dir = repo_dir.replace("\\", "/")
+    # ---- Detect folder of the running .exe (PyInstaller) or .py (development) ----
+    if getattr(sys, 'frozen', False):
+        repo_dir = Path(sys.executable).parent
+    else:
+        repo_dir = Path(__file__).resolve().parent.parent
+
+    repo_dir = repo_dir.as_posix()
     print(f"Detected repo folder: {repo_dir}")
 
-    # Set engine root env variable
+    # ---- Set environment variables in THIS PROCESS ----
+    os.environ["VI_FLO_ENGINE_ROOT"] = repo_dir
+
+    # ---- Also persist for future processes ----
     subprocess.run(f'setx VI_FLO_ENGINE_ROOT "{repo_dir}"', shell=True)
 
     # ---- Prompt for data folder ----
     root = tk.Tk()
     root.withdraw()
 
-    print("Please select the VI-FLO data directory (Cancel to use default)...")
-    data_dir = filedialog.askdirectory(title="Select VI-FLO Data Directory")
+    default_data_dir = (Path(repo_dir) / "data").as_posix()
+    print("Please select the VI-FLO data directory (Cancel to use sample data)...")
+    data_dir = filedialog.askdirectory(
+        title="Select VI-FLO Data Directory",
+        initialdir=default_data_dir
+    )
 
     if not data_dir:
-        assumed_data_dir = os.path.join(repo_dir, "data").replace("\\", "/")
-        if os.path.isdir(assumed_data_dir):
-            data_dir = assumed_data_dir
+        assumed_data_dir = Path(repo_dir) / "data"
+        if assumed_data_dir.is_dir():
+            data_dir = assumed_data_dir.as_posix()
             print(f"No selection made. Defaulting to: {data_dir}")
+            print("Please wait...")
+
         else:
-            print("\nWARNING:")
-            print(f"Expected data directory not found: {assumed_data_dir}")
-            print("The core VI-FLO repo structure appears to be altered.")
-            print("Please restore the original repository structure with the /data folder,")
-            print("or rerun setup and select a valid data directory.")
-            print("Repository root path was NOT set, core data repository was NOT set.")
-            input("\nPress Enter to close this window...")
+            print(f"Expected data directory not found: {assumed_data_dir.as_posix()}")
+            input("Press Enter to close...")
             return
     else:
-        data_dir = data_dir.replace("\\", "/")
+        data_dir = Path(data_dir).as_posix()
         print(f"Selected data folder: {data_dir}")
+        print("Please wait...")
 
+    # ---- Set environment variables in THIS PROCESS ----
+    os.environ["VI_FLO_DATA_ROOT"] = data_dir
     subprocess.run(f'setx VI_FLO_DATA_ROOT "{data_dir}"', shell=True)
 
     print("\nEnvironment variables set successfully:")
-    print(f"  VI_FLO_ENGINE_ROOT = {repo_dir}")
-    print(f"  VI_FLO_DATA_ROOT   = {data_dir}")
+    print(f"  VI_FLO_ENGINE_ROOT = {os.environ['VI_FLO_ENGINE_ROOT']}")
+    print(f"  VI_FLO_DATA_ROOT   = {os.environ['VI_FLO_DATA_ROOT']}")
     print("\nPlease restart any open R sessions to use them.")
+
+    # ---- Run datamapper.py IN-PROCESS ----
+    try:
+        if str(repo_dir) not in sys.path:
+            sys.path.insert(0, str(repo_dir))
+
+        from tools import datamapper
+        datamapper.main()
+    except Exception as e:
+        print(f"\nERROR running datamapper: {e}")
 
     input("\nSetup complete. Press Enter to close this window...")
 
 if __name__ == "__main__":
     main()
-
