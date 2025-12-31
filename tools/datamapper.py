@@ -41,9 +41,41 @@ def main():
         sys.exit(1)
 
     # ------------------------------------------------------------------
-    # EARLY DEFAULT MAP OPTION
+    # EARLY DEFAULT / SAMPLE MAP OPTION (TRANSFORM RELATIVE → ABSOLUTE)
     # ------------------------------------------------------------------
     using_sample_data = data_root.samefile(engine_data_dir.resolve())
+
+    def write_datamap_from_relative(source_csv: Path):
+        rows_out = []
+        now = datetime.now().isoformat()
+
+        with open(source_csv, newline='', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+
+            if 'named_path' not in reader.fieldnames or 'path' not in reader.fieldnames:
+                print(f"ERROR: {source_csv.name} must contain 'named_path' and 'path' columns")
+                sys.exit(1)
+
+            for row in reader:
+                suffix = row['path'].lstrip("/\\")
+                absolute = (data_root / suffix).resolve().as_posix()
+
+                rows_out.append({
+                    'named_path': row['named_path'],
+                    'absolute_path': absolute,
+                    'date_set': now,
+                    'repo_name': 'engine'
+                })
+
+        with open(datamap_csv, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.DictWriter(
+                f,
+                fieldnames=['named_path', 'absolute_path', 'date_set', 'repo_name']
+            )
+            writer.writeheader()
+            writer.writerows(rows_out)
+
+        print(f"Datamap written to: {datamap_csv}")
 
     if using_sample_data:
         print("\nYou are using SAMPLE DATA.")
@@ -52,8 +84,7 @@ def main():
             if not sample_datamap_csv.is_file():
                 print(f"ERROR: sample_datamap.csv not found at {sample_datamap_csv}")
                 sys.exit(1)
-            shutil.copyfile(sample_datamap_csv, datamap_csv)
-            print(f"Sample datamap written to: {datamap_csv}")
+            write_datamap_from_relative(sample_datamap_csv)
             return
     else:
         print("\nExternal data root detected.")
@@ -62,8 +93,7 @@ def main():
             if not default_datamap_csv.is_file():
                 print(f"ERROR: default_datamap.csv not found at {default_datamap_csv}")
                 sys.exit(1)
-            shutil.copyfile(default_datamap_csv, datamap_csv)
-            print(f"Default datamap written to: {datamap_csv}")
+            write_datamap_from_relative(default_datamap_csv)
             return
 
     # ------------------------------------------------------------------
