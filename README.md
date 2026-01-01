@@ -41,14 +41,14 @@ the VI_FLO_DATA_ROOT path to a separate database file.
 
 Here is the layout of the repo:
 
-.
+```
 ├── code/         # Main R scripts
 ├── data/         # Input and example data
 ├── docs/         # Additional documentation and notes
 ├── tools/        # Helper files, such as Python scripts for setup_win.exe
 ├── CHANGELOG.md  # Notes on major changes and versions
 └── README.md     # This file
-
+```
 ---
 
 ## Dependencies
@@ -70,6 +70,6 @@ Here is the layout of the repo:
 
 ## License and Authorship
 
-License is MIT. For more information, see LICENSE.txt. Primary codebase 
+License is MIT. For more information, see LICENSE.md. Primary codebase 
 author is David A. Hensley, University of the Virgin Islands
 (david.hensley@uvi.edu)
