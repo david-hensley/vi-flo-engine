@@ -13,6 +13,16 @@ It is designed to handle data processing, analysis, and preparation for downstre
 
 ---
 
+## API tokens
+
+Contact the authorized person (David Hensley) for the api_tokens.csv file.
+This file contains all the necessary API keys for automatic downloading. 
+Store this file in the VI-FLO Engine "tools" folder, then run the setup program. 
+
+DO NOT DELETE THE .gitignore FILE - THIS PROTECTS THE API KEY FROM BEING PUBLISHED!
+
+---
+
 ## Setup
 
 Before using the engine for the first time, run the included helper (Windows only):
@@ -24,6 +34,7 @@ setup_win.exe
 - Converts relative paths to absolute paths
 - Finds the location of the repo for scripts and data
 - Sets two key environmental path variables: VI_FLO_DATA_ROOT and VI_FLO_ENGINE_ROOT
+- If you move this repository or the database to a new location, you must re-run this!
 
 > Note: setup_win.exe is stable and included in the repo for convenience.
 
@@ -39,14 +50,13 @@ the VI_FLO_DATA_ROOT path to a separate database file.
 
 ## Repository Structure
 
-Here is the layout of the repo:
-
 ```
 ├── code/         # Main R scripts
 ├── data/         # Input and example data
 ├── docs/         # Additional documentation and notes
 ├── tools/        # Helper files, such as Python scripts for setup_win.exe
 ├── CHANGELOG.md  # Notes on major changes and versions
+├── LICENSE.md    # Licensing and copyright information
 └── README.md     # This file
 ```
 ---

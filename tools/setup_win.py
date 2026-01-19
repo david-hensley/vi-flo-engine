@@ -2,7 +2,7 @@ import os
 import sys
 import subprocess
 import tkinter as tk
-from tkinter import filedialog
+from tkinter import filedialog, messagebox
 from pathlib import Path
 
 def main():
@@ -71,6 +71,38 @@ def main():
         datamapper.main()
     except Exception as e:
         print(f"\nERROR running datamapper: {e}")
+
+    # ---- Check for API token configuration file ----
+    tokens_file = Path(repo_dir) / "tools" / "api_tokens.csv"
+    
+    if tokens_file.is_file():
+        # File exists - ask if they want to configure now
+        configure_tokens = messagebox.askyesno(
+            "API Token Configuration",
+            "FOR AUTOMATIC DATA DOWNLOADS:\n\n"
+            "api_tokens.csv file detected.\n\n"
+            "Configure API access now?",
+            parent=root
+        )
+        
+        if configure_tokens:
+            try:
+                from tools import set_api_tokens
+                set_api_tokens.main()
+            except Exception as e:
+                print(f"\nERROR running set_api_tokens: {e}")
+        else:
+            print("\n=== API Token Setup Skipped ===")
+            print("To configure API access later, run:")
+            print("python tools/set_api_tokens.py")
+    else:
+        # File not found - give instructions
+        print("\n=== API Token Setup ===")
+        print("No api_tokens.csv file found.")
+        print("To configure API access later:")
+        print("1. Obtain api_tokens.csv from the authorized person")
+        print(f"2. Place it in: {repo_dir}/tools/api_tokens.csv")
+        print("3. Run: python tools/set_api_tokens.py")
 
     input("\nSetup complete. Press Enter to close this window...")
 

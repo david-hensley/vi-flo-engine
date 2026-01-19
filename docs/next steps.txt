@@ -1,0 +1,27 @@
+## v0.0.2
+* Record or index all current data types (raw)
+* Create sample data of all data types 
+* Create new data folders
+* Write conceptual/logical default datamap - placeholder
+* Use these named_paths to write sample datamap and create engine root data folders
+* Write basic beginning R script to use global env variables and read wds from datamap
+
+## v0.0.3
+* Index old functions
+* Index old QA QC steps or processes
+* Generally create logic trees of what the old process did so it can be recoded 
+* Begin with a single data type and start recoding import functions
+* Recode QA QC steps for that single data type
+    * Two QA QC processes, auto and manual
+    * Try to create generic QA QC for all data as much as possible
+    * Rethink "splices"
+* Archive it 
+* Build sample data for same and make this run just as well
+
+## v0.1.0
+* Field maintenance log
+* New site names and metadata control functions
+* At least one API of the single data type pipeline
+
+## v0.1.1
+* Add new data type(s)
