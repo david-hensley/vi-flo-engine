@@ -1,34 +1,26 @@
-library(remotes)
-url <- "https://gitlab.com/meter-group-inc/pubpackages/zentracloud"
-remotes::install_git(url = url)
+wd_engine <- Sys.getenv("VI_FLO_ENGINE_ROOT")
+wd_data <- Sys.getenv("VI_FLO_DATA_ROOT")
+wd_tools <- paste0(wd_engine, "/tools")
+source(paste0(wd_engine, "/code/functions/api_functions.R"))
 
-library(zentracloud)
+setwd(wd_data)
+metadata <- load_zentra_metadata()
+ports <- read.csv("zentra_ports.csv")
 
-setZentracloudOptions(
-  token = Sys.getenv("ZENTRACLOUD_TOKEN"),
-  domain = "default"
-)
-
-# Check if it worked
-getZentracloudOptions()
+# Run set-up function to get main Zentra Cloud token
+setup_zentracloud("ZENTRACLOUD_TOKEN")
 
 
-# Embed this code in download functions to ensure zentracloud package
-# and Git are both installed
-if (!require("zentracloud", quietly = TRUE)) {
-  if (!require("remotes")) install.packages("remotes")
-  
-  tryCatch({
-    remotes::install_git("https://gitlab.com/meter-group-inc/pubpackages/zentracloud")
-  }, error = function(e) {
-    if (grepl("Git does not seem to be installed", e$message)) {
-      stop("Git is not installed or not found in system PATH.\n",
-           "Please install Git from https://git-scm.com/downloads\n",
-           "After installing, restart R and try again.")
-    } else {
-      stop(e)  # Re-throw other errors
-    }
-  })
-  
-  library(zentracloud)
-}
+
+# Write last download date
+# Write the last recorded datetime for station
+# Prevent downloads from less than a week ago unless override - this stops downloads when metadata needs updating manually
+# Do all the above in the wrapper function
+
+# Make sure last update is UP TO DATE in whatever master function runs all this together!
+#df <- download_zentra_station("fb1_weather", metadata, ports, start = "2024-02-06 00:00:00", end = "2024-02-07 00:00:00")
+
+# Add $token_name to metadata
+
+
+
