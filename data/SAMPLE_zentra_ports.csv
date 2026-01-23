@@ -1,0 +1,14 @@
+sn,port,type,sensor,depth_cm,status,valid_from,valid_to
+z6-19999,1,vwc,TEROS 10,10,NA,12/8/2024 15:00,1/26/2026 9:00
+z6-19999,2,vwc,TEROS 10,30,NA,12/8/2024 15:00,1/26/2026 9:00
+z6-19999,3,vwc,TEROS 10,50,NA,12/8/2024 15:00,1/26/2026 9:00
+z6-19999,4,vwc,TEROS 10,100,NA,12/8/2024 15:00,1/26/2026 9:00
+z6-19999,5,none,none,NA,NA,NA,NA
+z6-19999,6,none,none,NA,NA,NA,NA
+z6-19998,1,weather,ATMOS 41,NA,NA,9/22/2024 20:15,1/8/2025 10:30
+z6-19998,2,none,none,NA,NA,NA,NA
+z6-19998,3,none,none,NA,NA,NA,NA
+z6-19998,4,none,none,NA,NA,NA,NA
+z6-19998,5,none,none,NA,NA,NA,NA
+z6-19998,6,none,none,NA,NA,NA,NA
+,,,,,,,
