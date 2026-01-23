@@ -20,13 +20,9 @@ def main():
     # ---- Determine data root ----
     data_root = os.environ.get("VI_FLO_DATA_ROOT")
     if not data_root:
-        assumed_data_root = engine_root / "data"
-        if assumed_data_root.is_dir():
-            data_root = assumed_data_root
-            print(f"Defaulting to data root: {data_root}")
-        else:
-            print(f"Data root not found: {assumed_data_root}")
-            sys.exit(1)
+        print("Error: VI_FLO_DATA_ROOT environment variable not set.")
+        print("Please run setup_win.exe to configure your data directory.")
+        sys.exit(1)
     data_root = Path(data_root).resolve()
 
     # ---- Paths for CSV files ----
@@ -34,17 +30,14 @@ def main():
     named_paths_csv = engine_data_dir / "named_paths.csv"
     datamap_csv = data_root / "datamap.csv"
     default_datamap_csv = engine_data_dir / "default_datamap.csv"
-    sample_datamap_csv  = engine_data_dir / "sample_datamap.csv"
 
     if not named_paths_csv.is_file():
         print(f"named_paths.csv not found: {named_paths_csv}")
         sys.exit(1)
 
     # ------------------------------------------------------------------
-    # EARLY DEFAULT / SAMPLE MAP OPTION (TRANSFORM RELATIVE → ABSOLUTE)
+    # OPTION: USE DEFAULT DATAMAP (TRANSFORM RELATIVE → ABSOLUTE)
     # ------------------------------------------------------------------
-    using_sample_data = data_root.samefile(engine_data_dir.resolve())
-
     def write_datamap_from_relative(source_csv: Path):
         rows_out = []
         now = datetime.now().isoformat()
@@ -77,24 +70,18 @@ def main():
 
         print(f"Datamap written to: {datamap_csv}")
 
-    if using_sample_data:
-        print("\nYou are using SAMPLE DATA.")
-        response = input("Would you like to default to the SAMPLE data map? (Y/N): ").strip().lower()
-        if response in ["y", "yes", ""]:
-            if not sample_datamap_csv.is_file():
-                print(f"ERROR: sample_datamap.csv not found at {sample_datamap_csv}")
-                sys.exit(1)
-            write_datamap_from_relative(sample_datamap_csv)
-            return
-    else:
-        print("\nExternal data root detected.")
-        response = input("Would you like to use the DEFAULT data map? (Y/N): ").strip().lower()
-        if response in ["y", "yes", ""]:
-            if not default_datamap_csv.is_file():
-                print(f"ERROR: default_datamap.csv not found at {default_datamap_csv}")
-                sys.exit(1)
-            write_datamap_from_relative(default_datamap_csv)
-            return
+    # Ask if user wants to use default structure
+    print("\nExternal data root detected.")
+    print("Would you like to use the DEFAULT data structure?")
+    print("(This creates standard folders: /raw, /processed, /metadata, etc.)")
+    response = input("Use default structure? (Y/N): ").strip().lower()
+    
+    if response in ["y", "yes", ""]:
+        if not default_datamap_csv.is_file():
+            print(f"ERROR: default_datamap.csv not found at {default_datamap_csv}")
+            sys.exit(1)
+        write_datamap_from_relative(default_datamap_csv)
+        return
 
     # ------------------------------------------------------------------
     # FALL THROUGH TO INTERACTIVE MAPPING

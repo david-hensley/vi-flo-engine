@@ -3,6 +3,15 @@ All notable changes to the VI-FLO Engine project are documented here.
 
 ---
 
+## [v0.1.1] - 2026-01-23
+
+### Changed
+- `setup_win.exe` and `setup_win.py` and `datamapper.py`
+  - Removed references to sample data root and sample datamap
+  - Requires user specified data root folder, allows use of a default data map
+
+---
+
 ## [v0.1.0] - 2026-01-23
 
 ### Added

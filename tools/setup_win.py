@@ -30,28 +30,25 @@ def main():
     root = tk.Tk()
     root.withdraw()
 
-    default_data_dir = (Path(repo_dir) / "data").as_posix()
-    print("Please select the VI-FLO data directory (Cancel to use sample data)...")
+    print("\n=== Data Directory Selection ===")
+    print("You must select an EXTERNAL data directory for VI-FLO.")
+    print("This should NOT be inside the repository folder.")
+    print("Example: D:/VI-FLO-Data/ or C:/Users/YourName/Documents/VI-FLO-Data/")
+    
     data_dir = filedialog.askdirectory(
-        title="Select VI-FLO Data Directory",
-        initialdir=default_data_dir
+        title="Select VI-FLO External Data Directory"
     )
 
     if not data_dir:
-        assumed_data_dir = Path(repo_dir) / "data"
-        if assumed_data_dir.is_dir():
-            data_dir = assumed_data_dir.as_posix()
-            print(f"No selection made. Defaulting to: {data_dir}")
-            print("Please wait...")
-
-        else:
-            print(f"Expected data directory not found: {assumed_data_dir.as_posix()}")
-            input("Press Enter to close...")
-            return
-    else:
-        data_dir = Path(data_dir).as_posix()
-        print(f"Selected data folder: {data_dir}")
-        print("Please wait...")
+        print("\nERROR: No data directory selected.")
+        print("Setup cannot continue without a data directory.")
+        print("\nPlease run setup again and select your external data folder.")
+        input("\nPress Enter to close...")
+        return
+    
+    data_dir = Path(data_dir).as_posix()
+    print(f"\nSelected data folder: {data_dir}")
+    print("Please wait...")
 
     # ---- Set environment variables in THIS PROCESS ----
     os.environ["VI_FLO_DATA_ROOT"] = data_dir
