@@ -27,12 +27,14 @@ def main():
 
     # ---- Paths for CSV files ----
     engine_data_dir = engine_root / "data"
-    named_paths_csv = engine_data_dir / "named_paths.csv"
-    datamap_csv = data_root / "datamap.csv"
     default_datamap_csv = engine_data_dir / "default_datamap.csv"
+    
+    # Use repo-specific datamap file in shared data root
+    repo_name = "engine"
+    datamap_csv = data_root / f"datamap_{repo_name}.csv"
 
-    if not named_paths_csv.is_file():
-        print(f"named_paths.csv not found: {named_paths_csv}")
+    if not default_datamap_csv.is_file():
+        print(f"default_datamap.csv not found: {default_datamap_csv}")
         sys.exit(1)
 
     # ------------------------------------------------------------------
@@ -56,14 +58,13 @@ def main():
                 rows_out.append({
                     'named_path': row['named_path'],
                     'absolute_path': absolute,
-                    'date_set': now,
-                    'repo_name': 'engine'
+                    'date_set': now
                 })
 
         with open(datamap_csv, 'w', newline='', encoding='utf-8') as f:
             writer = csv.DictWriter(
                 f,
-                fieldnames=['named_path', 'absolute_path', 'date_set', 'repo_name']
+                fieldnames=['named_path', 'absolute_path', 'date_set']
             )
             writer.writeheader()
             writer.writerows(rows_out)
@@ -71,15 +72,17 @@ def main():
         print(f"Datamap written to: {datamap_csv}")
 
     # Ask if user wants to use default structure
-    print("\nExternal data root detected.")
-    print("Would you like to use the DEFAULT data structure?")
-    print("(This creates standard folders: /raw, /processed, /metadata, etc.)")
-    response = input("Use default structure? (Y/N): ").strip().lower()
+    print("Would you like to use the DEFAULT data structure, default_datamap.csv?")
+    print("(This assumes standard folders: /raw, /processed, /metadata, etc.)")
+    
+    # Warn if datamap already exists
+    if datamap_csv.is_file():
+        print(f"\n⚠️  WARNING: Existing datamap found at {datamap_csv}")
+        print("Using default will OVERWRITE your current path mappings.")
+    
+    response = input("\nUse default structure? (Y/N): ").strip().lower()
     
     if response in ["y", "yes", ""]:
-        if not default_datamap_csv.is_file():
-            print(f"ERROR: default_datamap.csv not found at {default_datamap_csv}")
-            sys.exit(1)
         write_datamap_from_relative(default_datamap_csv)
         return
 
@@ -88,8 +91,8 @@ def main():
     # ------------------------------------------------------------------
     print("\nProceeding with interactive data mapping...")
 
-    # ---- Load named paths ----
-    with open(named_paths_csv, newline='', encoding='utf-8') as f:
+    # ---- Load named paths from default_datamap.csv ----
+    with open(default_datamap_csv, newline='', encoding='utf-8') as f:
         reader = csv.DictReader(f)
         named_paths_list = [row['named_path'] for row in reader]
 
@@ -118,8 +121,7 @@ def main():
                 updated_rows.append({
                     'named_path': np_row,
                     'absolute_path': existing_path,
-                    'date_set': existing_row['date_set'],
-                    'repo_name': 'engine'
+                    'date_set': existing_row['date_set']
                 })
                 continue
 
@@ -136,16 +138,15 @@ def main():
         updated_rows.append({
             'named_path': np_row,
             'absolute_path': Path(selected_dir).resolve().as_posix(),
-            'date_set': datetime.now().isoformat(),
-            'repo_name': 'engine'
+            'date_set': datetime.now().isoformat()
         })
 
-    # ---- Preserve untouched rows ----
+    # ---- Preserve untouched rows (paths not in default_datamap.csv) ----
     untouched_rows = [row for row in datamap_list if row['named_path'] not in named_paths_list]
     final_rows = untouched_rows + updated_rows
 
     # ---- Write CSV ----
-    fieldnames = ['named_path', 'absolute_path', 'date_set', 'repo_name']
+    fieldnames = ['named_path', 'absolute_path', 'date_set']
     with open(datamap_csv, 'w', newline='', encoding='utf-8') as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()

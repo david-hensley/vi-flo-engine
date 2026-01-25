@@ -3,6 +3,19 @@
 # Dependencies: zentracloud, remotes
  
 ######################                SETUP               ######################
+#' Reads the datamap.csv in the data root and applies the paths
+read_datamap <- function(){
+  wd_engine <- Sys.getenv("VI_FLO_ENGINE_ROOT")
+  wd_data <- Sys.getenv("VI_FLO_DATA_ROOT")
+  wd_tools <- paste0(wd_engine, "/tools")
+  setwd(wd_data)
+  datamap <- read.csv("datamap.csv")
+}
+
+set_named_path <- function(){
+  
+}
+
 #' Load zentracloud package or install if needed
 #' @param token_name Character. Environment variable name from api_tokens.csv (e.g., "ZENTRACLOUD_TOKEN_DEFAULT")
 setup_zentracloud <- function(token_name) {
@@ -35,6 +48,22 @@ setup_zentracloud <- function(token_name) {
   setZentracloudOptions(token = token, domain = "default")
   invisible(TRUE)
 }
+
+#' Loads device_metadata.csv from data root
+#' Requires global environmental variable "VI_FLO_DATA_ROOT"
+#' Only intended for use WITHIN A SINGLE TIME ZONE!!
+#' @return Data.frame. Zentra device metadata with formatted dates/timezone
+load_zentra_metadata <- function(){
+  setwd(Sys.getenv("VI_FLO_DATA_ROOT"))
+  metadata <- read.csv("device_metadata.csv")
+  timezone <- metadata$timezone[1]
+  metadata$deploy_datetime <- as.POSIXct(metadata$deploy_datetime, format = "%Y-%m-%d %H:%M:%S", tz = timezone)
+  metadata$last_update <- as.POSIXct(metadata$last_update, format = "%Y-%m-%d %H:%M:%S", tz = timezone)
+  metadata$expiry_date <- as.Date(metadata$expiry_date)
+  metadata$last_visit <- as.Date(metadata$last_visit)
+  return(metadata)
+}
+
 
 ######################       ZENTRA STATION DOWNLOAD      ######################
 
@@ -391,21 +420,6 @@ consolidate_locs <- function(locs, threshold = 0.001) {
     )
   }))
   return(consolidated)
-}
-
-#' Loads device_metadata.csv from data root
-#' Requires global environmental variable "VI_FLO_DATA_ROOT"
-#' Only intended for use WITHIN A SINGLE TIME ZONE!!
-#' @return Data.frame. Zentra device metadata with formatted dates/timezone
-load_zentra_metadata <- function(){
-  setwd(Sys.getenv("VI_FLO_DATA_ROOT"))
-  metadata <- read.csv("device_metadata.csv")
-  timezone <- metadata$timezone[1]
-  metadata$deploy_datetime <- as.POSIXct(metadata$deploy_datetime, format = "%Y-%m-%d %H:%M:%S", tz = timezone)
-  metadata$last_update <- as.POSIXct(metadata$last_update, format = "%Y-%m-%d %H:%M:%S", tz = timezone)
-  metadata$expiry_date <- as.Date(metadata$expiry_date)
-  metadata$last_visit <- as.Date(metadata$last_visit)
-  return(metadata)
 }
 
 
