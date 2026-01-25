@@ -3,6 +3,23 @@ All notable changes to the VI-FLO Engine project are documented here.
 
 ---
 
+## [v0.1.2] - 2026-01-25
+
+### Added
+- `setup_functions.R`
+  - Home for top-level set-up functions to be read into any new R script for VI-FLO
+  - Includes functions to easily manage the datamap
+- `SAMPLE_device_metadata.csv` and `SAMPLE_zentra_ports.csv`
+  - Fake metadata with columns for reference
+- `DATA_DICTIONARY.md`
+  - Full explanation of all files within /data/ 
+
+### Changed
+- `setup_win.exe` and `setup_win.py` and `datamapper.py`
+  - Minor fixes to datamapper setup, checks in case of overwrite
+
+---
+
 ## [v0.1.1] - 2026-01-23
 
 ### Changed
