@@ -10,7 +10,11 @@ ports <- read.csv("zentra_ports.csv")
 # Run set-up function to get main Zentra Cloud token
 setup_zentracloud("ZENTRACLOUD_TOKEN")
 
+path <- paste0(wd_data, "/metadata/internal")
+set_named_path("meta_internal", path)
+read_datamap()
 
+setwd(wds("raw.rain"))
 
 # Write last download date
 # Write the last recorded datetime for station
