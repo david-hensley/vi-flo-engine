@@ -1,6 +1,2 @@
-"named_path","path","date_set","repo_name"
-"rain","tester1","2025-12-30T14:39:23.302865","engine"
-"streamflow","tester2","2025-12-30T14:39:25.724780","engine"
-"raw.rain","tester1/subtester1","2025-12-30T14:39:36.143095","engine"
-"qaqc.rain","tester1/subtester2","2025-12-30T14:39:39.877547","engine"
-"meta_internal","metadata/internal","2026-01-24T22:57:11.934185","engine"
+named_path,path
+meta_internal,metadata/internal

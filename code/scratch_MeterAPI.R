@@ -1,9 +1,12 @@
-wd_engine <- Sys.getenv("VI_FLO_ENGINE_ROOT")
-wd_data <- Sys.getenv("VI_FLO_DATA_ROOT")
-wd_tools <- paste0(wd_engine, "/tools")
-source(paste0(wd_engine, "/code/functions/api_functions.R"))
+# The following line can be run alone to call in setup functions
+source(paste0(Sys.getenv("VI_FLO_ENGINE_ROOT"), "/code/functions/setup_functions.R"))
+load_functions("api")
+setwd(wds("data"))
 
-setwd(wd_data)
+############
+# Begin code actions....
+
+
 metadata <- load_zentra_metadata()
 ports <- read.csv("zentra_ports.csv")
 
@@ -14,7 +17,6 @@ path <- paste0(wd_data, "/metadata/internal")
 set_named_path("meta_internal", path)
 read_datamap()
 
-setwd(wds("raw.rain"))
 
 # Write last download date
 # Write the last recorded datetime for station

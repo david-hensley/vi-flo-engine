@@ -1,12 +1,5 @@
 # VI-FLO Engine: Automated System Architecture
 
-## Layer 1: Atomic Operations (COMPLETE - v0.1.0)
-Core functions that do one thing, assume metadata is correct:
-- `download_zentra_station()` - Downloads station data (strict requirements)
-- `download_zentra_device()` - Downloads device data
-- `query_last_zentra_update()` - Gets fresh timestamps from API
-- `get_zentra_metadata()` - Pulls device metadata from API
-
 ## Layer 1: Safe Wrappers (NEXT - v0.2.0)
 Add guardrails and intelligence around atomic operations:
 
