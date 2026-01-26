@@ -10,7 +10,7 @@ All notable changes to the VI-FLO Engine project are documented here.
   - Fixes to `safe_download_zentra_station()` to correctly write to `device_metadata.csv`
 - `setup_functions.R`
   - General helper function `format_datetime_safe` for use to convert POSIXct to string before write.csv()
-
+  
 ---
 
 ## [v0.2.0] - 2026-01-25
