@@ -15,9 +15,13 @@ load_zentra_metadata <- function(){
   # Parse datetime columns (handles both R and Excel formats)
   metadata$deploy_datetime <- parse_datetime_flexible(metadata$deploy_datetime, timezone)
   metadata$last_update <- parse_datetime_flexible(metadata$last_update, timezone)
+  metadata$last_download_date <- parse_datetime_flexible(metadata$last_download_date, timezone)
+  
   # Parse date columns (handles both R and Excel formats)
   metadata$expiry_date <- parse_date_flexible(metadata$expiry_date)
   metadata$last_visit <- parse_date_flexible(metadata$last_visit)
+  # Convert logical column
+  metadata$download_approved <- as.logical(metadata$download_approved)
   return(metadata)
 }
 

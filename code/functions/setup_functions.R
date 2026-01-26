@@ -136,6 +136,18 @@ set_named_path <- function(name, path){
 
 ######################       GENERAL HELPER FUNCTIONS     ######################
 
+#' Helper function to safely format datetime columns with NAs
+#' Formats POSIXct to string, avoids dropping 00:00:00 
+#' Also handles NAs within the column gracefully - use this to write to CSVs
+#' @param dt_col POSIXct vector that can include NAs
+#' @return Character vector representing YYYY-MM-DD HH:MM:SS
+format_datetime_safe <- function(dt_col) {
+  result <- rep(NA_character_, length(dt_col))
+  not_na <- !is.na(dt_col)
+  result[not_na] <- format(dt_col[not_na], "%Y-%m-%d %H:%M:%S")
+  return(result)
+}
+
 #' Parse datetime strings (with time) from either Excel or ISO formats
 #' Handles vectors of datetime strings, trying multiple common formats
 #' @param datetime_vector Character vector. Datetime strings in either YYYY-MM-DD HH:MM:SS or M/D/YYYY format

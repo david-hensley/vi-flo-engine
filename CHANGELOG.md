@@ -3,6 +3,16 @@ All notable changes to the VI-FLO Engine project are documented here.
 
 ---
 
+## [v0.2.1] - 2026-01-26
+
+### Changed
+- `api_functions.R`
+  - Fixes to `safe_download_zentra_station()` to correctly write to `device_metadata.csv`
+- `setup_functions.R`
+  - General helper function `format_datetime_safe` for use to convert POSIXct to string before write.csv()
+
+---
+
 ## [v0.2.0] - 2026-01-25
 
 ### Added
@@ -20,6 +30,7 @@ All notable changes to the VI-FLO Engine project are documented here.
   - Re-ordered and added columns e.g. `$last_download_date` and `$download_approved`
 - `default_datamap.csv`
   - Added new named paths
+
 ---
 
 ## [v0.1.2] - 2026-01-25

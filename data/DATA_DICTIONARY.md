@@ -9,7 +9,7 @@ Explanation of data files and formats
 Generally stored in a top-level directory alongside raw and processed databases.
 
 ### `device_metadata.csv` 
-- `unique_ID`: Identifies unique combination of device, station deployment, and location
+- `unique_id`: Identifies unique combination of device, station deployment, and location
   - Initial letter 'z' for Zentra data loggers, 'h' for Hobo data loggers
 - `watershed`: Name of broad watershed area, usually literal. Named after main gut or bay, normally (e.g. Caledonia, Salt River, Dorothea) 
 - `area`: Sub-watershed area name if applicable. Often a tributary basin name (e.g. for Adventure Gut in Bethlehem watershed).

@@ -39,6 +39,172 @@ setup_zentracloud <- function(token_name) {
 
 ######################       ZENTRA STATION DOWNLOAD      ######################
 
+#' Safe wrapper for downloading Zentra station data with validation and storage
+#' Downloads station data with automatic validation, date trimming, duplicate prevention,
+#' and organized file storage. Use this instead of download_zentra_station() for production workflows.
+#' Requires setup_functions.R
+#' @param station Character. Station ID code from metadata e.g. "sr1_weather"
+#' @param start Character. Start datetime string "YYYY-MM-DD HH:MM:SS" (ignored if all = TRUE)
+#' @param end Character. End datetime string "YYYY-MM-DD HH:MM:SS" (ignored if all = TRUE)
+#' @param all Logical. If TRUE, downloads entire station history (default FALSE)
+#' @return Character. File path where data was saved
+#' @details
+#' This function performs the following steps:
+#' 1. Validates metadata using validate_zentra_metadata()
+#' 2. Checks whether download is approved for the station
+#' 3. Trims requested dates to available range (unless strict_dates = TRUE)
+#' 4. Backs up metadata and downloads data using download_zentra_station()
+#' 5. Saves to organized directory structure: /raw/internal/{station}/
+#' 6. Logs download to download_log.csv and alters device_metadata.csv
+safe_download_zentra_station <- function(station, start = NULL, end = NULL, all = FALSE) {
+  # Load in metadata functions required for this call
+  load_functions("metadata")
+  metadata <- load_zentra_metadata()
+  ports <- load_zentra_ports_data()
+  
+  # ========== STEP 1: VALIDATE METADATA ==========
+  message("Validating metadata for station: ", station)
+  if (!validate_zentra_metadata(station, metadata, ports)) {
+    stop("Metadata validation failed. Fix errors before downloading.", call. = FALSE)
+  }
+  message("✓ Metadata validation passed")
+  
+  # ========== STEP 2: CHECK APPROVAL FLAG ==========
+  station_devices <- metadata[metadata$station_id == station, ]
+  # Check if any device for this station has download_approved != TRUE
+  if ("download_approved" %in% names(metadata)) {
+    if (any(station_devices$download_approved != TRUE, na.rm = TRUE)) {
+      stop("Station '", station, "' is not approved for download.\n",
+           "Set download_approved = TRUE in metadata after confirming metadata is current.",
+           call. = FALSE)
+    }
+    message("✓ Download approved for station: ", station)
+  } else {
+    stop("Column 'download_approved' not found in metadata! Quitting..")
+  }
+  
+  # ========== STEP 3: HANDLE DATE RANGE ==========
+  earliest_deploy <- min(station_devices$deploy_datetime)
+  latest_update <- max(station_devices$last_update)
+  if (all) {
+    start <- earliest_deploy
+    end <- latest_update
+    message("Downloading entire history: ", format(start, "%Y-%m-%d"), 
+            " to ", format(end, "%Y-%m-%d"))
+  } else {
+    # Check that start/end provided
+    if (is.null(start) || is.null(end)) {
+      stop("Must provide start and end dates, or set all = TRUE", call. = FALSE)
+    }
+    timezone <- station_devices$timezone[1] # Assumes all in the same timezone
+    start <- as.POSIXct(start, format = "%Y-%m-%d %H:%M:%S", tz = timezone)
+    end <- as.POSIXct(end, format = "%Y-%m-%d %H:%M:%S", tz = timezone)
+    # Check if dates are outside available range
+    if (start < earliest_deploy || end > latest_update) {
+      # Trim to available range
+      original_start <- start
+      original_end <- end
+      start <- max(start, earliest_deploy)
+      end <- min(end, latest_update)
+      if (original_end < earliest_deploy){
+        stop("Dates requested are not possible - end time is before station's first deployment!")
+      }
+      if (start != original_start || end != original_end) {
+        message("NOTE: Trimmed date range to available data:")
+        message("  Requested: ", format(original_start, "%Y-%m-%d"), " to ", format(original_end, "%Y-%m-%d"))
+        message("  Actual: ", format(start, "%Y-%m-%d"), " to ", format(end, "%Y-%m-%d"))
+      }
+    }
+  }
+  
+  # ========== STEP 4: DOWNLOAD DATA ==========
+  backup_metadata() # Back up the metadata before taking action
+  message("Downloading data from ZentraCloud...")
+  # Log the current time at the device's timezone to record the download time
+  timezone <- station_devices$timezone[1]
+  datetime_at_station <- as.POSIXct(Sys.time(), tz = timezone)
+  download_timestamp <- format(datetime_at_station, "%Y-%m-%d %H:%M:%S")
+  data <- download_zentra_station(
+    station = station,
+    metadata = metadata,
+    ports = ports,
+    start = format(start, "%Y-%m-%d %H:%M:%S"),
+    end = format(end, "%Y-%m-%d %H:%M:%S")
+  )
+  message("✓ Downloaded ", nrow(data), " records")
+  
+  # ========== STEP 5: SAVE TO FILE ==========
+  # Create directory if needed
+  # type <- sub(".*_", "", station)
+  type <- metadata$station_type[metadata$station_id==station][1]
+  station_dir <- wds(paste0("internal_raw_", type))
+  if (!dir.exists(station_dir)) {
+    dir.create(station_dir, recursive = TRUE)
+    message("Created directory: ", station_dir)
+  }
+  # Generate filename
+  start_date <- format(start, "%Y%m%d")
+  end_date <- format(end, "%Y%m%d")
+  filename <- paste0(station, "_", start_date, "_", end_date, "_raw.rds")
+  filepath <- file.path(station_dir, filename)
+  # Save
+  saveRDS(data, filepath)
+  message("✓ Saved to: ", filepath)
+  
+  # ========== STEP 6: LOG DOWNLOAD ==========
+  log_entry <- data.frame(
+    # Timezone for the timestamp is hard-coded AST since this is for VI-FLO - the Virgin Islands!
+    timestamp = download_timestamp,
+    station = station,
+    start_date = format(start, "%Y-%m-%d %H:%M:%S"),
+    end_date = format(end, "%Y-%m-%d %H:%M:%S"),
+    n_records = nrow(data),
+    filepath = filepath,
+    stringsAsFactors = FALSE
+  )
+  log_file <- file.path(wds("meta_internal"), "download_log.csv")
+  
+  if (file.exists(log_file)) {
+    # Append to existing log
+    write.table(log_entry, log_file, sep = ",", append = TRUE, 
+                row.names = FALSE, col.names = FALSE)
+  } else {
+    # Create new log with headers
+    write.csv(log_entry, log_file, row.names = FALSE)
+  }
+  message("✓ Logged download to: ", log_file)
+  
+  # ========== STEP 7: UPDATE METADATA ==========
+  # Update last_download_date for all devices whose deployment period overlaps download range
+  # (Handles relocations, device swaps, and any scenario where multiple deployments exist)
+  for (i in 1:nrow(station_devices)) {
+    device <- station_devices[i, ]
+    # Check if this device's active period overlaps with download period
+    device_start <- device$deploy_datetime
+    device_end <- device$last_update
+    
+    # Does this device's period overlap with [start, end]?
+    if (device_start <= end && device_end >= start) {
+      # Yes - we downloaded data from this device/deployment
+      metadata$last_download_date[metadata$unique_id == device$unique_id] <- datetime_at_station
+    }
+  }
+  # Save updated metadata
+  setwd(wds("meta_internal"))
+  # Format datetimes back to strings before saving (handles NAs properly)
+  metadata$deploy_datetime <- format_datetime_safe(metadata$deploy_datetime)
+  metadata$last_update <- format_datetime_safe(metadata$last_update)
+  metadata$last_download_date <- format_datetime_safe(metadata$last_download_date)
+  
+  write.csv(metadata, "device_metadata.csv", row.names = FALSE)
+  message("✓ Updated metadata with download timestamp")
+  
+  # ========== RETURN ==========
+  
+  message("\n=== Download Complete ===")
+  return(filepath)
+}
+
 #' Validates Zentra metadata before attempting to download station data
 #' Checks for technical issues that would cause download_zentra_station() to fail
 #' @param station Character. Station ID code from metadata e.g. "sr1_weather"
