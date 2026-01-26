@@ -3,6 +3,25 @@ All notable changes to the VI-FLO Engine project are documented here.
 
 ---
 
+## [v0.2.0] - 2026-01-25
+
+### Added
+- `metadata_functions.R`
+  - Moved `load_zentra_metadata()` and added new `load_zentra_port_data()` functions
+  - New function `backup_metadata()` and helper `clean_old_backups()` to backup local metadata
+
+### Changed
+- `setup_functions.R`
+  - New functions to parse Excel or R dates and datetimes flexibly
+- `api_functions.R`
+  - New function `validate_zentra_metadata()` ensures logical consistency before download
+  - New function `safe_download_zentra_station()` behaves more flexibly than raw download and stores output
+- `devices_metadata.csv` and `DATA_DICTIONARY.md` and `SAMPLE_devices_metadata.csv`
+  - Re-ordered and added columns e.g. `$last_download_date` and `$download_approved`
+- `default_datamap.csv`
+  - Added new named paths
+---
+
 ## [v0.1.2] - 2026-01-25
 
 ### Added

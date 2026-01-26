@@ -37,23 +37,117 @@ setup_zentracloud <- function(token_name) {
   invisible(TRUE)
 }
 
-#' Loads device_metadata.csv from data root
-#' Requires global environmental variable "VI_FLO_DATA_ROOT"
-#' Only intended for use WITHIN A SINGLE TIME ZONE!!
-#' @return Data.frame. Zentra device metadata with formatted dates/timezone
-load_zentra_metadata <- function(){
-  setwd(Sys.getenv("VI_FLO_DATA_ROOT"))
-  metadata <- read.csv("device_metadata.csv")
-  timezone <- metadata$timezone[1]
-  metadata$deploy_datetime <- as.POSIXct(metadata$deploy_datetime, format = "%Y-%m-%d %H:%M:%S", tz = timezone)
-  metadata$last_update <- as.POSIXct(metadata$last_update, format = "%Y-%m-%d %H:%M:%S", tz = timezone)
-  metadata$expiry_date <- as.Date(metadata$expiry_date)
-  metadata$last_visit <- as.Date(metadata$last_visit)
-  return(metadata)
-}
-
-
 ######################       ZENTRA STATION DOWNLOAD      ######################
+
+#' Validates Zentra metadata before attempting to download station data
+#' Checks for technical issues that would cause download_zentra_station() to fail
+#' @param station Character. Station ID code from metadata e.g. "sr1_weather"
+#' @param metadata Data.frame. Output from load_zentra_metadata()
+#' @param ports Data.frame. Output from load_zentra_ports_data()
+#' @return Logical. TRUE if download can proceed, FALSE if critical issues found
+validate_zentra_metadata <- function(station, metadata, ports){
+  # ========== STATION-LEVEL CHECKS ==========
+  # Check station exists
+  if (!station %in% metadata$station_id) {
+    message("ERROR: Station '", station, "' not found in metadata")
+    return(FALSE)
+  }
+  # Get devices for this station
+  station_devices <- metadata[metadata$station_id == station, ]
+  # Check all devices have same station_type
+  if (length(unique(station_devices$station_type)) > 1) {
+    message("ERROR: Station '", station, "' has multiple station_types: ",
+            paste(unique(station_devices$station_type), collapse = ", "))
+    return(FALSE)
+  }
+  
+  # ========== DEVICE-LEVEL CHECKS ==========
+  for (i in 1:nrow(station_devices)) {
+    device <- station_devices[i, ]
+    sn <- device$device_serial
+    # Check required fields present
+    if (is.na(sn) || sn == "") {
+      message("ERROR: Row ", i, " in metadata: missing device_serial")
+      return(FALSE)
+    }
+    if (is.na(device$deploy_datetime)) {
+      message("ERROR: Device ", sn, ": missing deploy_datetime")
+      return(FALSE)
+    }
+    if (is.na(device$last_update)) {
+      message("ERROR: Device ", sn, ": missing last_update")
+      return(FALSE)
+    }
+    if (is.na(device$timezone) || device$timezone == "") {
+      message("ERROR: Device ", sn, ": missing timezone")
+      return(FALSE)
+    }
+    # Check date logic
+    if (device$deploy_datetime >= device$last_update) {
+      message("ERROR: Device ", sn, ": deploy_datetime (",
+              format(device$deploy_datetime, "%Y-%m-%d %H:%M:%S"),
+              ") must be before last_update (",
+              format(device$last_update, "%Y-%m-%d %H:%M:%S"), ")")
+      return(FALSE)
+    }
+    # Check device has port configurations
+    device_ports <- ports[ports$sn == sn, ]
+    if (nrow(device_ports) == 0) {
+      message("ERROR: Device ", sn, " has no port configurations")
+      return(FALSE)
+    }
+    
+    # ========== PORT CONFIGURATION CHECKS FOR THIS DEVICE ==========
+    port_nums <- unique(device_ports$port)
+    for (port_num in port_nums) {
+      port_configs <- device_ports[device_ports$port == port_num, ]
+      # Remove never-used ports (both dates NA)
+      valid_configs <- port_configs[!(is.na(port_configs$valid_from) & 
+                                        is.na(port_configs$valid_to)), ]
+      if (nrow(valid_configs) == 0) next  # Port was never used, skip
+      # Check each config has required fields
+      for (j in 1:nrow(valid_configs)) {
+        config <- valid_configs[j, ]
+        if (is.na(config$valid_from)) {
+          message("ERROR: Device ", sn, " port ", port_num, ": missing valid_from")
+          return(FALSE)
+        }
+        # Check date logic
+        if (!is.na(config$valid_to) && config$valid_from >= config$valid_to) {
+          message("ERROR: Device ", sn, " port ", port_num, 
+                  ": valid_from (", format(config$valid_from, "%Y-%m-%d %H:%M:%S"),
+                  ") must be before valid_to (", format(config$valid_to, "%Y-%m-%d %H:%M:%S"), ")")
+          return(FALSE)
+        }
+      }
+      # Check for overlapping configs (if multiple configs exist)
+      if (nrow(valid_configs) > 1) {
+        valid_configs <- valid_configs[order(valid_configs$valid_from), ]
+        for (j in 1:(nrow(valid_configs) - 1)) {
+          current <- valid_configs[j, ]
+          next_config <- valid_configs[j + 1, ]
+          # If current has no end date, it's still active - shouldn't have another config
+          if (is.na(current$valid_to)) {
+            message("ERROR: Device ", sn, " port ", port_num, 
+                    ": current config has no end date but another config exists (overlap)")
+            return(FALSE)
+          }
+          # Check if next config starts before current ends
+          if (!is.na(next_config$valid_from) && next_config$valid_from < current$valid_to) {
+            message("ERROR: Device ", sn, " port ", port_num, 
+                    ": overlapping configurations - next starts at ",
+                    format(next_config$valid_from, "%Y-%m-%d %H:%M:%S"),
+                    " but current doesn't end until ",
+                    format(current$valid_to, "%Y-%m-%d %H:%M:%S"))
+            return(FALSE)
+          }
+        }
+      }
+    }
+  }
+  # All checks passed
+  return(TRUE)
+}
 
 #' Downloads Zentra data by API based on station ID
 #' Requires zentracloud package. Run setup_zentracloud() with API token first!
@@ -61,7 +155,7 @@ load_zentra_metadata <- function(){
 #' @param station Character. Station ID code from metadata e.g. sr1_weather
 #' @param metadata Data.frame. device_metadata.csv in data root. Use load_zentra_metadata() to get!
 #'                 Must include: $station_id, $station_type, $deploy_datetime, $last_update, $device_serial, $timezone
-#' @param ports Data.frame. zentra_ports.csv in data root.
+#' @param ports Data.frame. zentra_ports.csv in data root. Use load_zentra_ports_data() to get!
 #'              Must include: $sn, $port, $type, $sensor, $depth_cm, $valid_from, $valid_to
 #' @param start Character. Start datetime string "YYYY-MM-DD HH:MM:SS" (ignored if all = TRUE)
 #' @param end Character. End datetime string "YYYY-MM-DD HH:MM:SS" (ignored if all = TRUE)

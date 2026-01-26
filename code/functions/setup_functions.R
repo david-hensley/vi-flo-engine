@@ -4,6 +4,7 @@
 ######################          DATAMAP FUNCTIONS         ######################
 
 #' Loads a group of functions by the file name, e.g. "api" for api_functions.R
+#' @param func_name Character. This is the prefix of the requested _functions.R file
 load_functions <- function(func_name) {
   prefix <- paste0(Sys.getenv("VI_FLO_ENGINE_ROOT"), "/code/functions/")
   suffix <- paste0(func_name, "_functions.R")
@@ -24,7 +25,7 @@ read_datamap <- function(){
 #' Takes a named path and returns the actual path for easy setwd() calls
 #' Example usage: setwd(wds("meta_internal"))
 #' @param name Character. Identical to the named_path in datamap.csv
-#' @return result Character. Absolute path to the named path, especially for use in setwd()
+#' @return Character. Absolute path to the named path, especially for use in setwd()
 wds <- function(name){
   if (name == "data"){
     return(Sys.getenv("VI_FLO_DATA_ROOT"))
@@ -89,15 +90,16 @@ set_named_path <- function(name, path){
     default_datamap <- rbind(default_datamap, new_row)
   }
   # Write updated default datamap back to CSV
+  default_datamap <- default_datamap[order(default_datamap$named_path), ]
   write.csv(default_datamap, "default_datamap.csv", row.names = FALSE)
   message("✓ Updated default_datamap.csv (template)")
   
   # ========== UPDATE ACTUAL DATAMAP (WORKING) ==========
   setwd(data_root)
   # Load actual datamap (or create empty if doesn't exist)
-  datamap <- "datamap_engine.csv"
-  if (file.exists(datamap)) {
-    actual_datamap <- read.csv(datamap, stringsAsFactors = FALSE)
+  datamap_file <- "datamap_engine.csv"
+  if (file.exists(datamap_file)) {
+    actual_datamap <- read.csv(datamap_file, stringsAsFactors = FALSE)
   } else {
     actual_datamap <- data.frame(
       named_path = character(),
@@ -124,8 +126,45 @@ set_named_path <- function(name, path){
   }
   
   # Write updated actual datamap
+  actual_datamap <- actual_datamap[order(actual_datamap$named_path), ]
   write.csv(actual_datamap, datamap_file, row.names = FALSE)
   message("✓ Updated datamap_engine.csv (actual)")
   message(paste0("✓ Path '", name, "' is now available for use with wds()"))
   invisible(TRUE)
+}
+
+
+######################       GENERAL HELPER FUNCTIONS     ######################
+
+#' Parse datetime strings (with time) from either Excel or ISO formats
+#' Handles vectors of datetime strings, trying multiple common formats
+#' @param datetime_vector Character vector. Datetime strings in either YYYY-MM-DD HH:MM:SS or M/D/YYYY format
+#' @param tz Character. Timezone name e.g. "America/Puerto_Rico"
+#' @return POSIXct vector. Datetime objects
+parse_datetime_flexible <- function(datetime_vector, tz) {
+  # Try R's ISO format first (YYYY-MM-DD HH:MM:SS)
+  result <- as.POSIXct(datetime_vector, format = "%Y-%m-%d %H:%M:%S", tz = tz)
+  # If all failed, try Excel format with AM/PM (M/D/YYYY H:MM:SS AM/PM)
+  if (all(is.na(result))) {
+    result <- as.POSIXct(datetime_vector, format = "%m/%d/%Y %I:%M %p", tz = tz)
+  }
+  # If still all failed, try Excel 24-hour format (M/D/YYYY HH:MM:SS)
+  if (all(is.na(result))) {
+    result <- as.POSIXct(datetime_vector, format = "%m/%d/%Y %H:%M", tz = tz)
+  }
+  return(result)
+}
+
+#' Parse date strings (no time) from either Excel or ISO formats
+#' Handles vectors of date strings, trying multiple common formats
+#' @param date_vector Character vector. Date strings in either YYYY-MM-DD or M/D/YYYY format
+#' @return Date vector. Date objects
+parse_date_flexible <- function(date_vector) {
+  # Try R's ISO format first (YYYY-MM-DD)
+  result <- as.Date(date_vector, format = "%Y-%m-%d")
+  # If all failed, try Excel's format (M/D/YYYY)
+  if (all(is.na(result))) {
+    result <- as.Date(date_vector, format = "%m/%d/%Y")
+  }
+  return(result)
 }

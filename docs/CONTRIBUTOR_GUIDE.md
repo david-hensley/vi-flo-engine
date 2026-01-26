@@ -98,16 +98,28 @@ git push origin main
 - Corrected path handling in datamapper for external data sources
 ```
 
-**Step 2: Create git tag**
+**Step 2: Commit all changes (including CHANGELOG)**
+```bash
+git add .
+git commit -m "Add Zentra automation and update changelog for v0.1.0"
+```
+
+**Step 3: Push commits to GitHub**
+```bash
+git push origin main
+```
+
+**Step 4: Create git tag**
 ```bash
 git tag -a v0.1.0 -m "Release v0.1.0: Zentra automation"
 ```
 
-**Step 4: Push everything including tags**
+**Step 5: Push tag to GitHub**
 ```bash
-git push origin main
 git push origin v0.1.0
 ```
+
+**Important:** Always commit and push BEFORE creating the tag. Tags should point to commits that are already on GitHub.
 
 ---
 
