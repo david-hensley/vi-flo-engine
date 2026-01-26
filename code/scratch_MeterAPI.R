@@ -13,31 +13,6 @@ station <- "sr2_weather"
 dl_path <- safe_download_zentra_station(station, all = TRUE)
 df <- readRDS(dl_path)
 
-for (i in seq_len(n)) {
-  
-  ## ---- your normal loop code here ----
-  cat("Iteration:", i, "\n")
-  
-  ## ---- pause before next iteration ----
-  repeat {
-    ans <- readline(prompt = "Type 'go' to continue: ")
-    if (tolower(ans) == "go") break
-  }
-}
-
-metadata <- load_zentra_metadata()
-
-
-
-
-# When station has more than one device, second device is downloaded by not added to final data 
-
-station <- "sr2_weather"
-start <- "2021-07-13 13:15:00"
-end <- "2021-07-13 14:15:00"
-dl_path <- safe_download_zentra_station(station, start, end)
-df <- readRDS(dl_path)
-
 # These commands read and then add a named path if wanted
 #read_datamap()
 #path <- paste0(wds("data"), "/internal/raw/streamflow")
