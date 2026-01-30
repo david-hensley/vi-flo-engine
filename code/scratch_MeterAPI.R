@@ -2,16 +2,13 @@
 source(paste0(Sys.getenv("VI_FLO_ENGINE_ROOT"), "/code/functions/setup_functions.R"))
 load_functions("api"); load_functions("metadata")
 setwd(wds("data"))
-
-############
 # Run set-up function to get main Zentra Cloud token
 setup_zentracloud("ZENTRACLOUD_TOKEN")
+metadata <- load_zentra_metadata()
+stations <- unique(metadata$station_id)
 
 
-# Perform an all-download
-station <- "sr2_weather"
-dl_path <- safe_download_zentra_station(station, all = TRUE)
-df <- readRDS(dl_path)
+# Need to fix UVI station download for VWC vs weather
 
 # These commands read and then add a named path if wanted
 #read_datamap()
@@ -21,7 +18,6 @@ df <- readRDS(dl_path)
 # Write script to make commit easy and update data to Box?
 # Get all metadata update functions working
 # Code the weekly job script, any other wrappers? 
-# 
 
 # Write in elevations
 
