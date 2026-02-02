@@ -1,0 +1,2 @@
+timestamp,field_visit_date,station_id,station_type,device_serial,action_type,details,ports_updated,logged_by
+2/2/2026 15:45,2/2/2026,pfc1_vwc1,vwc,z6-19999,cleaning,Cleaned exterior of ZL6 logger,FALSE,DAH

@@ -152,6 +152,10 @@ safe_download_zentra_station <- function(station, start = NULL, end = NULL, all 
   message("✓ Saved to: ", filepath)
   
   # ========== STEP 6: LOG DOWNLOAD ==========
+  # Create relative filepath for logging
+  filepath_relative <- sub(paste0("^", Sys.getenv("VI_FLO_DATA_ROOT"), "/?"), "", filepath)
+  filepath_relative <- sub("^/", "", filepath_relative)  # Remove leading slash if present
+  
   log_entry <- data.frame(
     # Timezone for the timestamp is hard-coded AST since this is for VI-FLO - the Virgin Islands!
     timestamp = download_timestamp,
@@ -159,7 +163,7 @@ safe_download_zentra_station <- function(station, start = NULL, end = NULL, all 
     start_date = format(start, "%Y-%m-%d %H:%M:%S"),
     end_date = format(end, "%Y-%m-%d %H:%M:%S"),
     n_records = nrow(data),
-    filepath = filepath,
+    filepath = filepath_relative,
     stringsAsFactors = FALSE
   )
   log_file <- file.path(wds("meta_internal"), "download_log.csv")

@@ -1,11 +1,26 @@
 # The following line can be run alone to call in setup functions
-source(paste0(Sys.getenv("VI_FLO_ENGINE_ROOT"), "/code/functions/setup_functions.R"))
+source(file.path(Sys.getenv("VI_FLO_ENGINE_ROOT"), "code/functions/setup_functions.R"))
 load_functions("api"); load_functions("metadata")
 setwd(wds("data"))
 # Run set-up function to get main Zentra Cloud token
 setup_zentracloud("ZENTRACLOUD_TOKEN")
 metadata <- load_zentra_metadata()
 stations <- unique(metadata$station_id)
+mnt <- load_maintenance_log()
+
+
+
+# Most common: Approve all devices at a station after field work
+set_download_approved(station_id = "sr1_vwc")
+# Approve specific device (if station has multiple devices)
+set_download_approved(device_serial = "z6-12345")
+# Approve all stations at once (use cautiously!)
+set_download_approved(approve_all = TRUE)
+# Un-approve a station (e.g., you realize you need to fix metadata)
+set_download_approved(station_id = "sr2_weather", value = FALSE)
+# Un-approve everything (e.g., before field season starts)
+set_download_approved(approve_all = TRUE, value = FALSE)
+
 
 
 # Need to fix UVI station download for VWC vs weather

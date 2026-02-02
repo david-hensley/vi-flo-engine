@@ -42,6 +42,43 @@ load_zentra_ports_data <- function(){
   return(ports)
 }
 
+#' Loads download_log.csv from metadata/internal
+#' #' Requires: wds() and parse_date functions from setup_functions.R
+#' Only intended for use WITHIN A SINGLE TIME ZONE!!
+#' Parses datetime columns appropriately
+#' @return Data.frame. Download log with formatted dates
+load_download_log <- function() {
+  setwd(wds("meta_internal"))
+  log <- read.csv("download_log.csv", stringsAsFactors = FALSE)
+  # Get timezone from device metadata for consistency
+  metadata <- load_zentra_metadata()
+  timezone <- metadata$timezone[1]
+  # Parse datetime columns (handles both R and Excel formats)
+  log$timestamp <- parse_datetime_flexible(log$timestamp, timezone)
+  log$start_date <- parse_datetime_flexible(log$start_date, timezone)
+  log$end_date <- parse_datetime_flexible(log$end_date, timezone)
+  return(log)
+}
+
+#' Loads maintenance_log.csv from metadata/internal
+#' Requires: wds() and parse_date functions from setup_functions.R
+#' Only intended for use WITHIN A SINGLE TIME ZONE!!
+#' Parses datetime columns appropriately
+#' @return Data.frame. Maintenance log with formatted dates
+load_maintenance_log <- function() {
+  setwd(wds("meta_internal"))
+  log <- read.csv("maintenance_log.csv", stringsAsFactors = FALSE)
+  # Get timezone from device metadata for consistency
+  metadata <- load_zentra_metadata()
+  timezone <- metadata$timezone[1]
+  # Parse datetime columns (handles both R and Excel formats)
+  log$timestamp <- parse_datetime_flexible(log$timestamp, timezone)
+  log$field_visit_date <- parse_date_flexible(log$field_visit_date)
+  # Convert logical
+  log$ports_updated <- as.logical(log$ports_updated)
+  return(log)
+}
+
 ######################          BACK-UP FUNCTIONS         ######################
 
 #' Backs up all CSV files in metadata/internal directory
@@ -124,4 +161,100 @@ cleanup_old_backups <- function(backup_dir, days = 365) {
     return(invisible(length(old_files)))
   }
   invisible(0)
+}
+
+######################          EDITING FUNCTIONS         ######################
+
+#' Sets download_approved flag for device(s) in device_metadata.csv
+#' Can approve single device, all devices at a station, or all devices
+#' @param device_serial Character. Device serial number (optional if station_id provided)
+#' @param station_id Character. Station ID - approves all devices at station (optional)
+#' @param approve_all Logical. If TRUE, approves all devices (default FALSE)
+#' @param value Logical. TRUE to approve, FALSE to un-approve (default TRUE)
+#' @return Invisible TRUE on success
+set_download_approved <- function(device_serial = NULL, station_id = NULL, approve_all = FALSE, value = TRUE) {
+  # Load metadata
+  metadata <- load_zentra_metadata()
+  # Determine which rows to update
+  if (approve_all) {
+    # Approve all devices
+    rows_to_update <- rep(TRUE, nrow(metadata))
+    message("Setting download_approved = ", value, " for ALL devices")
+  } else if (!is.null(station_id)) {
+    # Approve all devices at this station
+    rows_to_update <- metadata$station_id == station_id
+    if (sum(rows_to_update) == 0) {
+      stop("No devices found for station: ", station_id, call. = FALSE)
+    }
+    message("Setting download_approved = ", value, " for station: ", station_id, 
+            " (", sum(rows_to_update), " device(s))")
+  } else if (!is.null(device_serial)) {
+    # Approve specific device
+    rows_to_update <- metadata$device_serial == device_serial
+    if (sum(rows_to_update) == 0) {
+      stop("Device not found: ", device_serial, call. = FALSE)
+    }
+    message("Setting download_approved = ", value, " for device: ", device_serial)
+  } else {
+    stop("Must provide device_serial, station_id, or set approve_all = TRUE", call. = FALSE)
+  }
+  # Update the flag
+  metadata$download_approved[rows_to_update] <- value
+  # Save metadata back to CSV
+  setwd(wds("meta_internal"))
+  metadata$deploy_datetime <- format_datetime_safe(metadata$deploy_datetime)
+  metadata$last_update <- format_datetime_safe(metadata$last_update)
+  metadata$last_download_date <- format_datetime_safe(metadata$last_download_date)
+  
+  write.csv(metadata, "device_metadata.csv", row.names = FALSE)
+  message("✓ Updated download approval(s) for device_metadata.csv")
+  invisible(TRUE)
+}
+
+#' Writes a maintenance entry to maintenance_log.csv
+#' Core function - can be called by interactive script or future GUI
+#' Requires setup_functions.R
+#' @param field_visit_date Character or Date. When you visited (YYYY-MM-DD)
+#' @param station_id Character. Station ID
+#' @param station_type Character. Station type (vwc, weather, streamflow, etc.)
+#' @param device_serial Character. Device serial number
+#' @param action_type Character. What was done
+#' @param details Character. Free text description
+#' @param ports_updated Logical. Did you update zentra_ports.csv?
+#' @param logged_by Character. Your name/initials
+#' @return Invisible TRUE on success
+write_maintenance_entry <- function(field_visit_date, station_id, station_type, 
+                                    device_serial, action_type, details, 
+                                    ports_updated, logged_by) {
+  # Get timezone from metadata for timestamp
+  metadata <- load_zentra_metadata()
+  timezone <- metadata$timezone[1]
+  # Create new entry
+  new_entry <- data.frame(
+    timestamp = format_datetime_safe(as.POSIXct(Sys.time(), tz = timezone)),
+    field_visit_date = as.character(field_visit_date),
+    station_id = station_id,
+    station_type = station_type,
+    device_serial = device_serial,
+    action_type = action_type,
+    details = details,
+    ports_updated = ports_updated,
+    logged_by = logged_by,
+    stringsAsFactors = FALSE
+  )
+  
+  # Append to log
+  log_file <- file.path(wds("meta_internal"), "maintenance_log.csv")
+  
+  if (file.exists(log_file)) {
+    # Append without headers
+    write.table(new_entry, log_file, sep = ",", append = TRUE, 
+                row.names = FALSE, col.names = FALSE)
+  } else {
+    # Create new with headers
+    write.csv(new_entry, log_file, row.names = FALSE)
+  }
+  
+  message("✓ Maintenance entry logged for ", station_id, " (", device_serial, ")")
+  invisible(TRUE)
 }

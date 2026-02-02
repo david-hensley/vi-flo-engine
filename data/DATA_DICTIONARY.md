@@ -24,6 +24,7 @@ Generally stored in a top-level directory alongside raw and processed databases.
 - `station_type`: Type of information collected by a station, weather, vwc (soil moisture), hydro (stream gauge), pond (pond gauge), etc.
 - `station_id`: Concatenates site name and station type for a unique ID for a station
 - `device_serial`: Manufacturer's serial number for the device
+- `device_role`: Primary or secondary - with hydraulic slope, paired water level loggers, primary is downstream logger
 - `device_name`: Encoded name for device, usually on manufacturer's software during launching - may be changed
 - `mfger`: Manufacturer of device e.g. Meter, Onset, etc.
 - `lat`: Latitude of deployment
@@ -40,6 +41,25 @@ Generally stored in a top-level directory alongside raw and processed databases.
 - `last_download_date`: Datetime of last successful download
 - `last_record_date`: Datetime of last actual logged observation - sometimes different from last_update!
 - `download_approved`: Boolean indicating whether a user has recently approved the metadata for download
+
+### `download_log.csv`
+- `timestamp`: Timestamp when download occurred in project timezone
+- `station`: Same as station_id in `device_metadata.csv`
+- `start_date`: Datetime of download record start
+- `end_date`: Datetime of download record end
+- `n_records`: Number of rows in downloaded record
+- `filepath`: Relative filepath of data stored in data root folder
+
+### `maintenance_log.csv`
+- `timestamp`: Timestamp when maintenance was logged in project timezone
+- `field_visit_date`: Date of actual visit to station in field
+- `station_id`: Same as in `device_metadata.csv`
+- `station_type`: Type of data collected by station
+- `device_serial`: Device serial number
+- `action_type`: Primary maintenance action taken e.g. device_removed, battery, etc.
+- `details`: Free text entry by user describing maintenance
+- `ports_updated`: If Zentra ports were altered, TRUE (zentra_ports.csv should be updated)
+- `logged_by`: Three initials of person logging maintenance
 
 ### `zentra_ports.csv`
 - `sn`: Zentra device serial number

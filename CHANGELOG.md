@@ -3,6 +3,27 @@ All notable changes to the VI-FLO Engine project are documented here.
 
 ---
 
+## [v0.3.0] - 2026-02-02
+
+### Added
+- `log_maintenance_interactive.R`
+  - Standalone R script to live in `/tools/` and as a bridge before building GUI
+- `maintenance_log.csv` and `SAMPLE_maintenance_log.csv`
+  - Tracks station maintenance over time in metadata
+- `SAMPLE_download_log.csv`
+
+### Changed
+- `device_metadata.csv`
+  - Added `$device_role` column to track stations that may require more than one device such as Manning formula gauges
+- `DATA_DICTIONARY.md`
+  - Reflected added maintenance log and updates to device metadata
+- `metadata_functions.R`
+  - Added functions `load_maintenance_log()`, `load_download_log()`, 
+- `api_functions.R`
+  - Altered download logging in `safe_download_zentra_station()` to show only relative path of download in data root
+
+---
+
 ## [v0.2.1] - 2026-01-26
 
 ### Changed
