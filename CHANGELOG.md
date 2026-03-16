@@ -3,6 +3,16 @@ All notable changes to the VI-FLO Engine project are documented here.
 
 ---
 
+## [v0.4.0] - 2026-03-15
+
+### Changed
+- `log_maintenance_interactive.R`
+  - Fixed bugs in maintenance logging script writing to devices metadata
+  - Added handling of relocated devices
+  - Added add_device() function for new devices and new stations
+
+---
+
 ## [v0.3.0] - 2026-02-02
 
 ### Added
