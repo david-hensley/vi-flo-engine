@@ -218,7 +218,122 @@ log_maintenance_interactive <- function() {
     }
     cat("✓ Logged by:", logged_by, "\n")
     
-    #### 9 - Confirm before writing
+    #### 9 - Update status if needed
+    # Show current status and offer to change it
+    current_status <- station_data$status[1]  # Get current status
+    
+    # Suggest status based on action
+    suggested_status <- NULL
+    if (action_type == "relocation") {
+      suggested_status <- "relocated"
+    } else if (action_type == "device_removed") {
+      suggested_status <- "decommissioned"
+    }
+    
+    cat("\n============================================\n")
+    cat("Current status for ", station_id, ": ", current_status, "\n", sep = "")
+    if (!is.null(suggested_status)) {
+      cat("Suggested new status based on action: ", suggested_status, "\n", sep = "")
+    }
+    cat("Does this status need to change? (Y/N): ")
+    change_status <- toupper(trimws(readline()))
+    if (change_status == "1") change_status <- "Y"
+    if (change_status == "2") change_status <- "N"
+    
+    new_status <- current_status  # Default to keeping same status
+    
+    if (change_status == "Y") {
+      # If there's a suggested status, offer to use it
+      if (!is.null(suggested_status)) {
+        cat("\nUse suggested status '", suggested_status, "'? (Y/N): ", sep = "")
+        use_suggested <- toupper(trimws(readline()))
+        if (use_suggested == "1") use_suggested <- "Y"
+        if (use_suggested == "2") use_suggested <- "N"
+        
+        if (use_suggested == "Y") {
+          new_status <- suggested_status
+          cat("✓ New status:", new_status, "\n")
+        } else {
+          # Show full menu
+          repeat {
+            existing_statuses <- sort(unique(metadata$status))
+            
+            cat("\nSelect new status:\n")
+            for (i in seq_along(existing_statuses)) {
+              cat("  ", i, ". ", existing_statuses[i], "\n", sep = "")
+            }
+            cat("  ", length(existing_statuses) + 1, ". other (specify)\n", sep = "")
+            
+            cat("\nEnter selection: ")
+            status_input <- trimws(readline())
+            
+            if (grepl("^[0-9]+$", status_input)) {
+              status_num <- as.numeric(status_input)
+              if (status_num >= 1 && status_num <= length(existing_statuses)) {
+                new_status <- existing_statuses[status_num]
+                break
+              } else if (status_num == length(existing_statuses) + 1) {
+                # Custom status
+                cat("Enter custom status: ")
+                custom_status <- trimws(readline())
+                if (custom_status != "") {
+                  new_status <- custom_status
+                  break
+                } else {
+                  cat("⚠️  Status cannot be empty\n")
+                }
+              } else {
+                cat("⚠️  Invalid number\n")
+              }
+            } else {
+              cat("⚠️  Please enter a number\n")
+            }
+          }
+          cat("✓ New status:", new_status, "\n")
+        }
+      } else {
+        # No suggestion, show full menu
+        repeat {
+          existing_statuses <- sort(unique(metadata$status))
+          
+          cat("\nSelect new status:\n")
+          for (i in seq_along(existing_statuses)) {
+            cat("  ", i, ". ", existing_statuses[i], "\n", sep = "")
+          }
+          cat("  ", length(existing_statuses) + 1, ". other (specify)\n", sep = "")
+          
+          cat("\nEnter selection: ")
+          status_input <- trimws(readline())
+          
+          if (grepl("^[0-9]+$", status_input)) {
+            status_num <- as.numeric(status_input)
+            if (status_num >= 1 && status_num <= length(existing_statuses)) {
+              new_status <- existing_statuses[status_num]
+              break
+            } else if (status_num == length(existing_statuses) + 1) {
+              # Custom status
+              cat("Enter custom status: ")
+              custom_status <- trimws(readline())
+              if (custom_status != "") {
+                new_status <- custom_status
+                break
+              } else {
+                cat("⚠️  Status cannot be empty\n")
+              }
+            } else {
+              cat("⚠️  Invalid number\n")
+            }
+          } else {
+            cat("⚠️  Please enter a number\n")
+          }
+        }
+        cat("✓ New status:", new_status, "\n")
+      }
+    } else {
+      cat("✓ Status unchanged:", current_status, "\n")
+    }
+    
+    #### 10 - Confirm before writing
     cat("\n============================================\n")
     cat("Ready to log this maintenance entry:\n")
     cat("  Date:", field_visit_date, "\n")
@@ -228,6 +343,11 @@ log_maintenance_interactive <- function() {
     cat("  Details:", details, "\n")
     cat("  Ports updated:", ports_updated, "\n")
     cat("  Logged by:", logged_by, "\n")
+    if (new_status != current_status) {
+      cat("  Status change: ", current_status, " → ", new_status, "\n", sep = "")
+    } else {
+      cat("  Status: ", current_status, " (unchanged)\n", sep = "")
+    }
     cat("============================================\n\n")
     cat("Confirm? (Y/N): ")
     confirm <- toupper(trimws(readline()))
@@ -248,7 +368,7 @@ log_maintenance_interactive <- function() {
       next  # Go back to start of loop
     }
     
-    #### 10 - Write the entry
+    #### 11 - Write the entry
     write_maintenance_entry(
       field_visit_date = field_visit_date,
       station_id = station_id,
@@ -260,7 +380,7 @@ log_maintenance_interactive <- function() {
       logged_by = logged_by
     )
     
-    #### 11 - Ask about approving download
+    #### 12 - Ask about approving download
     cat("\n============================================\n")
     cat("Approve this station for download? (Y/N): ")
     approve <- toupper(trimws(readline()))
@@ -275,26 +395,171 @@ log_maintenance_interactive <- function() {
       cat("⚠️  Station NOT approved - remember to approve later!\n")
     }
     
-    #### 12 - Update last_visit date in metadata
-    # Update last_visit for active devices (not decommissioned/relocated) at this station
+    #### 13 - Update last_visit date and status in metadata
+    # Reload metadata to get fresh copy
     metadata <- load_zentra_metadata()
     station_devices <- metadata[metadata$station_id == station_id, ]
+    
     # Find active devices (exclude decommissioned and relocated)
     active_mask <- !(station_devices$status %in% c("decommissioned", "relocated"))
-    active_unique_ids <- station_devices$unique_ID[active_mask]
+    active_unique_ids <- station_devices$unique_id[active_mask]
+    
     if (length(active_unique_ids) > 0) {
       # Update last_visit for all active devices at this station
-      metadata$last_visit[metadata$unique_ID %in% active_unique_ids] <- field_visit_date
+      metadata$last_visit[metadata$unique_id %in% active_unique_ids] <- as.Date(field_visit_date)
+      
+      # Also update status if it changed
+      if (new_status != current_status) {
+        metadata$status[metadata$unique_id %in% active_unique_ids] <- new_status
+      }
+      
       # Save metadata
       setwd(wds("meta_internal"))
       metadata$deploy_datetime <- format_datetime_safe(metadata$deploy_datetime)
       metadata$last_update <- format_datetime_safe(metadata$last_update)
       metadata$last_download_date <- format_datetime_safe(metadata$last_download_date)
+      metadata$last_visit <- as.character(metadata$last_visit)
+      
       write.csv(metadata, "device_metadata.csv", row.names = FALSE)
+      
       message("✓ Updated last_visit date for ", length(active_unique_ids), " active device(s) at ", station_id)
+      if (new_status != current_status) {
+        message("✓ Updated status to: ", new_status)
+      }
     }
     
-    #### 13 - Ask if they want to log another entry
+    #### 13.5 - Handle relocation if needed
+    if (action_type == "relocation" || new_status == "relocated") {
+      cat("\n============================================\n")
+      cat("RELOCATION DETECTED\n")
+      cat("Creating new deployment entry for relocated device...\n")
+      cat("============================================\n\n")
+      
+      # Get new location info
+      cat("New latitude: ")
+      new_lat <- as.numeric(trimws(readline()))
+      
+      cat("New longitude: ")
+      new_lon <- as.numeric(trimws(readline()))
+      
+      cat("Deployment datetime at new location (YYYY-MM-DD HH:MM:SS)\n")
+      cat("Or press Enter for now: ")
+      new_deploy <- trimws(readline())
+      if (new_deploy == "") {
+        new_deploy <- format(Sys.time(), "%Y-%m-%d %H:%M:%S")
+      }
+      
+      # Ask about status at new location
+      repeat {
+        cat("\nIs device online at new location? (Y/N): ")
+        online_response <- toupper(trimws(readline()))
+        if (online_response == "1") online_response <- "Y"
+        if (online_response == "2") online_response <- "N"
+        
+        if (online_response %in% c("Y", "N")) {
+          if (online_response == "Y") {
+            new_location_status <- "online"
+            break
+          } else {
+            # Not online - ask what status it is
+            repeat {
+              existing_statuses <- sort(unique(metadata$status))
+              cat("\nSelect status for new location:\n")
+              for (i in seq_along(existing_statuses)) {
+                cat("  ", i, ". ", existing_statuses[i], "\n", sep = "")
+              }
+              cat("  ", length(existing_statuses) + 1, ". other (specify)\n", sep = "")
+              
+              cat("\nEnter selection: ")
+              status_input <- trimws(readline())
+              
+              if (grepl("^[0-9]+$", status_input)) {
+                status_num <- as.numeric(status_input)
+                if (status_num >= 1 && status_num <= length(existing_statuses)) {
+                  new_location_status <- existing_statuses[status_num]
+                  break
+                } else if (status_num == length(existing_statuses) + 1) {
+                  # Custom status
+                  cat("Enter custom status: ")
+                  custom_status <- trimws(readline())
+                  if (custom_status != "") {
+                    new_location_status <- custom_status
+                    break
+                  } else {
+                    cat("⚠️  Status cannot be empty\n")
+                  }
+                } else {
+                  cat("⚠️  Invalid number\n")
+                }
+              } else {
+                cat("⚠️  Please enter a number\n")
+              }
+            }
+            break
+          }
+        } else {
+          cat("⚠️  Please enter Y or N\n")
+        }
+      }
+      
+      # Ask about download approval
+      repeat {
+        cat("\nApprove new deployment for download? (Y/N): ")
+        approve_new <- toupper(trimws(readline()))
+        if (approve_new == "1") approve_new <- "Y"
+        if (approve_new == "2") approve_new <- "N"
+        
+        if (approve_new %in% c("Y", "N")) {
+          new_download_approved <- (approve_new == "Y")
+          break
+        } else {
+          cat("⚠️  Please enter Y or N\n")
+        }
+      }
+      
+      # Create new unique_id
+      # Get the next available number
+      all_unique_ids <- metadata$unique_id
+      existing_numbers <- as.numeric(sub("^[a-z]-", "", all_unique_ids))
+      next_number <- max(existing_numbers, na.rm = TRUE) + 1
+      new_unique_id <- sprintf("z-%04d", next_number)
+      
+      # Get the old device row to copy most fields
+      old_device_row <- station_devices[station_devices$device_serial == device_serial, ][1, ]
+      
+      # Create new row
+      new_row <- old_device_row
+      new_row$unique_id <- new_unique_id
+      new_row$lat <- new_lat
+      new_row$lon <- new_lon
+      new_row$deploy_datetime <- as.POSIXct(new_deploy, format = "%Y-%m-%d %H:%M:%S", tz = old_device_row$timezone)
+      new_row$status <- new_location_status
+      new_row$last_update <- old_device_row$last_update  # Copy from old location
+      new_row$last_visit <- as.Date(field_visit_date)
+      new_row$download_approved <- new_download_approved
+      
+      # Add new row to metadata
+      
+      # Reload metadata fresh to get clean copy after Section 13's save
+      metadata <- load_zentra_metadata()
+      
+      # Add new row to metadata
+      metadata <- rbind(metadata, new_row)
+      
+      # Save metadata
+      setwd(wds("meta_internal"))
+      metadata$deploy_datetime <- format_datetime_safe(metadata$deploy_datetime)
+      metadata$last_update <- format_datetime_safe(metadata$last_update)
+      metadata$last_download_date <- format_datetime_safe(metadata$last_download_date)
+      metadata$last_visit <- as.character(metadata$last_visit)
+      
+      write.csv(metadata, "device_metadata.csv", row.names = FALSE)
+      
+      cat("\n✓ Created new deployment entry:", new_unique_id, "\n")
+      cat("⚠️  REMINDER: Update zentra_ports.csv if sensor configuration changed!\n")
+    }
+    
+    #### 14 - Ask if they want to log another entry
     cat("\n============================================\n")
     cat("Log another maintenance entry? (Y/N): ")
     another <- toupper(trimws(readline()))
@@ -312,3 +577,4 @@ log_maintenance_interactive <- function() {
 
 # Run the interactive function
 log_maintenance_interactive()
+
