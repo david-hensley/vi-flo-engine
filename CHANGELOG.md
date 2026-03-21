@@ -3,6 +3,15 @@ All notable changes to the VI-FLO Engine project are documented here.
 
 ---
 
+## [v0.5.0] (unreleased)
+
+### Added
+- `metadata_manager_functions.R`
+  - Function code file for `metadata_manager.R`
+  - Separates UI functions from core functions
+
+---
+
 ## [v0.4.0] - 2026-03-15
 
 ### Changed
