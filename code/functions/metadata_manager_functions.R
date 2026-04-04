@@ -98,35 +98,31 @@ get_current_port_config <- function(device_serial) {
   
   device_ports <- ports[ports$sn == device_serial, ]
   
-  if (nrow(device_ports) == 0) {
-    # No config exists - return empty 6-port template
-    return(data.frame(
-      port = 1:6,
-      type = rep("none", 6),
-      sensor = rep("none", 6),
-      depth_cm = rep(NA, 6),
-      status = rep(NA, 6),
-      stringsAsFactors = FALSE
-    ))
-  }
-  
-  # Get active configurations (valid_to = NA)
+  # Get all ports with valid_to = NA (potentially multiple sextuplets)
   active_ports <- device_ports[is.na(device_ports$valid_to), ]
   
   if (nrow(active_ports) == 0) {
-    # No active configs - return empty 6-port template
-    return(data.frame(
-      port = 1:6,
-      type = rep("none", 6),
-      sensor = rep("none", 6),
-      depth_cm = rep(NA, 6),
-      status = rep(NA, 6),
-      stringsAsFactors = FALSE
-    ))
+    stop("No active port configuration found for device: ", device_serial)
   }
+  
+  # If more than 6 rows, take the LAST 6 (most recent sextuplet)
+  if (nrow(active_ports) > 6) {
+    # Get row indices and take last 6
+    active_ports <- tail(active_ports, 6)
+  }
+  
+  # Should now have exactly 6 rows
+  if (nrow(active_ports) != 6) {
+    warning("Device ", device_serial, " has ", nrow(active_ports), 
+            " active ports instead of 6")
+  }
+  
+  # Ensure sorted by port number
+  active_ports <- active_ports[order(active_ports$port), ]
   
   return(active_ports[, c("port", "type", "sensor", "depth_cm", "status")])
 }
+
 
 #' Get unique values for a metadata field (for dropdown menus)
 #' @param field Character. Field name to query
@@ -256,8 +252,8 @@ delete_last_maintenance_entry <- function(device_serial) {
     if ("field_visit_date" %in% names(maint_log)) {
       maint_log$field_visit_date <- as.character(maint_log$field_visit_date)
     }
-    if ("logged_datetime" %in% names(maint_log)) {
-      maint_log$logged_datetime <- format_datetime_safe(maint_log$logged_datetime)
+    if ("timestamp" %in% names(maint_log)) {
+      maint_log$timestamp <- format_datetime_safe(maint_log$timestamp)
     }
     
     write.csv(maint_log, "maintenance_log.csv", row.names = FALSE)
@@ -387,6 +383,42 @@ update_device_location <- function(device_serial, lat, lon, elev) {
   })
 }
 
+#' Update last_download_date for a device
+#' @param device_serial Character. Device to update
+#' @param download_date Date or character. Date of download
+#' @return TRUE if successful, error message if failed
+update_last_download_date <- function(device_serial, download_date) {
+  tryCatch({
+    metadata <- load_zentra_metadata()
+    device_index <- which(metadata$device_serial == device_serial)
+    
+    if (length(device_index) == 0) {
+      return("Device not found in metadata")
+    }
+    # Get device timezone
+    device_tz <- metadata$timezone[device_index]
+    # Convert date to datetime at noon (realistic for field visits)
+    download_datetime <- as.POSIXct(paste(download_date, "12:00:00"), 
+                                    tz = device_tz)
+    # Update last_download_date
+    metadata$last_download_date[device_index] <- download_datetime
+    # Save
+    setwd(wds("meta_internal"))
+    metadata$deploy_datetime <- format_datetime_safe(metadata$deploy_datetime)
+    metadata$last_update <- format_datetime_safe(metadata$last_update)
+    metadata$last_download_date <- format_datetime_safe(metadata$last_download_date)
+    metadata$last_visit <- as.character(metadata$last_visit)
+    # Only format data_expiry if it exists
+    if ("data_expiry" %in% names(metadata)) {
+      metadata$data_expiry <- as.character(metadata$data_expiry)
+    }
+    write.csv(metadata, "device_metadata.csv", row.names = FALSE)
+    return(TRUE)
+  }, error = function(e) {
+    return(paste0("Failed to update last_download_date: ", e$message))
+  })
+}
+
 ################################################################################
 #### PORT CONFIGURATION FUNCTIONS ####
 ################################################################################
@@ -478,73 +510,128 @@ update_ports <- function(device_serial, port_config, change_datetime) {
     ports <- load_zentra_ports_data()
     current_config <- get_current_port_config(device_serial)
     
-    # Compare new vs current to find what changed
-    # Only update ports that actually changed
-    for (i in 1:nrow(port_config)) {
-      port_num <- port_config$port[i]
-      new_port <- port_config[i, ]
-      current_port <- current_config[current_config$port == port_num, ]
+    # Get OLD port rows with full timestamp info
+    old_port_rows <- ports[ports$sn == device_serial & is.na(ports$valid_to), ]
+    
+    # Determine if ANY port changed
+    any_port_changed <- FALSE
+    
+    for (i in 1:6) {
+      current_port <- current_config[current_config$port == i, ]
+      new_port <- port_config[port_config$port == i, ]
       
-      # Determine if this port changed
-      port_changed <- FALSE
-      
-      # Check if sensor changed (including none → sensor or sensor → none)
+      # Check if sensor changed
       if (current_port$sensor[1] != new_port$sensor) {
-        port_changed <- TRUE
+        any_port_changed <- TRUE
+        break
       }
       # Check if type changed
-      else if (current_port$type[1] != new_port$type) {
-        port_changed <- TRUE
+      if (current_port$type[1] != new_port$type) {
+        any_port_changed <- TRUE
+        break
       }
-      # Check if depth changed (using identical to handle NAs properly)
-      else if (!identical(current_port$depth_cm[1], new_port$depth_cm)) {
-        port_changed <- TRUE
+      # Check if depth changed (handle class differences and NAs)
+      if (!isTRUE(all.equal(as.numeric(current_port$depth_cm[1]), 
+                            as.numeric(new_port$depth_cm), 
+                            tolerance = 0.01))) {
+        any_port_changed <- TRUE
+        break
       }
-      # Check if status changed
-      else if (!identical(current_port$status[1], new_port$status)) {
-        port_changed <- TRUE
+      # Check if status changed (handle class differences and NAs)
+      if (!isTRUE(all.equal(as.character(current_port$status[1]), 
+                            as.character(new_port$status)))) {
+        any_port_changed <- TRUE
+        break
       }
+    }
+    
+    # If nothing changed, don't update
+    if (!any_port_changed) {
+      return(TRUE)  # Success - no changes needed
+    }
+    
+    # Something changed - handle each port
+    
+    # Process each port: close old (unless NA/NA empty), create new
+    for (port_num in 1:6) {
+      new_port <- port_config[port_config$port == port_num, ]
+      old_port <- old_port_rows[old_port_rows$port == port_num, ]
       
-      if (port_changed) {
-        # Close old config for THIS port only (if it exists and isn't already "none")
-        if (current_port$sensor[1] != "none") {
-          ports$valid_to[ports$sn == device_serial & 
+      # Check if this is an empty-staying-empty with NA/NA
+      is_empty_na_na <- (old_port$sensor[1] == "none" && 
+                           is.na(old_port$valid_from[1]) && 
+                           is.na(old_port$valid_to[1]) &&
+                           new_port$sensor == "none")
+      
+      if (!is_empty_na_na) {
+        # Normal case: close the old row
+        ports$valid_to[ports$sn == device_serial & 
                          ports$port == port_num & 
                          is.na(ports$valid_to)] <- change_datetime
-        }
-        
-        # Add new row for THIS port
-        # For ports becoming empty, set valid_from and valid_to to NA
-        if (new_port$sensor == "none") {
-          new_row <- data.frame(
-            sn = device_serial,
-            port = port_num,
-            type = "none",
-            sensor = "none",
-            depth_cm = NA,
-            status = NA,
-            valid_from = NA,
-            valid_to = NA,
-            stringsAsFactors = FALSE
-          )
-        } else {
-          new_row <- data.frame(
-            sn = device_serial,
-            port = port_num,
-            type = new_port$type,
-            sensor = new_port$sensor,
-            depth_cm = new_port$depth_cm,
-            status = new_port$status,
-            valid_from = change_datetime,
-            valid_to = NA,
-            stringsAsFactors = FALSE
-          )
-        }
-        
-        ports <- rbind(ports, new_row)
       }
-      # If unchanged, do nothing - old row stays active
+      # If is_empty_na_na, don't close the old row (leave it NA/NA)
     }
+    
+    # Create 6 new rows
+    new_rows_list <- list()
+    
+    for (port_num in 1:6) {
+      new_port <- port_config[port_config$port == port_num, ]
+      old_port <- old_port_rows[old_port_rows$port == port_num, ]
+      
+      # Check if this is an empty-staying-empty with NA/NA
+      is_empty_na_na <- (old_port$sensor[1] == "none" && 
+                           is.na(old_port$valid_from[1]) && 
+                           is.na(old_port$valid_to[1]) &&
+                           new_port$sensor == "none")
+      
+      if (is_empty_na_na) {
+        # Empty staying empty - keep NA/NA
+        new_rows_list[[port_num]] <- data.frame(
+          sn = as.character(device_serial),
+          port = as.integer(port_num),
+          type = "none",
+          sensor = "none",
+          depth_cm = NA_integer_,
+          status = NA_character_,
+          valid_from = as.POSIXct(NA),
+          valid_to = as.POSIXct(NA),
+          stringsAsFactors = FALSE
+        )
+      } else if (new_port$sensor == "none") {
+        # Becoming empty or was occupied-empty - use timestamp
+        new_rows_list[[port_num]] <- data.frame(
+          sn = as.character(device_serial),
+          port = as.integer(port_num),
+          type = "none",
+          sensor = "none",
+          depth_cm = NA_integer_,
+          status = NA_character_,
+          valid_from = change_datetime,
+          valid_to = as.POSIXct(NA),
+          stringsAsFactors = FALSE
+        )
+      } else {
+        # Occupied port - use timestamp
+        new_rows_list[[port_num]] <- data.frame(
+          sn = as.character(device_serial),
+          port = as.integer(port_num),
+          type = as.character(new_port$type),
+          sensor = as.character(new_port$sensor),
+          depth_cm = as.integer(new_port$depth_cm),
+          status = if(is.na(new_port$status)) NA_character_ else as.character(new_port$status),
+          valid_from = change_datetime,
+          valid_to = as.POSIXct(NA),
+          stringsAsFactors = FALSE
+        )
+      }
+    }
+    
+    # Combine all 6 new rows into one data frame
+    new_rows <- do.call(rbind, new_rows_list)
+    
+    # Add all 6 rows at once
+    ports <- rbind(ports, new_rows)
     
     # Save
     setwd(wds("meta_internal"))
@@ -565,7 +652,7 @@ update_ports <- function(device_serial, port_config, change_datetime) {
 
 #' Add a new device to metadata
 #' @param device_data List containing all device fields
-#' @return List with success status and unique_id if successful, error if failed
+#' @return TRUE if successful, error message string if failed
 add_new_device <- function(device_data) {
   tryCatch({
     metadata <- load_zentra_metadata()
@@ -576,7 +663,7 @@ add_new_device <- function(device_data) {
     } else if (tolower(device_data$mfger) %in% c("onset", "hobo")) {
       prefix <- "h"
     } else {
-      return(list(success = FALSE, error = "Unknown manufacturer, cannot determine unique_id prefix"))
+      return("Unknown manufacturer, cannot determine unique_id prefix")
     }
     
     # Get next available number
@@ -629,9 +716,9 @@ add_new_device <- function(device_data) {
     
     write.csv(metadata, "device_metadata.csv", row.names = FALSE)
     
-    return(list(success = TRUE, unique_id = unique_id))
+    return(TRUE)
   }, error = function(e) {
-    return(list(success = FALSE, error = paste0("Failed to add device: ", e$message)))
+    return(paste0("Failed to add device: ", e$message))
   })
 }
 
@@ -1264,26 +1351,11 @@ ui_log_download <- function() {
   }
   
   #### 9 - Update last_download_date
-  metadata <- load_zentra_metadata()
-  device_row_index <- which(metadata$device_serial == device_serial)
-  
-  if (length(device_row_index) > 0) {
-    metadata$last_download_date[device_row_index] <- field_visit_date
-    
-    # Save metadata
-    setwd(wds("meta_internal"))
-    
-    # Format datetime columns
-    metadata$deploy_datetime <- format_datetime_safe(metadata$deploy_datetime)
-    metadata$last_update <- format_datetime_safe(metadata$last_update)
-    metadata$data_expiry <- as.character(metadata$data_expiry)
-    metadata$last_visit <- as.character(metadata$last_visit)
-    metadata$last_download_date <- as.character(metadata$last_download_date)
-    
-    write.csv(metadata, "device_metadata.csv", row.names = FALSE)
-    cat("✓ Updated last_download_date\n")
+  result <- update_last_download_date(device_serial, field_visit_date)
+  if (!isTRUE(result)) {
+    cat("⚠️  Warning: Could not update last_download_date:", result, "\n")
   } else {
-    cat("⚠️  Warning: Could not update last_download_date\n")
+    cat("✓ Updated last_download_date\n")
   }
   
   #### 10 - Download approval (optional)
@@ -1469,14 +1541,20 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL) {
   }
   cat("✓ Manufacturer:", mfger, "\n")
   
-  ## Device role
-  existing_roles <- get_metadata_unique_values("device_role")
-  device_role <- ui_select_or_specify("Select device role:", existing_roles)
-  if (is.null(device_role)) {
-    cat("❌ Cancelled\n")
-    return(NULL)
+  ## Device role (optional)
+  specify_role <- ui_yes_no("Specify a device role?", allow_quit = FALSE)
+  if (specify_role == "N") {
+    device_role <- NA
+    cat("✓ No device role recorded\n")
+  } else {
+    existing_roles <- get_metadata_unique_values("device_role")
+    device_role <- ui_select_or_specify("Select device role:", existing_roles)
+    if (is.null(device_role)) {
+      cat("❌ Cancelled\n")
+      return(NULL)
+    }
+    cat("✓ Device role:", device_role, "\n")
   }
-  cat("✓ Device role:", device_role, "\n")
   
   ## Device name (optional)
   cat("\nEnter device name (optional, press Enter to skip):\n")
@@ -1664,12 +1742,12 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL) {
     lat = lat,
     lon = lon,
     elev = elev,
-    interval = interval,
+    interval_min = interval,
     timezone = timezone,
     deploy_datetime = deploy_datetime,
     status = status,
     download_approved = download_approved,
-    data_expiry = data_expiry
+    expiry_date = data_expiry
   )
   
   # Call logic function
@@ -2568,7 +2646,7 @@ ui_update_ports <- function() {
     return(NULL)
   }
   
-  cat("✓ Change datetime:", format(change_datetime), "\n\n")
+  cat("✓ Change datetime:", format(change_datetime), "\n")
   
   ################################################################################
   #### PORT-BY-PORT UPDATE ####
@@ -2610,7 +2688,7 @@ ui_update_ports <- function() {
     # User wants to change this port
     
     ## Ask if removing sensor or reconfiguring
-    occupied <- ui_yes_no(paste0("Is port ", port_num, " occupied (or being emptied)?"), 
+    occupied <- ui_yes_no(paste0("Will port ", port_num, " have a sensor in this configuration?"), 
                           allow_quit = FALSE)
     
     if (occupied == "N") {
@@ -2666,11 +2744,12 @@ ui_update_ports <- function() {
     }
     
     ## Defunct status
-    is_defunct <- ui_yes_no("Is this sensor defunct (broken but still plugged in)?", 
+    is_working <- ui_yes_no("Is this sensor in good working order? (Considered 'defunct' - broken but still plugged in - if you say no)", 
                             allow_quit = FALSE)
     
+    # Then below:
     new_status <- NA
-    if (is_defunct == "Y") {
+    if (is_working == "N") {  # REVERSED
       new_status <- "defunct"
       cat("⚠️  Sensor marked as defunct\n")
     } else {
@@ -2873,12 +2952,12 @@ ui_view_metadata <- function() {
     cat("\n")
     cat("Interval:     ", device$interval, " minutes\n", sep = "")
     cat("Timezone:     ", device$timezone, "\n", sep = "")
-    cat("Deployed:     ", device$deploy_datetime, "\n", sep = "")
+    cat("Deployed:     ", format(device$deploy_datetime, "%Y-%m-%d %H:%M:%S"), "\n", sep = "")
     if (!is.na(device$last_visit)) {
-      cat("Last visit:   ", device$last_visit, "\n", sep = "")
+      cat("Last visit:   ", format(device$last_visit, "%Y-%m-%d"), "\n", sep = "")
     }
     if (!is.na(device$last_download_date)) {
-      cat("Last download:", device$last_download_date, "\n", sep = "")
+      cat("Last download:", format(device$last_download_date, "%Y-%m-%d"), "\n", sep = "")
     }
     cat("Download appr:", device$download_approved, "\n", sep = "")
     cat("\n")
@@ -2923,8 +3002,7 @@ ui_view_ports <- function() {
   
   if (view_choice == "1") {
     # All devices - active configs only
-    active_ports <- ports[is.na(ports$valid_to), ]
-    devices <- sort(unique(active_ports$sn))
+    devices <- sort(unique(ports$sn))
     
     cat("\n============================================\n")
     cat("Active Port Configurations - All Devices\n")
@@ -2932,11 +3010,20 @@ ui_view_ports <- function() {
     cat("Found ", length(devices), " device(s) with active configs\n\n", sep = "")
     
     for (device in devices) {
-      device_ports <- active_ports[active_ports$sn == device, ]
+      # Get active ports for this device
+      device_active <- ports[ports$sn == device & is.na(ports$valid_to), ]
+      
+      # Take last 6 rows (most recent sextuplet)
+      if (nrow(device_active) > 6) {
+        device_active <- tail(device_active, 6)
+      }
+      
+      # Sort by port number
+      device_active <- device_active[order(device_active$port), ]
       
       cat("--- DEVICE: ", device, " ---\n", sep = "")
-      for (i in 1:nrow(device_ports)) {
-        port_row <- device_ports[i, ]
+      for (i in 1:nrow(device_active)) {
+        port_row <- device_active[i, ]
         if (port_row$sensor == "none") {
           cat("  Port ", port_row$port, ": Empty\n", sep = "")
         } else {
@@ -2965,8 +3052,15 @@ ui_view_ports <- function() {
     device_ports <- ports[ports$sn == selected_device, ]
     
     if (view_choice == "3") {
-      # Active only
-      device_ports <- device_ports[is.na(device_ports$valid_to), ]
+      # Active only - get last 6 rows with valid_to = NA
+      device_active <- device_ports[is.na(device_ports$valid_to), ]
+      
+      # Take last 6 rows (most recent sextuplet)
+      if (nrow(device_active) > 6) {
+        device_active <- tail(device_active, 6)
+      }
+      
+      device_ports <- device_active
       title <- paste0("Active Port Configuration - ", selected_device)
     } else {
       # All including history
@@ -3007,8 +3101,8 @@ ui_view_ports <- function() {
         
         # Show validity period if viewing history
         if (view_choice == "2") {
-          cat("\n    Valid: ", config$valid_from, " to ", 
-              ifelse(is.na(config$valid_to), "present", config$valid_to),
+          cat("\n    Valid: ", format(config$valid_from, "%Y-%m-%d %H:%M:%S"), " to ", 
+              ifelse(is.na(config$valid_to), "present", format(config$valid_to, "%Y-%m-%d %H:%M:%S")),
               sep = "")
         }
         cat("\n")
@@ -3129,15 +3223,15 @@ ui_view_maintenance_log <- function() {
     entry <- filtered_log[i, ]
     
     cat("--- ENTRY ", i, " ---\n", sep = "")
-    cat("Date:         ", entry$field_visit_date, "\n", sep = "")
+    cat("Date:         ", format(as.Date(entry$field_visit_date), "%Y-%m-%d"), "\n", sep = "")
     cat("Station:      ", entry$station_id, " (", entry$station_type, ")\n", sep = "")
     cat("Device:       ", entry$device_serial, "\n", sep = "")
     cat("Action:       ", entry$action_type, "\n", sep = "")
     cat("Details:      ", entry$details, "\n", sep = "")
     cat("Ports updated:", entry$ports_updated, "\n", sep = "")
     cat("Logged by:    ", entry$logged_by, "\n", sep = "")
-    if (!is.na(entry$logged_datetime)) {
-      cat("Logged:       ", entry$logged_datetime, "\n", sep = "")
+    if (!is.na(entry$timestamp)) {
+      cat("Logged:       ", format(entry$timestamp, "%Y-%m-%d %H:%M:%S"), "\n", sep = "")
     }
     cat("\n")
   }
@@ -3191,13 +3285,13 @@ ui_view_download_log <- function() {
     
   } else if (view_choice == "2") {
     # Filter by station
-    stations <- sort(unique(download_log$station_id))
+    stations <- sort(unique(download_log$station))
     selected_station <- ui_select_from_menu("Select station:", stations)
     if (is.null(selected_station)) {
       return(NULL)
     }
     
-    filtered_log <- download_log[download_log$station_id == selected_station, ]
+    filtered_log <- download_log[download_log$station == selected_station, ]
     filter_description <- paste0("Station: ", selected_station)
     
   } else if (view_choice == "3") {
@@ -3212,7 +3306,7 @@ ui_view_download_log <- function() {
       return(NULL)
     }
     
-    # Assuming download_log has a date column - adjust as needed
+    # Determine which date column exists in download_log
     if ("download_datetime" %in% names(download_log)) {
       filtered_log <- download_log[
         as.Date(download_log$download_datetime) >= as.Date(start_date) &
@@ -3243,16 +3337,27 @@ ui_view_download_log <- function() {
   }
   
   # Display based on actual column names in download_log
-  # This is a generic display - adjust based on your actual download_log structure
   for (i in 1:nrow(filtered_log)) {
     entry <- filtered_log[i, ]
     
     cat("--- DOWNLOAD ", i, " ---\n", sep = "")
     
-    # Display all columns dynamically
+    # Display columns with proper formatting for dates/datetimes
     for (col_name in names(entry)) {
-      if (!is.na(entry[[col_name]])) {
-        cat(col_name, ": ", entry[[col_name]], "\n", sep = "")
+      value <- entry[[col_name]]
+      
+      if (!is.na(value)) {
+        # Format based on column type
+        if (inherits(value, "POSIXct") || inherits(value, "POSIXlt")) {
+          # Datetime column
+          cat(col_name, ": ", format(value, "%Y-%m-%d %H:%M:%S"), "\n", sep = "")
+        } else if (inherits(value, "Date")) {
+          # Date column
+          cat(col_name, ": ", format(value, "%Y-%m-%d"), "\n", sep = "")
+        } else {
+          # Other columns
+          cat(col_name, ": ", value, "\n", sep = "")
+        }
       }
     }
     cat("\n")
@@ -3280,7 +3385,7 @@ metadata_manager <- function() {
     #### TOP LEVEL - What happened?
     cat("What happened?\n")
     cat("  1. Worked on existing station/device\n")
-    cat("  2. Established new station or reactivated old station\n")
+    cat("  2. Established new station/device or reactivated old station\n")
     cat("  3. View/check metadata\n")
     cat("  q. Quit\n")
     cat("\nEnter selection: ")
@@ -3336,7 +3441,6 @@ metadata_manager <- function() {
               
               if (cancel == "Y" || cancel == "1") {
                 # Delete the last maintenance log entry
-                # This requires a new helper function: delete_last_maintenance_entry()
                 delete_result <- delete_last_maintenance_entry(result$device_serial)
                 if (isTRUE(delete_result)) {
                   cat("✓ Routine maintenance entry cancelled\n")
@@ -3351,13 +3455,8 @@ metadata_manager <- function() {
               # Loop continues - user can select another workflow
               next
             } else {
-              # Just routine work - ask if anything else routine
-              cat("\nDid you do any other routine work at this station? (Y/N)\n")
-              cat("Response: ")
-              more_work <- toupper(trimws(readline()))
-              if (more_work != "Y" && more_work != "1") {
-                break  # Done with this station
-              }
+              # Just routine work - done with this workflow
+              break  # Back to main menu, user can select another action if needed
             }
           } else {
             # User quit - back to work type menu
@@ -3389,7 +3488,7 @@ metadata_manager <- function() {
           if (!is.null(result)) {
             cat("\nDid you do anything else at this station? (Y/N)\n")
             cat("  If you also replaced/relocated/decommissioned, select that workflow next.\n")
-            cat("Response: ")
+            cat("  Response: ")
             more_work <- toupper(trimws(readline()))
             if (more_work != "Y" && more_work != "1") {
               break
@@ -3426,7 +3525,7 @@ metadata_manager <- function() {
             
             cat("\nDid you do anything else at this station? (Y/N)\n")
             cat("  Note: Device is replaced - further work would be on the NEW device.\n")
-            cat("Response: ")
+            cat("  Response: ")
             more_work <- toupper(trimws(readline()))
             if (more_work != "Y" && more_work != "1") {
               break
@@ -3478,7 +3577,7 @@ metadata_manager <- function() {
       
       cat("\n--- NEW/REACTIVATED STATION SETUP ---\n")
       cat("Station setup type:\n")
-      cat("  1. Brand new station (new site)\n")
+      cat("  1. Establishing brand new station\n")
       cat("  2. New device at existing active station\n")
       cat("  3. Reactivate decommissioned station\n")
       cat("  q. Back to main menu\n")
@@ -3590,7 +3689,7 @@ metadata_manager <- function() {
     }
     
     # After completing any branch, ask if user wants to do more
-    cat("\n\nDo something else? (Y/N): ")
+    cat("\nDo something else? This would return you to main menu. (Y/N): ")
     continue_response <- toupper(trimws(readline()))
     if (continue_response != "Y" && continue_response != "1") {
       cat("\n✓ Exiting Metadata Manager\n")
