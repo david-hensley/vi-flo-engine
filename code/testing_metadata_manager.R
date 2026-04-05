@@ -21,7 +21,6 @@ metadata_manager()
 # [X] Create backup of pristine metadata
 #     source(file.path(Sys.getenv("VI_FLO_ENGINE_ROOT"), "tools", "backup_metadata_for_testing.R"))
 
-
 # === PHASE 1: READ-ONLY TESTS (SAFE - START HERE) ===
 
 # [X] Test 1.1: View all device metadata
