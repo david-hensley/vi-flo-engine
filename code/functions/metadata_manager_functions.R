@@ -89,6 +89,59 @@ get_station_devices <- function(station_id) {
   return(station_devices)
 }
 
+#' Get active devices at a station (excludes terminal statuses)
+#' @param station_id Character. Station to query
+#' @return Data frame of active devices (excludes removed, replaced, decommissioned)
+get_active_station_devices <- function(station_id) {
+  all_devices <- get_station_devices(station_id)
+  terminal_statuses <- c("removed", "replaced", "decommissioned", "relocated")
+  active_devices <- all_devices[!all_devices$status %in% terminal_statuses, ]
+  return(active_devices)
+}
+
+#' Get active devices with UI feedback if empty
+#' @param station_id Character. Station to query
+#' @param workflow_name Character. Name of workflow for error message
+#' @return Data frame of active devices, or NULL if none found (with message)
+get_active_devices_or_notify <- function(station_id, workflow_name = "this workflow") {
+  active_devices <- get_active_station_devices(station_id)
+  
+  if (nrow(active_devices) == 0) {
+    cat("❌ No active devices at station '", station_id, "'\n", sep = "")
+    cat("   All devices are removed, replaced, or decommissioned.\n")
+    cat("   Cannot proceed with ", workflow_name, ".\n", sep = "")
+    return(NULL)
+  }
+  
+  return(active_devices)
+}
+
+#' Prompt for logger initials with DAH as default
+#' @return Character. Three-letter initials
+ui_ask_whois_logging <- function() {
+  cat("\nWho is logging this?\n")
+  cat("  1. DAH\n")
+  cat("  2. Enter custom initials (3 letters)\n")
+  cat("\nEnter selection: ")
+  logged_by_input <- trimws(readline())
+  
+  if (logged_by_input == "1" || logged_by_input == "") {
+    return("DAH")
+  } else if (logged_by_input == "2") {
+    repeat {
+      cat("Enter 3-letter initials: ")
+      custom_initials <- toupper(trimws(readline()))
+      if (nchar(custom_initials) == 3) {
+        return(custom_initials)
+      } else {
+        cat("⚠️  Please enter exactly 3 letters\n")
+      }
+    }
+  } else {
+    return("DAH")  # Default for any other input
+  }
+}
+
 #' Get current port configuration for a device
 #' @param device_serial Character. Device to query (maps to 'sn' column)
 #' @return Data frame with port, type, sensor, depth_cm, status for active configs
@@ -122,7 +175,6 @@ get_current_port_config <- function(device_serial) {
   
   return(active_ports[, c("port", "type", "sensor", "depth_cm", "status")])
 }
-
 
 #' Get unique values for a metadata field (for dropdown menus)
 #' @param field Character. Field name to query
@@ -331,20 +383,49 @@ update_device_status <- function(device_serial, new_status) {
   })
 }
 
+#' Update status for all devices at a station
+#' Handles special logic for decommissioning (preserves historical statuses)
+#' @param station_id Character. Station to update
+#' @param new_status Character. New status to apply
+#' @return TRUE if successful, error message if failed
 update_station_status <- function(station_id, new_status) {
   tryCatch({
     metadata <- load_zentra_metadata()
     
-    # For decommissioning, only update devices that are currently active
-    # Don't overwrite historical statuses like "replaced" or "relocated"
     if (new_status == "decommissioned") {
+      # Get devices at this station
+      station_devices <- metadata[metadata$station_id == station_id, ]
+      
+      # Check if any active devices exist
       active_statuses <- c("online", "local", "nonresponsive", "defunct")
-      metadata$status[metadata$station_id == station_id & 
-                        metadata$status %in% active_statuses] <- new_status
+      active_devices <- station_devices[station_devices$status %in% active_statuses, ]
+      
+      if (nrow(active_devices) > 0) {
+        # Normal case: mark all active devices as decommissioned
+        metadata$status[metadata$station_id == station_id & 
+                          metadata$status %in% active_statuses] <- new_status
+      } else {
+        # No active devices - check for removed devices
+        removed_devices <- station_devices[station_devices$status == "removed", ]
+        
+        if (nrow(removed_devices) > 0) {
+          # Find most recently removed device (by last_visit date)
+          removed_devices$last_visit_date <- as.Date(removed_devices$last_visit)
+          most_recent_idx <- which.max(removed_devices$last_visit_date)
+          most_recent_serial <- removed_devices$device_serial[most_recent_idx]
+          
+          # Mark only the most recent removal as decommissioned
+          metadata$status[metadata$station_id == station_id & 
+                            metadata$device_serial == most_recent_serial & 
+                            metadata$status == "removed"] <- new_status
+        }
+        # If no removed devices either, nothing to mark (all replaced/relocated)
+      }
+      
     } else if (new_status == "relocated") {
-      # For relocation, update all devices (including replaced/defunct)
-      # because the physical location changed for everything
+      # For relocation, update all devices
       metadata$status[metadata$station_id == station_id] <- new_status
+      
     } else {
       # Default: update all
       metadata$status[metadata$station_id == station_id] <- new_status
@@ -405,7 +486,7 @@ update_device_location <- function(device_serial, lat, lon, elev) {
     metadata$last_update <- format_datetime_safe(metadata$last_update)
     metadata$last_download_date <- format_datetime_safe(metadata$last_download_date)
     metadata$last_visit <- as.character(metadata$last_visit)
-    metadata$data_expiry <- as.character(metadata$data_expiry)
+    metadata$expiry_date <- as.character(metadata$expiry_date)
     
     write.csv(metadata, "device_metadata.csv", row.names = FALSE)
     
@@ -440,14 +521,78 @@ update_last_download_date <- function(device_serial, download_date) {
     metadata$last_update <- format_datetime_safe(metadata$last_update)
     metadata$last_download_date <- format_datetime_safe(metadata$last_download_date)
     metadata$last_visit <- as.character(metadata$last_visit)
-    # Only format data_expiry if it exists
-    if ("data_expiry" %in% names(metadata)) {
-      metadata$data_expiry <- as.character(metadata$data_expiry)
+    # Only format expiry_date if it exists
+    if ("expiry_date" %in% names(metadata)) {
+      metadata$expiry_date <- as.character(metadata$expiry_date)
     }
     write.csv(metadata, "device_metadata.csv", row.names = FALSE)
     return(TRUE)
   }, error = function(e) {
     return(paste0("Failed to update last_download_date: ", e$message))
+  })
+}
+
+#' Update elevation with a surveyed elevation for a single device
+#' @param device_serial Character. Device to update
+#' @param elevation Numeric. Surveyed elevation in meters
+#' @return TRUE if successful, error message if failed
+survey_device_elevation <- function(device_serial, elevation) {
+  tryCatch({
+    metadata <- load_zentra_metadata()
+    
+    # Update device elevation
+    metadata$elev[metadata$device_serial == device_serial] <- elevation
+    
+    # Save
+    setwd(wds("meta_internal"))
+    metadata$deploy_datetime <- format_datetime_safe(metadata$deploy_datetime)
+    metadata$last_update <- format_datetime_safe(metadata$last_update)
+    metadata$last_download_date <- format_datetime_safe(metadata$last_download_date)
+    metadata$last_visit <- as.character(metadata$last_visit)
+    metadata$expiry_date <- as.character(metadata$expiry_date)
+    
+    write.csv(metadata, "device_metadata.csv", row.names = FALSE)
+    
+    return(TRUE)
+  }, error = function(e) {
+    return(paste0("Failed to update elevation: ", e$message))
+  })
+}
+
+#' Survey stream gauge elevations for primary/secondary logger setup
+#' @param station_id Character. Station being surveyed
+#' @param primary_serial Character. Primary logger device serial
+#' @param secondary_serial Character. Secondary logger device serial
+#' @param primary_elev Numeric. Surveyed elevation of primary logger (meters)
+#' @param elevation_diff Numeric. Elevation difference: secondary - primary (meters)
+#' @return TRUE if successful, error message if failed
+survey_dual_logger_elevations <- function(station_id, primary_serial, secondary_serial,
+                                          primary_elev, elevation_diff) {
+  tryCatch({
+    metadata <- load_zentra_metadata()
+    
+    # Calculate secondary elevation
+    secondary_elev <- primary_elev + elevation_diff
+    
+    # Update primary device elevation
+    metadata$elev[metadata$device_serial == primary_serial] <- primary_elev
+    
+    # Update secondary device elevation
+    metadata$elev[metadata$device_serial == secondary_serial] <- secondary_elev
+    
+    # Save
+    setwd(wds("meta_internal"))
+    metadata$deploy_datetime <- format_datetime_safe(metadata$deploy_datetime)
+    metadata$last_update <- format_datetime_safe(metadata$last_update)
+    metadata$last_download_date <- format_datetime_safe(metadata$last_download_date)
+    metadata$last_visit <- as.character(metadata$last_visit)
+    metadata$expiry_date <- as.character(metadata$expiry_date)
+    
+    write.csv(metadata, "device_metadata.csv", row.names = FALSE)
+    
+    return(TRUE)
+  }, error = function(e) {
+    return(paste0("Failed to update elevations: ", e$message))
   })
 }
 
@@ -693,7 +838,7 @@ add_new_device <- function(device_data) {
     existing <- metadata[metadata$device_serial == device_data$device_serial, ]
     
     if (nrow(existing) > 0) {
-      terminal_statuses <- c("removed", "decommissioned", "replaced")
+      terminal_statuses <- c("removed", "decommissioned", "replaced", "relocated")
       
       if (!all(existing$status %in% terminal_statuses)) {
         return(paste0("Device serial '", device_data$device_serial, 
@@ -932,7 +1077,7 @@ ui_yes_no <- function(prompt, allow_quit = TRUE) {
 #' @return Selected option string, or NULL if user quit
 ui_select_from_menu <- function(prompt, options, allow_quit = TRUE) {
   repeat {
-    cat("\n", prompt, "\n", sep = "")
+    cat(prompt, "\n", sep = "")
     for (i in seq_along(options)) {
       cat("  ", i, ". ", options[i], "\n", sep = "")
     }
@@ -969,7 +1114,7 @@ ui_select_from_menu <- function(prompt, options, allow_quit = TRUE) {
 #' @return Selected/entered value, or NULL if user quit
 ui_select_or_specify <- function(prompt, existing_options, allow_quit = TRUE) {
   repeat {
-    cat("\n", prompt, "\n", sep = "")
+    cat(prompt, "\n", sep = "")
     for (i in seq_along(existing_options)) {
       cat("  ", i, ". ", existing_options[i], "\n", sep = "")
     }
@@ -1100,7 +1245,6 @@ ui_prompt_status_change <- function(current_status, allow_quit = TRUE, restrict_
   cat("  online/local     = working normally\n")
   cat("  defunct          = broken but still deployed\n")
   cat("  nonresponsive    = device not communicating\n")
-  cat("  removed          = taken out of service at this location\n")
   
   if (!restrict_to_device_level) {
     # Show all statuses
@@ -1174,7 +1318,8 @@ ui_log_maintenance <- function() {
   
   # Extract station_id from selection
   station_id <- sub(" \\(.*\\)$", "", selected)
-  station_devices <- get_station_devices(station_id)
+  station_devices <- get_active_devices_or_notify(station_id, "maintenance logging")
+  if (is.null(station_devices)) return(NULL)
   station_type <- station_devices$station_type[1]
   cat("✓ Station:", station_id, "(", station_type, ")\n")
   
@@ -1191,12 +1336,13 @@ ui_log_maintenance <- function() {
   #### 4 - Action type (ROUTINE MAINTENANCE ONLY)
   # Standard actions for routine maintenance
   # Removed: relocation, device_removed, device_installed (separate workflows)
-  standard_actions <- c("cleaning", "battery", "inspection", "maintenance", "other")
+  standard_actions <- c("cleaning", "battery", "inspection", "maintenance")
   
   # Add custom actions from log history (exclude the ones with separate workflows)
   custom_actions <- get_unique_action_types()
   excluded_actions <- c(standard_actions, "other", "download", "sensor_swap", 
-                        "depth_change", "relocation", "device_removed", "device_installed")
+                        "depth_change", "relocation", "device_removed", "device_installed", 
+                        "device_removal")  # ← Add this
   custom_actions <- setdiff(custom_actions, excluded_actions)
   
   all_actions <- c(standard_actions, custom_actions)
@@ -1313,16 +1459,24 @@ ui_log_maintenance <- function() {
   }
   
   #### 12 - Download approval
-  approve_response <- ui_yes_no("\nApprove this station for download?")
-  if (approve_response == "Y") {
-    result <- update_download_approval(station_id, TRUE)
-    if (!isTRUE(result)) {
-      cat("⚠️  Warning: Could not update download approval:", result, "\n")
-    } else {
-      cat("✓ Station approved for download\n")
-    }
+  # Get device info to check status
+  device_row <- station_devices[station_devices$device_serial == device_serial, ][1, ]
+  
+  if (tolower(device_row$status) == "local") {
+    # Local stations are never approved for download - skip prompt
+    cat("\n✓ Status is 'local' - skipping download approval (local stations not auto-downloaded)\n")
   } else {
-    cat("⚠️  Station NOT approved - remember to approve later if needed\n")
+    approve_response <- ui_yes_no("\nApprove this station for download?")
+    if (approve_response == "Y") {
+      result <- update_download_approval(station_id, TRUE)
+      if (!isTRUE(result)) {
+        cat("⚠️  Warning: Could not update download approval:", result, "\n")
+      } else {
+        cat("✓ Station approved for download\n")
+      }
+    } else {
+      cat("⚠️  Station NOT approved - remember to approve later if needed\n")
+    }
   }
   
   cat("\n✓ All done!\n")
@@ -1366,7 +1520,8 @@ ui_log_download <- function() {
   
   # Extract station_id from selection
   station_id <- sub(" \\(.*\\)$", "", selected)
-  station_devices <- get_station_devices(station_id)
+  station_devices <- get_active_devices_or_notify(station_id, "download logging")
+  if (is.null(station_devices)) return(NULL)
   station_type <- station_devices$station_type[1]
   cat("✓ Station:", station_id, "(", station_type, ")\n")
   
@@ -1466,13 +1621,21 @@ ui_log_download <- function() {
   }
   
   #### 10 - Download approval (optional)
-  approve_response <- ui_yes_no("\nApprove this station for future downloads?")
-  if (approve_response == "Y") {
-    result <- update_download_approval(station_id, TRUE)
-    if (!isTRUE(result)) {
-      cat("⚠️  Warning: Could not update download approval:", result, "\n")
-    } else {
-      cat("✓ Station approved for download\n")
+  # Get device info to check status
+  device_row <- station_devices[station_devices$device_serial == device_serial, ][1, ]
+  
+  if (tolower(device_row$status) == "local") {
+    # Local stations are never approved for download - skip prompt
+    cat("\n✓ Status is 'local' - skipping download approval (local stations not auto-downloaded)\n")
+  } else {
+    approve_response <- ui_yes_no("\nApprove this station for future downloads?")
+    if (approve_response == "Y") {
+      result <- update_download_approval(station_id, TRUE)
+      if (!isTRUE(result)) {
+        cat("⚠️  Warning: Could not update download approval:", result, "\n")
+      } else {
+        cat("✓ Station approved for download\n")
+      }
     }
   }
   
@@ -1485,13 +1648,440 @@ ui_log_download <- function() {
   ))
 }
 
+#' Interactive elevation survey workflow
+#' Handles both single-device and dual-logger elevation surveys
+#' @return TRUE if successful, NULL if quit
+ui_survey_elevations <- function() {
+  cat("\n============================================\n")
+  cat("  Field Elevation Survey\n")
+  cat("============================================\n\n")
+  cat("Use this workflow to record surveyed elevations\n")
+  cat("from field measurements (GNSS, laser levels, etc.)\n\n")
+  
+  ################################################################################
+  #### SELECT SURVEY TYPE ####
+  ################################################################################
+  
+  cat("--- SURVEY TYPE ---\n\n")
+  cat("What type of elevation survey?\n")
+  cat("  1. Dual-logger stream gauge (primary/secondary with elevation difference)\n")
+  cat("  2. Single device (direct elevation entry)\n")
+  cat("  q. Cancel\n\n")
+  cat("Enter selection: ")
+  
+  survey_type <- trimws(readline())
+  
+  if (tolower(survey_type) == "q") {
+    cat("❌ Cancelled\n")
+    return(NULL)
+  }
+  
+  ################################################################################
+  #### OPTION 1: DUAL-LOGGER STREAM GAUGE ####
+  ################################################################################
+  
+  if (survey_type == "1") {
+    cat("\n--- DUAL-LOGGER STREAM GAUGE SURVEY ---\n\n")
+    
+    # Get all stations and filter to those with 2+ HOBO devices
+    metadata <- load_zentra_metadata()
+    hobo_devices <- metadata[tolower(metadata$mfger) %in% c("onset", "hobo"), ]
+    
+    if (nrow(hobo_devices) == 0) {
+      cat("❌ No HOBO devices found in metadata\n")
+      return(NULL)
+    }
+    
+    # Find stations with multiple HOBO devices
+    station_counts <- table(hobo_devices$station_id)
+    multi_hobo_stations <- names(station_counts[station_counts >= 2])
+    
+    if (length(multi_hobo_stations) == 0) {
+      cat("❌ No stations found with 2+ HOBO devices\n")
+      cat("   This option is for dual-logger stream gauges\n")
+      return(NULL)
+    }
+    
+    # Build station options
+    station_options <- sapply(multi_hobo_stations, function(sid) {
+      station_devices <- metadata[metadata$station_id == sid, ]
+      station_devices <- station_devices[order(as.POSIXct(station_devices$deploy_datetime), 
+                                               decreasing = TRUE), ]
+      device_row <- station_devices[1, ]
+      hobo_count <- sum(hobo_devices$station_id == sid)
+      paste0(sid, " (", device_row$site_full, " - ", hobo_count, " HOBO devices)")
+    })
+    
+    selected <- ui_select_from_menu("Select station:", station_options)
+    if (is.null(selected)) {
+      cat("❌ Cancelled\n")
+      return(NULL)
+    }
+    
+    # Extract station_id
+    station_id <- sub(" \\(.*\\)$", "", selected)
+    cat("✓ Station:", station_id, "\n\n")
+    
+    #### Identify primary and secondary ####
+    station_hobos <- hobo_devices[hobo_devices$station_id == station_id, ]
+    
+    # Look for devices with role = "primary" and role = "secondary"
+    primary_device <- station_hobos[!is.na(station_hobos$device_role) & 
+                                      tolower(station_hobos$device_role) == "primary", ]
+    secondary_device <- station_hobos[!is.na(station_hobos$device_role) & 
+                                        tolower(station_hobos$device_role) == "secondary", ]
+    
+    if (nrow(primary_device) == 0) {
+      cat("❌ No device with role 'primary' found at this station\n")
+      cat("   Set device roles first using routine maintenance\n")
+      return(NULL)
+    }
+    
+    if (nrow(secondary_device) == 0) {
+      cat("❌ No device with role 'secondary' found at this station\n")
+      cat("   Set device roles first using routine maintenance\n")
+      return(NULL)
+    }
+    
+    # Use first match if multiple (shouldn't happen but be safe)
+    primary_device <- primary_device[1, ]
+    secondary_device <- secondary_device[1, ]
+    
+    cat("Primary logger:   ", primary_device$device_serial, "\n", sep = "")
+    cat("Secondary logger: ", secondary_device$device_serial, "\n\n", sep = "")
+    
+    #### Primary elevation ####
+    cat("--- PRIMARY LOGGER ELEVATION ---\n\n")
+    
+    if (!is.na(primary_device$elev)) {
+      # Primary already has elevation
+      cat("Current elevation: ", primary_device$elev, " m\n", sep = "")
+      update_primary <- ui_yes_no("Update this elevation?", allow_quit = FALSE)
+      
+      if (update_primary == "Y") {
+        repeat {
+          cat("Enter new elevation for primary logger (meters): ")
+          elev_input <- trimws(readline())
+          primary_elev <- suppressWarnings(as.numeric(elev_input))
+          
+          if (!is.na(primary_elev)) {
+            cat("✓ New primary elevation: ", primary_elev, " m\n", sep = "")
+            break
+          } else {
+            cat("⚠️  Invalid number. Please enter elevation in meters.\n")
+          }
+        }
+      } else {
+        primary_elev <- primary_device$elev
+        cat("✓ Keeping existing elevation: ", primary_elev, " m\n", sep = "")
+      }
+    } else {
+      # Primary has no elevation - must enter
+      cat("No elevation recorded for primary logger.\n")
+      repeat {
+        cat("Enter elevation for primary logger (meters): ")
+        elev_input <- trimws(readline())
+        primary_elev <- suppressWarnings(as.numeric(elev_input))
+        
+        if (!is.na(primary_elev)) {
+          cat("✓ Primary elevation: ", primary_elev, " m\n", sep = "")
+          break
+        } else {
+          cat("⚠️  Invalid number. Please enter elevation in meters.\n")
+        }
+      }
+    }
+    
+    #### Secondary elevation (via difference) ####
+    cat("\n--- SECONDARY LOGGER ELEVATION ---\n\n")
+    cat("Primary logger elevation: ", primary_elev, " m\n\n", sep = "")
+    
+    repeat {
+      cat("Enter elevation difference (secondary - primary) in meters:\n")
+      cat("  Positive = secondary is HIGHER (upslope - normally secondary is supposed to be upstream!)\n")
+      cat("  Negative = secondary is LOWER (downslope)\n")
+      cat("Difference: ")
+      diff_input <- trimws(readline())
+      elevation_diff <- suppressWarnings(as.numeric(diff_input))
+      
+      if (!is.na(elevation_diff)) {
+        secondary_elev <- primary_elev + elevation_diff
+        cat("\n✓ Calculated elevations:\n")
+        cat("  Primary:   ", primary_elev, " m\n", sep = "")
+        cat("  Secondary: ", secondary_elev, " m\n", sep = "")
+        cat("  Difference: ", sprintf("%+.2f", elevation_diff), " m\n\n", sep = "")
+        break
+      } else {
+        cat("⚠️  Invalid number. Please enter elevation difference in meters.\n\n")
+      }
+    }
+    
+    #### Confirmation ####
+    cat("============================================\n")
+    cat("Ready to save elevations:\n")
+    cat("  Station: ", station_id, "\n", sep = "")
+    cat("  Primary (", primary_device$device_serial, "): ", primary_elev, " m\n", sep = "")
+    cat("  Secondary (", secondary_device$device_serial, "): ", secondary_elev, " m\n", sep = "")
+    cat("  Difference: ", sprintf("%+.2f", elevation_diff), " m\n", sep = "")
+    cat("============================================\n\n")
+    
+    confirm <- ui_yes_no("Confirm and save?", allow_quit = FALSE)
+    if (confirm != "Y") {
+      cat("❌ Cancelled - elevations not saved\n")
+      return(NULL)
+    }
+    
+    #### Call logic function ####
+    result <- survey_dual_logger_elevations(
+      station_id = station_id,
+      primary_serial = primary_device$device_serial,
+      secondary_serial = secondary_device$device_serial,
+      primary_elev = primary_elev,
+      elevation_diff = elevation_diff
+    )
+    
+    if (!isTRUE(result)) {
+      cat("❌ Error:", result, "\n")
+      return(NULL)
+    }
+    
+    cat("✓ Elevations saved successfully\n")
+    
+    #### Log to maintenance ####
+    survey_date <- ui_prompt_date("When was this survey performed?", allow_today = TRUE)
+    if (is.null(survey_date)) {
+      cat("⚠️  Warning: Elevations saved but not logged to maintenance\n")
+      return(TRUE)
+    }
+    
+    # Get who logged
+    cat("\nWho is logging this survey?\n")
+    cat("  1. DAH\n")
+    cat("  2. Enter custom initials (3 letters)\n")
+    cat("\nEnter selection: ")
+    logged_by_input <- trimws(readline())
+    
+    if (logged_by_input == "1") {
+      logged_by <- "DAH"
+    } else if (logged_by_input == "2") {
+      repeat {
+        cat("Enter 3-letter initials: ")
+        custom_initials <- toupper(trimws(readline()))
+        if (nchar(custom_initials) == 3) {
+          logged_by <- custom_initials
+          break
+        } else {
+          cat("⚠️  Please enter exactly 3 letters\n")
+        }
+      }
+    } else {
+      logged_by <- "DAH"  # Default
+    }
+    
+    # Log for primary device
+    details <- paste0("Elevation survey: Primary=", primary_elev, "m, Secondary=", 
+                      secondary_elev, "m (diff=", sprintf("%+.2f", elevation_diff), "m)")
+    
+    log_result <- create_maintenance_entry(
+      field_visit_date = survey_date,
+      station_id = station_id,
+      station_type = primary_device$station_type,
+      device_serial = primary_device$device_serial,
+      action_type = "elevation_survey",
+      details = details,
+      ports_updated = FALSE,
+      logged_by = logged_by
+    )
+    
+    if (!isTRUE(log_result)) {
+      cat("⚠️  Warning: Elevations saved but maintenance log entry failed\n")
+    } else {
+      cat("✓ Survey logged to maintenance\n")
+    }
+    
+    # Update last_visit
+    update_last_visit(station_id, survey_date)
+    
+    cat("\n✓ Dual-logger elevation survey complete!\n")
+    
+    return(TRUE)
+  }
+  
+  ################################################################################
+  #### OPTION 2: SINGLE DEVICE ####
+  ################################################################################
+  
+  else if (survey_type == "2") {
+    cat("\n--- SINGLE DEVICE ELEVATION SURVEY ---\n\n")
+    
+    metadata <- load_zentra_metadata()
+    
+    # Get all stations
+    station_list <- get_station_list()
+    station_options <- sapply(station_list, function(s) {
+      paste0(s$station_id, " (", s$site_full, ")")
+    })
+    
+    selected <- ui_select_from_menu("Select station:", station_options)
+    if (is.null(selected)) {
+      cat("❌ Cancelled\n")
+      return(NULL)
+    }
+    
+    # Extract station_id
+    station_id <- sub(" \\(.*\\)$", "", selected)
+    cat("✓ Station:", station_id, "\n\n")
+    
+    # Get devices at station
+    station_devices <- get_station_devices(station_id)
+    
+    # Show device options
+    device_options <- paste0(station_devices$device_serial, 
+                             " (", station_devices$mfger, 
+                             " - ", station_devices$status, ")")
+    
+    selected_device <- ui_select_from_menu("Select device:", device_options)
+    if (is.null(selected_device)) {
+      cat("❌ Cancelled\n")
+      return(NULL)
+    }
+    
+    # Extract device_serial
+    device_serial <- sub(" \\(.*\\)$", "", selected_device)
+    device_row <- station_devices[station_devices$device_serial == device_serial, ][1, ]
+    
+    cat("✓ Device:", device_serial, "\n")
+    cat("  Manufacturer:", device_row$mfger, "\n")
+    cat("  Status:", device_row$status, "\n\n")
+    
+    #### Get elevation ####
+    cat("--- ELEVATION ---\n\n")
+    
+    if (!is.na(device_row$elev)) {
+      cat("Current elevation: ", device_row$elev, " m\n\n", sep = "")
+    } else {
+      cat("No elevation currently recorded\n\n")
+    }
+    
+    repeat {
+      cat("Enter surveyed elevation (meters): ")
+      elev_input <- trimws(readline())
+      
+      if (tolower(elev_input) == "q") {
+        cat("❌ Cancelled\n")
+        return(NULL)
+      }
+      
+      new_elevation <- suppressWarnings(as.numeric(elev_input))
+      
+      if (!is.na(new_elevation)) {
+        cat("✓ New elevation: ", new_elevation, " m\n\n", sep = "")
+        break
+      } else {
+        cat("⚠️  Invalid number. Please enter elevation in meters.\n\n")
+      }
+    }
+    
+    #### Confirmation ####
+    cat("============================================\n")
+    cat("Ready to save elevation:\n")
+    cat("  Station: ", station_id, "\n", sep = "")
+    cat("  Device: ", device_serial, "\n", sep = "")
+    cat("  New elevation: ", new_elevation, " m\n", sep = "")
+    cat("============================================\n\n")
+    
+    confirm <- ui_yes_no("Confirm and save?", allow_quit = FALSE)
+    if (confirm != "Y") {
+      cat("❌ Cancelled - elevation not saved\n")
+      return(NULL)
+    }
+    
+    #### Call logic function ####
+    result <- survey_device_elevation(device_serial, new_elevation)
+    
+    if (!isTRUE(result)) {
+      cat("❌ Error:", result, "\n")
+      return(NULL)
+    }
+    
+    cat("✓ Elevation saved successfully\n")
+    
+    #### Log to maintenance ####
+    survey_date <- ui_prompt_date("When was this survey performed?", allow_today = TRUE)
+    if (is.null(survey_date)) {
+      cat("⚠️  Warning: Elevation saved but not logged to maintenance\n")
+      return(TRUE)
+    }
+    
+    # Get who logged
+    cat("\nWho is logging this survey?\n")
+    cat("  1. DAH\n")
+    cat("  2. Enter custom initials (3 letters)\n")
+    cat("\nEnter selection: ")
+    logged_by_input <- trimws(readline())
+    
+    if (logged_by_input == "1") {
+      logged_by <- "DAH"
+    } else if (logged_by_input == "2") {
+      repeat {
+        cat("Enter 3-letter initials: ")
+        custom_initials <- toupper(trimws(readline()))
+        if (nchar(custom_initials) == 3) {
+          logged_by <- custom_initials
+          break
+        } else {
+          cat("⚠️  Please enter exactly 3 letters\n")
+        }
+      }
+    } else {
+      logged_by <- "DAH"  # Default
+    }
+    
+    # Log
+    details <- paste0("Elevation survey: ", new_elevation, "m")
+    
+    log_result <- create_maintenance_entry(
+      field_visit_date = survey_date,
+      station_id = station_id,
+      station_type = device_row$station_type,
+      device_serial = device_serial,
+      action_type = "elevation_survey",
+      details = details,
+      ports_updated = FALSE,
+      logged_by = logged_by
+    )
+    
+    if (!isTRUE(log_result)) {
+      cat("⚠️  Warning: Elevation saved but maintenance log entry failed\n")
+    } else {
+      cat("✓ Survey logged to maintenance\n")
+    }
+    
+    # Update last_visit
+    update_last_visit(station_id, survey_date)
+    
+    cat("\n✓ Single device elevation survey complete!\n")
+    
+    return(TRUE)
+  }
+  
+  ################################################################################
+  #### INVALID SELECTION ####
+  ################################################################################
+  
+  else {
+    cat("⚠️  Invalid selection\n")
+    return(NULL)
+  }
+}
+
 # --- DEVICE & STATION MANAGEMENT ---
 #' Interactive device addition
 #' Adds a new device to metadata - either at new station or existing station
 #' @param is_new_station Logical. TRUE for brand new station, FALSE for existing
 #' @param preset_station_id Character. Optional. If provided, skips station selection
 #' @return List with device_serial, or NULL if quit
-ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL) {
+ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL, suppress_logging = FALSE) {
   cat("\n============================================\n")
   if (is_new_station) {
     cat("  Add Device - New Station\n")
@@ -1628,259 +2218,301 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL) {
   }
   
   ################################################################################
-  #### SECTION B: DEVICE INFORMATION ####
+  #### SECTION B-F: DEVICE INFORMATION WITH RESTART LOOP ####
   ################################################################################
   
-  cat("\n--- DEVICE INFORMATION ---\n\n")
-  
-  ## Device serial
-  cat("Enter device serial number:\n")
-  cat("  For Zentra ZL6: format 'z6-12345'\n")
-  cat("  For HOBO: format '123456' or actual serial\n")
-  cat("Serial: ")
-  device_serial <- trimws(readline())
-  if (device_serial == "") {
-    cat("❌ Device serial cannot be empty\n")
-    return(NULL)
-  }
-  
-  #Check if serial already exists and is still active
-  metadata <- load_zentra_metadata()
-  existing <- metadata[metadata$device_serial == device_serial, ]
-  
-  if (nrow(existing) > 0) {
-    # Device exists - check if it's in a terminal status
-    terminal_statuses <- c("removed", "decommissioned", "replaced")
+  repeat {  # Allow restart if user wants to fix errors
     
-    if (all(existing$status %in% terminal_statuses)) {
-      # All entries are terminal - allow reuse
-      cat("ℹ️  Note: Serial '", device_serial, "' previously used (status: ", 
-          existing$status[1], ")\n", sep = "")
-      cat("   Reusing serial for new deployment\n\n")
-    } else {
-      # At least one entry is still active
-      cat("❌ Device serial '", device_serial, "' already exists in metadata\n", sep = "")
-      cat("   Existing status: ", existing$status[1], "\n", sep = "")
+    ################################################################################
+    #### SECTION B: DEVICE INFORMATION ####
+    ################################################################################
+    
+    cat("\n--- DEVICE INFORMATION ---\n\n")
+    
+    ## Device serial
+    cat("Enter device serial number:\n")
+    cat("  For Zentra ZL6: format 'z6-12345'\n")
+    cat("  For HOBO: format '123456' or actual serial\n")
+    cat("Serial: ")
+    device_serial <- trimws(readline())
+    if (device_serial == "") {
+      cat("❌ Device serial cannot be empty\n")
       return(NULL)
     }
-  }
-  cat("✓ Device serial:", device_serial, "\n")
-  
-  ## Manufacturer
-  existing_mfgers <- get_metadata_unique_values("mfger")
-  mfger <- ui_select_or_specify("Select manufacturer:", existing_mfgers)
-  if (is.null(mfger)) {
-    cat("❌ Cancelled\n")
-    return(NULL)
-  }
-  cat("✓ Manufacturer:", mfger, "\n")
-  
-  ## Device role (optional)
-  specify_role <- ui_yes_no("Specify a device role (recommended)?", allow_quit = FALSE)
-  if (specify_role == "N") {
-    device_role <- NA
-    cat("✓ No device role recorded\n")
-  } else {
-    existing_roles <- get_metadata_unique_values("device_role")
-    device_role <- ui_select_or_specify("Select device role:", existing_roles)
-    if (is.null(device_role)) {
+    
+    # Check if serial already exists and is still active
+    metadata <- load_zentra_metadata()
+    existing <- metadata[metadata$device_serial == device_serial, ]
+    
+    if (nrow(existing) > 0) {
+      # Device exists - check if it's in a terminal status
+      terminal_statuses <- c("removed", "decommissioned", "replaced", "relocated")
+      
+      if (all(existing$status %in% terminal_statuses)) {
+        # All entries are terminal - allow reuse
+        cat("ℹ️  Note: Serial '", device_serial, "' previously used (status: ", 
+            existing$status[1], ")\n", sep = "")
+        cat("   Reusing serial for new deployment\n\n")
+      } else {
+        # At least one entry is still active
+        cat("❌ Device serial '", device_serial, "' already exists in metadata\n", sep = "")
+        cat("   Existing status: ", existing$status[1], "\n", sep = "")
+        return(NULL)
+      }
+    }
+    cat("✓ Device serial:", device_serial, "\n")
+    
+    ## Manufacturer
+    existing_mfgers <- get_metadata_unique_values("mfger")
+    mfger <- ui_select_or_specify("Select manufacturer:", existing_mfgers)
+    if (is.null(mfger)) {
       cat("❌ Cancelled\n")
       return(NULL)
     }
-    cat("✓ Device role:", device_role, "\n")
-  }
-  
-  ## Device name (optional)
-  cat("\nEnter device name (optional, press Enter to skip) - this is how the device was named in its own software:\n")
-  device_name <- trimws(readline())
-  if (device_name == "") {
-    device_name <- NA
-    cat("✓ No device name\n")
-  } else {
-    cat("✓ Device name:", device_name, "\n")
-  }
-  
-  ################################################################################
-  #### SECTION C: LOCATION ####
-  ################################################################################
-  
-  cat("\n--- LOCATION ---\n\n")
-  
-  if (is_new_station) {
-    # New station - prompt for location
+    cat("✓ Manufacturer:", mfger, "\n")
     
-    ## Latitude
-    repeat {
-      cat("Enter latitude (decimal degrees, e.g., 18.3456):\n")
-      lat_input <- trimws(readline())
-      lat <- suppressWarnings(as.numeric(lat_input))
-      
-      if (!is.na(lat) && lat >= -90 && lat <= 90) {
-        cat("✓ Latitude:", lat, "\n")
-        break
-      } else {
-        cat("⚠️  Invalid latitude. Must be between -90 and 90.\n")
+    ## Device role (optional)
+    specify_role <- ui_yes_no("Specify a device role (recommended)?", allow_quit = FALSE)
+    if (specify_role == "N") {
+      device_role <- NA
+      cat("✓ No device role recorded\n")
+    } else {
+      existing_roles <- get_metadata_unique_values("device_role")
+      device_role <- ui_select_or_specify("Select device role:", existing_roles)
+      if (is.null(device_role)) {
+        cat("❌ Cancelled\n")
+        return(NULL)
       }
+      cat("✓ Device role:", device_role, "\n")
     }
     
-    ## Longitude
-    repeat {
-      cat("Enter longitude (decimal degrees, e.g., -64.7890):\n")
-      lon_input <- trimws(readline())
-      lon <- suppressWarnings(as.numeric(lon_input))
-      
-      if (!is.na(lon) && lon >= -180 && lon <= 180) {
-        cat("✓ Longitude:", lon, "\n")
-        break
-      } else {
-        cat("⚠️  Invalid longitude. Must be between -180 and 180.\n")
-      }
+    ## Device name (optional)
+    cat("\nEnter device name (optional, press Enter to skip) - this is how the device was named in its own software:\n")
+    device_name <- trimws(readline())
+    if (device_name == "") {
+      device_name <- NA
+      cat("✓ No device name\n")
+    } else {
+      cat("✓ Device name:", device_name, "\n")
     }
     
-    ## Elevation
-    cat("\nEnter elevation in meters (or press Enter to skip):\n")
-    elev_input <- trimws(readline())
-    if (elev_input == "") {
+    ################################################################################
+    #### SECTION C: LOCATION ####
+    ################################################################################
+    
+    cat("\n--- LOCATION ---\n\n")
+    
+    if (is_new_station) {
+      # New station - prompt for location
+      
+      ## Latitude
+      repeat {
+        cat("Enter latitude (decimal degrees, e.g., 18.3456):\n")
+        lat_input <- trimws(readline())
+        lat <- suppressWarnings(as.numeric(lat_input))
+        
+        if (!is.na(lat) && lat >= -90 && lat <= 90) {
+          cat("✓ Latitude:", lat, "\n")
+          break
+        } else {
+          cat("⚠️  Invalid latitude. Must be between -90 and 90.\n")
+        }
+      }
+      
+      ## Longitude
+      repeat {
+        cat("Enter longitude (decimal degrees, e.g., -64.7890):\n")
+        lon_input <- trimws(readline())
+        lon <- suppressWarnings(as.numeric(lon_input))
+        
+        if (!is.na(lon) && lon >= -180 && lon <= 180) {
+          cat("✓ Longitude:", lon, "\n")
+          break
+        } else {
+          cat("⚠️  Invalid longitude. Must be between -180 and 180.\n")
+        }
+      }
+      
+      ## Elevation (will be derived from DEM or entered via survey workflow)
       elev <- NA
-      cat("✓ No elevation recorded\n")
+      
     } else {
-      elev <- suppressWarnings(as.numeric(elev_input))
+      # Existing station - inherit location from station
+      station_devices <- get_station_devices(station_id)
+      lat <- station_devices$lat[1]
+      lon <- station_devices$lon[1]
+      elev <- station_devices$elev[1]
+      
+      cat("✓ Location inherited from station:\n")
+      cat("  Latitude:", lat, "\n")
+      cat("  Longitude:", lon, "\n")
       if (!is.na(elev)) {
-        cat("✓ Elevation:", elev, "m\n")
+        cat("  Elevation:", elev, "m\n")
       } else {
-        cat("⚠️  Invalid number, skipping elevation\n")
-        elev <- NA
+        cat("  Elevation: Not recorded\n")
       }
     }
     
-  } else {
-    # Existing station - inherit location from station
-    station_devices <- get_station_devices(station_id)
-    lat <- station_devices$lat[1]
-    lon <- station_devices$lon[1]
-    elev <- station_devices$elev[1]
+    ################################################################################
+    #### SECTION D: TIMING ####
+    ################################################################################
     
-    cat("✓ Location inherited from station:\n")
-    cat("  Latitude:", lat, "\n")
-    cat("  Longitude:", lon, "\n")
-    if (!is.na(elev)) {
-      cat("  Elevation:", elev, "m\n")
-    } else {
-      cat("  Elevation: Not recorded\n")
-    }
-  }
-  
-  ################################################################################
-  #### SECTION D: TIMING ####
-  ################################################################################
-  
-  cat("\n--- TIMING ---\n\n")
-  
-  ## Logging interval
-  repeat {
-    cat("Enter logging interval in minutes (e.g., 15, 30, 60):\n")
-    interval_input <- trimws(readline())
-    interval <- suppressWarnings(as.numeric(interval_input))
+    cat("\n--- TIMING ---\n\n")
     
-    if (!is.na(interval) && interval > 0) {
-      cat("✓ Interval:", interval, "minutes\n")
-      break
-    } else {
-      cat("⚠️  Invalid interval. Must be a positive number.\n")
+    ## Logging interval
+    repeat {
+      cat("Enter logging interval in minutes (e.g., 15, 30, 60)\n")
+      cat("Or press Enter for default (15 minutes):\n")
+      interval_input <- trimws(readline())
+      
+      # Allow empty input for default
+      if (interval_input == "") {
+        interval <- 15
+        cat("✓ Interval: 15 minutes (default)\n")
+        break
+      }
+      
+      interval <- suppressWarnings(as.numeric(interval_input))
+      
+      if (!is.na(interval) && interval > 0) {
+        cat("✓ Interval:", interval, "minutes\n")
+        break
+      } else {
+        cat("⚠️  Invalid interval. Must be a positive number.\n")
+      }
     }
-  }
-  
-  ## Timezone
-  existing_timezones <- get_metadata_unique_values("timezone")
-  if (length(existing_timezones) > 0) {
-    timezone <- ui_select_or_specify("Select timezone:", existing_timezones)
-  } else {
-    # Default if no existing timezones
-    cat("Enter timezone (e.g., 'America/Puerto_Rico'):\n")
-    timezone <- trimws(readline())
-  }
-  if (is.null(timezone) || timezone == "") {
-    cat("❌ Timezone required\n")
-    return(NULL)
-  }
-  cat("✓ Timezone:", timezone, "\n")
-  
-  ## Deploy datetime
-  deploy_datetime <- ui_prompt_datetime("When was device deployed?", 
-                                        allow_now = TRUE, 
-                                        timezone = timezone)
-  if (is.null(deploy_datetime)) {
-    cat("❌ Cancelled\n")
-    return(NULL)
-  }
-  cat("✓ Deploy datetime:", format(deploy_datetime), "\n")
-  
-  ################################################################################
-  #### SECTION E: STATUS & SETTINGS ####
-  ################################################################################
-  
-  cat("\n--- STATUS & SETTINGS ---\n\n")
-  
-  ## Status
-  existing_statuses <- get_metadata_unique_values("status")
-  # Filter out workflow-specific statuses
-  excluded_statuses <- c("replaced", "relocated", "decommissioned")
-  allowed_statuses <- setdiff(existing_statuses, excluded_statuses)
-  
-  status <- ui_select_or_specify("Select device status:", allowed_statuses)
-  if (is.null(status)) {
-    cat("❌ Cancelled\n")
-    return(NULL)
-  }
-  cat("✓ Status:", status, "\n")
-  
-  ## Download approval
-  cat("\nApprove this device for automatic download?\n")
-  cat("(If this is a local station not connected to the internet, select NO)\n")
-  download_approved_response <- ui_yes_no("Approve for download?", allow_quit = FALSE)
-  download_approved <- (download_approved_response == "Y")
-  cat("✓ Download approved:", download_approved, "\n")
-  
-  ## Expiry date (optional)
-  cat("\nEnter cloud subscription expiry date if applicable (YYYY-MM-DD) or press Enter to skip:\n")
-  expiry_input <- trimws(readline())
-  if (expiry_input == "") {
-    data_expiry <- NA
-    cat("✓ No expiry date\n")
-  } else {
-    data_expiry <- tryCatch({
-      as.Date(expiry_input)
-    }, error = function(e) {
-      NA
-    })
     
-    if (!is.na(data_expiry)) {
-      cat("✓ Data expiry:", as.character(data_expiry), "\n")
-    } else {
-      cat("⚠️  Invalid date format, skipping expiry\n")
-      data_expiry <- NA
+    ## Timezone
+    existing_timezones <- get_metadata_unique_values("timezone")
+    cat("\nSelect timezone:\n")
+    for (i in seq_along(existing_timezones)) {
+      cat("  ", i, ". ", existing_timezones[i], "\n", sep = "")
     }
-  }
-  
-  ################################################################################
-  #### SECTION F: CONFIRMATION ####
-  ################################################################################
-  
-  cat("\n============================================\n")
-  cat("Ready to add this device:\n")
-  cat("  Station:", station_id, "(", site_full, ")\n")
-  cat("  Device:", device_serial, "(", mfger, ")\n")
-  cat("  Location:", lat, ",", lon, "\n")
-  cat("  Deploy:", format(deploy_datetime), "\n")
-  cat("  Status:", status, "\n")
-  cat("  Download approved:", download_approved, "\n")
-  cat("============================================\n\n")
-  
-  confirm <- ui_yes_no("Confirm?", allow_quit = FALSE)
-  if (confirm != "Y") {
-    cat("❌ Cancelled - device not added\n")
-    return(NULL)
-  }
+    cat("  ", length(existing_timezones) + 1, ". other (specify)\n", sep = "")
+    cat("\nEnter selection (or press Enter for America/Puerto_Rico): ")
+    tz_input <- trimws(readline())
+    
+    if (tz_input == "") {
+      timezone <- "America/Puerto_Rico"
+      cat("✓ Timezone: America/Puerto_Rico (default)\n")
+    } else if (tz_input == "q") {
+      cat("❌ Cancelled\n")
+      return(NULL)
+    } else {
+      tz_num <- suppressWarnings(as.numeric(tz_input))
+      if (!is.na(tz_num) && tz_num >= 1 && tz_num <= length(existing_timezones)) {
+        timezone <- existing_timezones[tz_num]
+        cat("✓ Timezone:", timezone, "\n")
+      } else if (!is.na(tz_num) && tz_num == length(existing_timezones) + 1) {
+        cat("Enter timezone: ")
+        timezone <- trimws(readline())
+        cat("✓ Timezone:", timezone, "\n")
+      } else {
+        cat("❌ Invalid selection\n")
+        return(NULL)
+      }
+    }
+    
+    ## Deploy datetime
+    deploy_datetime <- ui_prompt_datetime("When was device deployed?", 
+                                          allow_now = TRUE, 
+                                          timezone = timezone)
+    if (is.null(deploy_datetime)) {
+      cat("❌ Cancelled\n")
+      return(NULL)
+    }
+    cat("✓ Deploy datetime:", format(deploy_datetime), "\n")
+    
+    ################################################################################
+    #### SECTION E: STATUS & SETTINGS ####
+    ################################################################################
+    
+    cat("\n--- STATUS & SETTINGS ---\n\n")
+    
+    ## Status
+    existing_statuses <- get_metadata_unique_values("status")
+    # Filter out workflow-specific statuses
+    excluded_statuses <- c("replaced", "relocated", "decommissioned")
+    allowed_statuses <- setdiff(existing_statuses, excluded_statuses)
+    
+    status <- ui_select_or_specify("Select device status:", allowed_statuses)
+    if (is.null(status)) {
+      cat("❌ Cancelled\n")
+      return(NULL)
+    }
+    cat("✓ Status:", status, "\n")
+    
+    ## Download approval
+    if (tolower(status) == "local") {
+      # Local stations are never approved for download
+      download_approved <- FALSE
+      cat("\n✓ Status is 'local' - automatic download disabled\n")
+    } else {
+      cat("\nApprove this device for automatic download?\n")
+      cat("(If there is still something needing to be updated in metadata about this device, select NO)\n")
+      download_approved_response <- ui_yes_no("Approve for download?", allow_quit = FALSE)
+      download_approved <- (download_approved_response == "Y")
+      cat("✓ Download approved:", download_approved, "\n")
+    }
+    
+    ## Expiry date (optional)
+    if (tolower(status) == "local") {
+      # Local stations don't have cloud subscriptions
+      expiry_date <- NA
+      cat("✓ No cloud subscription (local station)\n")
+    } else {
+      cat("\nEnter cloud subscription expiry date if applicable (YYYY-MM-DD) or press Enter to skip:\n")
+      expiry_input <- trimws(readline())
+      if (expiry_input == "") {
+        expiry_date <- NA
+        cat("✓ No expiry date\n")
+      } else {
+        expiry_date <- tryCatch({
+          as.Date(expiry_input)
+        }, error = function(e) {
+          NA
+        })
+        
+        if (!is.na(expiry_date)) {
+          cat("✓ Data expiry:", as.character(expiry_date), "\n")
+        } else {
+          cat("⚠️  Invalid date format, skipping\n")
+          expiry_date <- NA
+        }
+      }
+    }
+    
+    ################################################################################
+    #### SECTION F: CONFIRMATION ####
+    ################################################################################
+    
+    cat("\n============================================\n")
+    cat("Ready to add this device:\n")
+    cat("  Station:", station_id, "(", site_full, ")\n")
+    cat("  Device:", device_serial, "(", mfger, ")\n")
+    cat("  Location:", lat, ",", lon, "\n")
+    cat("  Deploy:", format(deploy_datetime), "\n")
+    cat("  Status:", status, "\n")
+    cat("  Download approved:", download_approved, "\n")
+    cat("============================================\n\n")
+    
+    confirm <- ui_yes_no("Confirm?", allow_quit = FALSE)
+    if (confirm != "Y") {
+      # User said no - offer to restart or cancel
+      restart <- ui_yes_no("Start over and re-enter device information?", allow_quit = FALSE)
+      
+      if (restart != "Y") {
+        cat("❌ Cancelled - device not added\n")
+        return(NULL)
+      }
+      
+      cat("\n--- RESTARTING DEVICE ENTRY ---\n")
+      # Loop continues, restarts from beginning of device info
+    } else {
+      break  # Exit repeat loop, proceed to save
+    }
+    
+  }  # End repeat loop
   
   ################################################################################
   #### SECTION G: CALL LOGIC FUNCTION ####
@@ -1906,7 +2538,7 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL) {
     deploy_datetime = deploy_datetime,
     status = status,
     download_approved = download_approved,
-    expiry_date = data_expiry
+    expiry_date = expiry_date
   )
   
   # Call logic function
@@ -1918,6 +2550,42 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL) {
   }
   
   cat("\n✓ Device added successfully!\n")
+  
+  # Log to maintenance (unless suppressed by parent workflow)
+  if (!suppress_logging) {
+    if (is_new_station) {
+      log_result <- create_maintenance_entry(
+        field_visit_date = as.Date(deploy_datetime),
+        station_id = station_id,
+        station_type = station_type,
+        device_serial = device_serial,
+        action_type = "station_established",
+        details = paste0("New station established: ", site_full),
+        ports_updated = FALSE,
+        logged_by = ui_ask_whois_logging()
+      )
+      
+      if (isTRUE(log_result)) {
+        cat("✓ Station establishment logged to maintenance\n")
+      }
+    } else {
+      # Adding to existing station
+      log_result <- create_maintenance_entry(
+        field_visit_date = as.Date(deploy_datetime),
+        station_id = station_id,
+        station_type = station_type,
+        device_serial = device_serial,
+        action_type = "device_added",
+        details = paste0("Device added to existing station"),
+        ports_updated = FALSE,
+        logged_by = ui_ask_whois_logging()
+      )
+      
+      if (isTRUE(log_result)) {
+        cat("✓ Device addition logged to maintenance\n")
+      }
+    }
+  }
   
   # Return device_serial for potential port initialization
   return(list(device_serial = device_serial))
@@ -1951,7 +2619,7 @@ ui_replace_device <- function() {
   
   # Extract station_id
   station_id <- sub(" \\(.*\\)$", "", selected)
-  station_devices <- get_station_devices(station_id)
+  station_devices <- get_active_station_devices(station_id)
   cat("✓ Station:", station_id, "\n\n")
   
   # Show devices at this station
@@ -1996,7 +2664,7 @@ ui_replace_device <- function() {
   cat("Station: ", station_id, " (", old_device_row$site_full, ")\n\n", sep = "")
   
   # Call ui_add_device with preset station
-  add_result <- ui_add_device(is_new_station = FALSE, preset_station_id = station_id)
+  add_result <- ui_add_device(is_new_station = FALSE, preset_station_id = station_id, suppress_logging = TRUE)
   
   if (is.null(add_result)) {
     cat("❌ New device not added - replacement cancelled\n")
@@ -2023,6 +2691,22 @@ ui_replace_device <- function() {
   cat("\n✓ Device replacement complete!\n")
   cat("  Old:", old_device_serial, "(replaced)\n")
   cat("  New:", new_device_serial, "\n")
+  
+  # Log to maintenance
+  log_result <- create_maintenance_entry(
+    field_visit_date = Sys.Date(),
+    station_id = station_id,
+    station_type = old_device_row$station_type,
+    device_serial = new_device_serial,
+    action_type = "device_replacement",
+    details = paste0("Replaced device ", old_device_serial, " with ", new_device_serial),
+    ports_updated = FALSE,
+    logged_by = ui_ask_whois_logging()
+  )
+  
+  if (isTRUE(log_result)) {
+    cat("✓ Replacement logged to maintenance\n")
+  }
   
   # Return both device serials
   return(list(
@@ -2059,10 +2743,13 @@ ui_relocate_station <- function() {
   
   # Extract station_id
   station_id <- sub(" \\(.*\\)$", "", selected)
-  station_devices <- get_station_devices(station_id)
+  station_devices <- get_active_devices_or_notify(station_id, "station relocation")
+  if (is.null(station_devices)) return(NULL)
   
-  # Get current device (should only be one active)
-  current_device <- station_devices[1, ]
+  # Get most recent active device
+  station_devices_sorted <- station_devices[order(as.POSIXct(station_devices$deploy_datetime), 
+                                                  decreasing = TRUE), ]
+  current_device <- station_devices_sorted[1, ]
   
   cat("✓ Station:", station_id, "\n")
   cat("  Site:", current_device$site_full, "\n")
@@ -2121,22 +2808,6 @@ ui_relocate_station <- function() {
     }
   }
   
-  ## New elevation (optional)
-  cat("\nEnter NEW elevation in meters (or press Enter to skip):\n")
-  elev_input <- trimws(readline())
-  if (elev_input == "") {
-    new_elev <- NA
-    cat("✓ No elevation recorded\n")
-  } else {
-    new_elev <- suppressWarnings(as.numeric(elev_input))
-    if (!is.na(new_elev)) {
-      cat("✓ New elevation:", new_elev, "m\n")
-    } else {
-      cat("⚠️  Invalid number, skipping elevation\n")
-      new_elev <- NA
-    }
-  }
-  
   ################################################################################
   #### DEPLOYMENT AT NEW LOCATION ####
   ################################################################################
@@ -2170,10 +2841,16 @@ ui_relocate_station <- function() {
   cat("✓ Status:", new_status, "\n")
   
   ## Download approval
-  download_approved_response <- ui_yes_no("\nApprove station for download at new location?", 
-                                          allow_quit = FALSE)
-  download_approved <- (download_approved_response == "Y")
-  cat("✓ Download approved:", download_approved, "\n")
+  if (tolower(new_status) == "local") {
+    # Local stations are never approved for download
+    download_approved <- FALSE
+    cat("\n✓ Status is 'local' - automatic download disabled\n")
+  } else {
+    download_approved_response <- ui_yes_no("\nApprove station for download at new location?", 
+                                            allow_quit = FALSE)
+    download_approved <- (download_approved_response == "Y")
+    cat("✓ Download approved:", download_approved, "\n")
+  }
   
   ################################################################################
   #### CONFIRMATION ####
@@ -2193,9 +2870,6 @@ ui_relocate_station <- function() {
   cat("\nNEW LOCATION:\n")
   cat("  Device:", current_device$device_serial, "(new metadata row)\n")
   cat("  Location:", new_lat, ",", new_lon, sep = " ")
-  if (!is.na(new_elev)) {
-    cat(" (", new_elev, "m)", sep = "")
-  }
   cat("\n  Deploy:", format(deploy_datetime), "\n")
   cat("  Status:", new_status, "\n")
   cat("  Download approved:", download_approved, "\n")
@@ -2215,20 +2889,36 @@ ui_relocate_station <- function() {
     station_id = station_id,
     new_lat = new_lat,
     new_lon = new_lon,
-    new_elev = new_elev,
     deploy_datetime = deploy_datetime,
     new_status = new_status,
     download_approved = download_approved
   )
   
-  if (!isTRUE(result)) {
-    cat("❌ Error:", result, "\n")
+  if (!result$success) {
+    cat("❌ Error:", result$error, "\n")
     return(NULL)
   }
   
   cat("\n✓ Station relocation complete!\n")
   cat("  Old device marked as 'relocated'\n")
   cat("  New metadata row created at new location\n")
+  
+  # Log to maintenance
+  log_result <- create_maintenance_entry(
+    field_visit_date = as.Date(deploy_datetime),
+    station_id = station_id,
+    station_type = current_device$station_type,
+    device_serial = current_device$device_serial,
+    action_type = "station_relocation",
+    details = paste0("Station relocated from (", current_device$lat, ", ", current_device$lon, 
+                     ") to (", new_lat, ", ", new_lon, ")"),
+    ports_updated = FALSE,
+    logged_by = ui_ask_whois_logging()
+  )
+  
+  if (isTRUE(log_result)) {
+    cat("✓ Relocation logged to maintenance\n")
+  }
   
   return(TRUE)
 }
@@ -2264,8 +2954,21 @@ ui_decommission_station <- function() {
   station_id <- sub(" \\(.*\\)$", "", selected)
   station_devices <- get_station_devices(station_id)
   
-  # Get current device
-  current_device <- station_devices[1, ]
+  # Check if there's anything to decommission
+  active_statuses <- c("online", "local", "nonresponsive", "defunct", "removed")
+  decommissionable <- station_devices[station_devices$status %in% active_statuses, ]
+  
+  if (nrow(decommissionable) == 0) {
+    cat("⚠️  This station is already fully decommissioned.\n")
+    cat("   All devices have status = 'decommissioned', 'replaced', or 'relocated'.\n")
+    cat("   Nothing to do.\n")
+    return(NULL)
+  }
+  
+  # Get most recent active device for logging
+  decommissionable_sorted <- decommissionable[order(as.POSIXct(decommissionable$deploy_datetime), 
+                                                    decreasing = TRUE), ]
+  current_device <- decommissionable_sorted[1, ]
   
   cat("✓ Station:", station_id, "\n")
   cat("  Site:", current_device$site_full, "\n")
@@ -2319,6 +3022,22 @@ ui_decommission_station <- function() {
   cat("  Status: → 'decommissioned'\n")
   cat("\n  Note: This station can be reactivated later if needed.\n")
   
+  # Log to maintenance
+  log_result <- create_maintenance_entry(
+    field_visit_date = Sys.Date(),
+    station_id = station_id,
+    station_type = current_device$station_type,
+    device_serial = current_device$device_serial,
+    action_type = "station_decommissioned",
+    details = "Station decommissioned - monitoring stopped",
+    ports_updated = FALSE,
+    logged_by = ui_ask_whois_logging()
+  )
+  
+  if (isTRUE(log_result)) {
+    cat("✓ Decommissioning logged to maintenance\n")
+  }
+  
   return(TRUE)
 }
 
@@ -2349,9 +3068,31 @@ ui_reactivate_station <- function() {
   # Get unique stations from decommissioned devices
   decommissioned_stations <- unique(decommissioned$station_id)
   
-  # Build station options
-  station_options <- sapply(decommissioned_stations, function(sid) {
-    device_row <- decommissioned[decommissioned$station_id == sid, ][1, ]
+  # Filter out stations that have been reactivated (have active devices)
+  truly_decommissioned <- c()
+  for (sid in decommissioned_stations) {
+    station_devices <- metadata[metadata$station_id == sid, ]
+    active_statuses <- c("online", "local", "nonresponsive", "defunct")
+    has_active <- any(station_devices$status %in% active_statuses)
+    
+    if (!has_active) {
+      # No active devices - truly decommissioned
+      truly_decommissioned <- c(truly_decommissioned, sid)
+    }
+  }
+  
+  if (length(truly_decommissioned) == 0) {
+    cat("❌ No fully decommissioned stations found\n")
+    cat("   (All decommissioned stations have been reactivated)\n")
+    return(NULL)
+  }
+  
+  # Build station options from truly decommissioned stations
+  station_options <- sapply(truly_decommissioned, function(sid) {
+    station_decomm <- decommissioned[decommissioned$station_id == sid, ]
+    station_decomm <- station_decomm[order(as.POSIXct(station_decomm$deploy_datetime), 
+                                           decreasing = TRUE), ]
+    device_row <- station_decomm[1, ]
     paste0(sid, " (", device_row$site_full, ")")
   })
   
@@ -2363,7 +3104,12 @@ ui_reactivate_station <- function() {
   
   # Extract station_id
   station_id <- sub(" \\(.*\\)$", "", selected)
-  old_device <- decommissioned[decommissioned$station_id == station_id, ][1, ]
+  # Get decommissioned devices for this station and find the most recent
+  station_decommissioned <- decommissioned[decommissioned$station_id == station_id, ]
+  # Sort by deploy_datetime descending and take the most recent
+  station_decommissioned <- station_decommissioned[order(as.POSIXct(station_decommissioned$deploy_datetime), 
+                                                         decreasing = TRUE), ]
+  old_device <- station_decommissioned[1, ]
   
   cat("✓ Station:", station_id, "\n")
   cat("  Site:", old_device$site_full, "\n")
@@ -2377,7 +3123,7 @@ ui_reactivate_station <- function() {
   
   cat("--- REACTIVATION TYPE ---\n\n")
   cat("Reactivate at:\n")
-  cat("  1. Same location (", old_device$lat, ", ", old_device$lon, ")\n", sep = "")
+  cat("  1. Previous location (", old_device$lat, ", ", old_device$lon, ")\n", sep = "")
   cat("  2. New location (different coordinates)\n")
   cat("  q. Cancel\n")
   cat("\nEnter selection: ")
@@ -2405,11 +3151,11 @@ ui_reactivate_station <- function() {
   ################################################################################
   
   if (same_location) {
-    # Use ui_add_device with preset station
+    # Same location - just add device and update location to match old
     cat("--- ADD DEVICE FOR REACTIVATION ---\n")
     cat("Station: ", station_id, " (", old_device$site_full, ")\n\n", sep = "")
     
-    add_result <- ui_add_device(is_new_station = FALSE, preset_station_id = station_id)
+    add_result <- ui_add_device(is_new_station = FALSE, preset_station_id = station_id, suppress_logging = TRUE)
     
     if (is.null(add_result)) {
       cat("❌ Reactivation cancelled\n")
@@ -2418,7 +3164,7 @@ ui_reactivate_station <- function() {
     
     new_device_serial <- add_result$device_serial
     
-    # Update location to match old station (using helper function)
+    # Update location to match old station coordinates
     result <- update_device_location(new_device_serial, 
                                      old_device$lat, 
                                      old_device$lon, 
@@ -2431,7 +3177,7 @@ ui_reactivate_station <- function() {
     }
     
   } else {
-    # New location - use relocate_station logic
+    # New location - get coordinates first, then add device, then update location
     cat("--- NEW LOCATION FOR REACTIVATION ---\n\n")
     
     ## New latitude
@@ -2462,82 +3208,51 @@ ui_reactivate_station <- function() {
       }
     }
     
-    ## New elevation (optional)
-    cat("\nEnter NEW elevation in meters (or press Enter to skip):\n")
-    elev_input <- trimws(readline())
-    if (elev_input == "") {
-      new_elev <- NA
-      cat("✓ No elevation recorded\n")
-    } else {
-      new_elev <- suppressWarnings(as.numeric(elev_input))
-      if (!is.na(new_elev)) {
-        cat("✓ New elevation:", new_elev, "m\n")
-      } else {
-        cat("⚠️  Invalid number, skipping elevation\n")
-        new_elev <- NA
-      }
-    }
+    # Add device (ui_add_device will handle deploy datetime, status, download approval)
+    cat("\n--- ADD DEVICE FOR REACTIVATION ---\n")
+    cat("Station:", station_id, "(", old_device$site_full, ")\n\n")
     
-    ## Deploy datetime
-    deploy_datetime <- ui_prompt_datetime(
-      "When was station reactivated?",
-      allow_now = TRUE,
-      timezone = old_device$timezone
-    )
+    add_result <- ui_add_device(is_new_station = FALSE, preset_station_id = station_id, suppress_logging = TRUE)
     
-    if (is.null(deploy_datetime)) {
-      cat("❌ Cancelled\n")
+    if (is.null(add_result)) {
+      cat("❌ Device not added - reactivation cancelled\n")
       return(NULL)
     }
-    cat("✓ Deploy datetime:", format(deploy_datetime), "\n")
     
-    ## Status
-    cat("\n")
-    existing_statuses <- get_metadata_unique_values("status")
-    # Filter out decommissioned (can't reactivate to decommissioned)
-    excluded_statuses <- c("decommissioned")
-    allowed_statuses <- setdiff(existing_statuses, excluded_statuses)
+    new_device_serial <- add_result$device_serial
     
-    new_status <- ui_select_or_specify("Select status:", allowed_statuses)
-    if (is.null(new_status)) {
-      cat("❌ Cancelled\n")
-      return(NULL)
-    }
-    cat("✓ Status:", new_status, "\n")
-    
-    ## Download approval
-    download_approved_response <- ui_yes_no("\nApprove station for download?", 
-                                            allow_quit = FALSE)
-    download_approved <- (download_approved_response == "Y")
-    cat("✓ Download approved:", download_approved, "\n")
-    
-    # Call relocate_station (which handles creating new row at new location)
-    result <- relocate_station(
-      station_id = station_id,
-      new_lat = new_lat,
-      new_lon = new_lon,
-      new_elev = new_elev,
-      deploy_datetime = deploy_datetime,
-      new_status = new_status,
-      download_approved = download_approved
-    )
+    # Update location to new coordinates
+    result <- update_device_location(new_device_serial, 
+                                     new_lat, 
+                                     new_lon, 
+                                     NA)  # No elevation
     
     if (!isTRUE(result)) {
-      cat("❌ Error:", result, "\n")
-      return(NULL)
+      cat("⚠️  Warning: Could not update location:", result, "\n")
+    } else {
+      cat("\n✓ Location set to new coordinates\n")
     }
-    
-    # Get the newly created device serial
-    metadata <- load_zentra_metadata()
-    station_devices <- metadata[metadata$station_id == station_id, ]
-    active_devices <- station_devices[is.na(station_devices$valid_to) | 
-                                        station_devices$status %in% c("online", "local"), ]
-    new_device_serial <- active_devices$device_serial[nrow(active_devices)]
   }
   
   cat("\n✓ Station reactivated successfully!\n")
   cat("  Station:", station_id, "\n")
   cat("  New device:", new_device_serial, "\n")
+  
+  # Log to maintenance
+  log_result <- create_maintenance_entry(
+    field_visit_date = Sys.Date(),
+    station_id = station_id,
+    station_type = old_device$station_type,
+    device_serial = new_device_serial,
+    action_type = "station_reactivated",
+    details = "Station reactivated with new device",
+    ports_updated = FALSE,
+    logged_by = ui_ask_whois_logging()
+  )
+  
+  if (isTRUE(log_result)) {
+    cat("✓ Reactivation logged to maintenance\n")
+  }
   
   # Return device_serial for potential port initialization
   return(list(device_serial = new_device_serial))
@@ -2575,143 +3290,158 @@ ui_initialize_ports <- function(device_serial) {
   
   cat("Configuring ports for device:", device_serial, "\n\n")
   
-  # Get existing sensor types for menu
-  existing_sensors <- get_unique_sensor_types()
-  
   ################################################################################
-  #### PORT-BY-PORT CONFIGURATION ####
+  #### PORT CONFIGURATION WITH RESTART LOOP ####
   ################################################################################
   
-  # Initialize port config data frame
-  port_config <- data.frame(
-    port = 1:6,
-    type = character(6),
-    sensor = character(6),
-    depth_cm = numeric(6),
-    status = character(6),
-    stringsAsFactors = FALSE
-  )
-  
-  for (port_num in 1:6) {
-    cat("\n--- PORT ", port_num, " ---\n", sep = "")
+  repeat {  # Allow restart if user wants to fix errors
     
-    # Ask if port is occupied
-    occupied <- ui_yes_no(paste0("Is port ", port_num, " occupied?"), allow_quit = FALSE)
+    # Get existing sensor types for menu
+    existing_sensors <- get_unique_sensor_types()
     
-    if (occupied == "N") {
-      # Empty port
-      port_config$type[port_num] <- "none"
-      port_config$sensor[port_num] <- "none"
-      port_config$depth_cm[port_num] <- NA
-      port_config$status[port_num] <- NA
-      cat("✓ Port ", port_num, ": Empty\n", sep = "")
-      next
-    }
-    
-    # Port is occupied - get sensor details
-    
-    ## Sensor type
-    sensor_type <- ui_select_or_specify(
-      paste0("Select sensor for port ", port_num, ":"),
-      existing_sensors,
-      allow_quit = FALSE
+    # Initialize port config data frame
+    port_config <- data.frame(
+      port = 1:6,
+      type = character(6),
+      sensor = character(6),
+      depth_cm = numeric(6),
+      status = character(6),
+      stringsAsFactors = FALSE
     )
-    port_config$sensor[port_num] <- sensor_type
     
-    ## Auto-determine type (vwc/weather)
-    sensor_category <- determine_sensor_type(sensor_type)
-    port_config$type[port_num] <- sensor_category
-    cat("✓ Sensor type detected:", sensor_category, "\n")
-    
-    ## Depth (only for VWC sensors typically)
-    has_depth <- ui_yes_no("Does this sensor measure at a specific depth?", 
-                           allow_quit = FALSE)
-    
-    if (has_depth == "Y") {
-      repeat {
-        cat("Enter depth in cm (e.g., 10, 30, 50): ")
-        depth_input <- trimws(readline())
-        depth <- suppressWarnings(as.numeric(depth_input))
-        
-        if (!is.na(depth) && depth >= 0) {
-          port_config$depth_cm[port_num] <- depth
-          cat("✓ Depth:", depth, "cm\n")
-          break
-        } else {
-          cat("⚠️  Invalid depth. Must be a positive number.\n")
-        }
+    for (port_num in 1:6) {
+      cat("\n--- PORT ", port_num, " ---\n", sep = "")
+      
+      # Ask if port is occupied
+      occupied <- ui_yes_no(paste0("Is port ", port_num, " occupied?"), allow_quit = FALSE)
+      
+      if (occupied == "N") {
+        # Empty port
+        port_config$type[port_num] <- "none"
+        port_config$sensor[port_num] <- "none"
+        port_config$depth_cm[port_num] <- NA
+        port_config$status[port_num] <- NA
+        cat("✓ Port ", port_num, ": Empty\n", sep = "")
+        next
       }
-    } else {
-      port_config$depth_cm[port_num] <- NA
-      cat("✓ No depth measurement\n")
+      
+      # Port is occupied - get sensor details
+      
+      ## Sensor type
+      sensor_type <- ui_select_or_specify(
+        paste0("Select sensor for port ", port_num, ":"),
+        existing_sensors,
+        allow_quit = FALSE
+      )
+      port_config$sensor[port_num] <- sensor_type
+      
+      ## Auto-determine type (vwc/weather)
+      sensor_category <- determine_sensor_type(sensor_type)
+      port_config$type[port_num] <- sensor_category
+      cat("✓ Sensor type detected:", sensor_category, "\n")
+      
+      ## Depth (only for VWC sensors typically)
+      has_depth <- ui_yes_no("Does this sensor measure at a specific depth?", 
+                             allow_quit = FALSE)
+      
+      if (has_depth == "Y") {
+        repeat {
+          cat("Enter depth in cm (e.g., 10, 30, 50): ")
+          depth_input <- trimws(readline())
+          depth <- suppressWarnings(as.numeric(depth_input))
+          
+          if (!is.na(depth) && depth >= 0) {
+            port_config$depth_cm[port_num] <- depth
+            cat("✓ Depth:", depth, "cm\n")
+            break
+          } else {
+            cat("⚠️  Invalid depth. Must be a positive number.\n")
+          }
+        }
+      } else {
+        port_config$depth_cm[port_num] <- NA
+        cat("✓ No depth measurement\n")
+      }
+      
+      ## Defunct status
+      is_working <- ui_yes_no("Is this sensor in good working order? (Considered 'defunct' - broken but still plugged in - if you say no)", 
+                              allow_quit = FALSE)
+      
+      if (is_working == "N") {
+        port_config$status[port_num] <- "defunct"
+        cat("⚠️  Sensor marked as defunct\n")
+      } else {
+        port_config$status[port_num] <- NA
+        cat("✓ Sensor is functional\n")
+      }
+      
+      cat("✓ Port ", port_num, ": ", sensor_type, 
+          if (!is.na(port_config$depth_cm[port_num])) paste0(" @ ", port_config$depth_cm[port_num], "cm") else "",
+          "\n", sep = "")
     }
     
-    ## Defunct status
-    is_working <- ui_yes_no("Is this sensor in good working order? (Considered 'defunct' - broken but still plugged in - if you say no)", 
-                            allow_quit = FALSE)
-    # Then below:
-    new_status <- NA
-    if (is_working == "N") {  # REVERSED
-      new_status <- "defunct"
-      cat("⚠️  Sensor marked as defunct\n")
-    } else {
-      cat("✓ Sensor is functional\n")
+    ################################################################################
+    #### VALIDATION ####
+    ################################################################################
+    
+    # Check for duplicate ports (shouldn't happen with this UI, but safety check)
+    occupied_ports <- port_config[port_config$sensor != "none", ]
+    if (nrow(occupied_ports) > 0) {
+      valid <- validate_no_duplicate_ports(occupied_ports)
+      if (!isTRUE(valid)) {
+        cat("❌ Error:", valid, "\n")
+        return(NULL)
+      }
     }
     
-    cat("✓ Port ", port_num, ": ", sensor_type, 
-        if (!is.na(port_config$depth_cm[port_num])) paste0(" @ ", port_config$depth_cm[port_num], "cm") else "",
-        "\n", sep = "")
-  }
-  
-  ################################################################################
-  #### VALIDATION ####
-  ################################################################################
-  
-  # Check for duplicate ports (shouldn't happen with this UI, but safety check)
-  occupied_ports <- port_config[port_config$sensor != "none", ]
-  if (nrow(occupied_ports) > 0) {
-    valid <- validate_no_duplicate_ports(occupied_ports)
-    if (!isTRUE(valid)) {
-      cat("❌ Error:", valid, "\n")
+    ################################################################################
+    #### SUMMARY & CONFIRMATION ####
+    ################################################################################
+    
+    cat("\n============================================\n")
+    cat("Port Configuration Summary:\n")
+    cat("============================================\n")
+    for (i in 1:6) {
+      if (port_config$sensor[i] == "none") {
+        cat("  Port ", i, ": Empty\n", sep = "")
+      } else {
+        cat("  Port ", i, ": ", port_config$sensor[i], 
+            " (", port_config$type[i], ")",
+            sep = "")
+        if (!is.na(port_config$depth_cm[i])) {
+          cat(" @ ", port_config$depth_cm[i], "cm", sep = "")
+        }
+        if (!is.na(port_config$status[i]) && port_config$status[i] == "defunct") {
+          cat(" [DEFUNCT]", sep = "")
+        }
+        cat("\n")
+      }
+    }
+    cat("============================================\n\n")
+    
+    # Warn if all ports are empty
+    if (all(port_config$sensor == "none")) {
+      cat("⚠️  WARNING: All ports are empty. Is this correct?\n")
+    }
+    
+    confirm <- ui_yes_no("Save this configuration?", allow_quit = FALSE)
+    
+    if (confirm == "Y") {
+      break  # Exit repeat loop, proceed to save
+    }
+    
+    # User said no - offer to restart or cancel
+    restart <- ui_yes_no("Start over and reconfigure all ports?", allow_quit = FALSE)
+    
+    if (restart != "Y") {
+      cat("❌ Cancelled - configuration not saved\n")
       return(NULL)
     }
-  }
-  
-  ################################################################################
-  #### SUMMARY & CONFIRMATION ####
-  ################################################################################
-  
-  cat("\n============================================\n")
-  cat("Port Configuration Summary:\n")
-  cat("============================================\n")
-  for (i in 1:6) {
-    if (port_config$sensor[i] == "none") {
-      cat("  Port ", i, ": Empty\n", sep = "")
-    } else {
-      cat("  Port ", i, ": ", port_config$sensor[i], 
-          " (", port_config$type[i], ")",
-          sep = "")
-      if (!is.na(port_config$depth_cm[i])) {
-        cat(" @ ", port_config$depth_cm[i], "cm", sep = "")
-      }
-      if (!is.na(port_config$status[i]) && port_config$status[i] == "defunct") {
-        cat(" [DEFUNCT]", sep = "")
-      }
-      cat("\n")
-    }
-  }
-  cat("============================================\n\n")
-  
-  # Warn if all ports are empty
-  if (all(port_config$sensor == "none")) {
-    cat("⚠️  WARNING: All ports are empty. Is this correct?\n")
-  }
-  
-  confirm <- ui_yes_no("Save this configuration?", allow_quit = FALSE)
-  if (confirm != "Y") {
-    cat("❌ Cancelled - configuration not saved\n")
-    return(NULL)
-  }
+    
+    cat("\n--- RESTARTING PORT CONFIGURATION ---\n")
+    # Loop continues, restarts from beginning
+    
+  }  # End repeat loop
   
   ################################################################################
   #### CALL LOGIC FUNCTION ####
@@ -2770,7 +3500,29 @@ ui_update_ports <- function() {
   #### GET CURRENT CONFIGURATION ####
   ################################################################################
   
-  current_config <- get_current_port_config(device_serial)
+  # Try to get current config - might not exist if never initialized
+  current_config <- tryCatch({
+    get_current_port_config(device_serial)
+  }, error = function(e) {
+    NULL
+  })
+  
+  # Check if device has never been configured
+  if (is.null(current_config)) {
+    cat("⚠️  This device has no port configuration yet.\n")
+    cat("   Use 'Initialize port configuration' instead.\n\n")
+    
+    init_now <- ui_yes_no("Initialize port configuration now?", allow_quit = FALSE)
+    
+    if (init_now == "Y") {
+      # Call initialize function
+      result <- ui_initialize_ports(device_serial)
+      return(result)
+    } else {
+      cat("❌ Cancelled - ports not configured\n")
+      return(NULL)
+    }
+  }
   
   cat("--- CURRENT PORT CONFIGURATION ---\n")
   for (i in 1:6) {
@@ -2816,188 +3568,219 @@ ui_update_ports <- function() {
   cat("✓ Change datetime:", format(change_datetime), "\n")
   
   ################################################################################
-  #### PORT-BY-PORT UPDATE ####
+  #### PORT-BY-PORT UPDATE WITH RESTART LOOP ####
   ################################################################################
   
-  # Get existing sensor types for menu
-  existing_sensors <- get_unique_sensor_types()
-  
-  # Initialize new config (will update as we go)
-  new_config <- current_config
-  changes_made <- character(6)  # Track what changed per port
-  
-  for (port_num in 1:6) {
-    cat("\n--- PORT ", port_num, " ---\n", sep = "")
+  repeat {  # Allow restart if user wants to fix errors
     
-    # Show current state
-    if (current_config$sensor[port_num] == "none") {
-      cat("Current: Empty\n")
-    } else {
-      cat("Current: ", current_config$sensor[port_num], sep = "")
-      if (!is.na(current_config$depth_cm[port_num])) {
-        cat(" @ ", current_config$depth_cm[port_num], "cm", sep = "")
-      }
-      if (!is.na(current_config$status[port_num]) && 
-          current_config$status[port_num] == "defunct") {
-        cat(" [DEFUNCT]", sep = "")
-      }
-      cat("\n")
-    }
+    # Get existing sensor types for menu
+    existing_sensors <- get_unique_sensor_types()
     
-    # Ask if changing this port
-    change_port <- ui_yes_no(paste0("Change port ", port_num, "?"), allow_quit = FALSE)
+    # Initialize new config (will update as we go)
+    new_config <- current_config
+    changes_made <- character(6)  # Track what changed per port
     
-    if (change_port == "N") {
-      changes_made[port_num] <- "no change"
-      next
-    }
-    
-    # User wants to change this port
-    
-    ## Ask if removing sensor or reconfiguring
-    occupied <- ui_yes_no(paste0("Will port ", port_num, " have a sensor in this configuration?"), 
-                          allow_quit = FALSE)
-    
-    if (occupied == "N") {
-      # Port being emptied
+    for (port_num in 1:6) {
+      cat("\n--- PORT ", port_num, " ---\n", sep = "")
+      
+      # Show current state
       if (current_config$sensor[port_num] == "none") {
-        cat("⚠️  Port was already empty - no change\n")
-        changes_made[port_num] <- "no change"
+        cat("Current: Empty\n")
       } else {
-        new_config$type[port_num] <- "none"
-        new_config$sensor[port_num] <- "none"
-        new_config$depth_cm[port_num] <- NA
-        new_config$status[port_num] <- NA
-        changes_made[port_num] <- "REMOVED"
-        cat("✓ Port ", port_num, " will be emptied\n", sep = "")
+        cat("Current: ", current_config$sensor[port_num], sep = "")
+        if (!is.na(current_config$depth_cm[port_num])) {
+          cat(" @ ", current_config$depth_cm[port_num], "cm", sep = "")
+        }
+        if (!is.na(current_config$status[port_num]) && 
+            current_config$status[port_num] == "defunct") {
+          cat(" [DEFUNCT]", sep = "")
+        }
+        cat("\n")
       }
-      next
+      
+      # Ask if changing this port
+      change_port <- ui_yes_no(paste0("Change port ", port_num, "?"), allow_quit = FALSE)
+      
+      if (change_port == "N") {
+        changes_made[port_num] <- "no change"
+        next
+      }
+      
+      # User wants to change this port
+      
+      ## Ask if removing sensor or reconfiguring
+      occupied <- ui_yes_no(paste0("Will port ", port_num, " have a sensor in this configuration?"), 
+                            allow_quit = FALSE)
+      
+      if (occupied == "N") {
+        # Port being emptied
+        if (current_config$sensor[port_num] == "none") {
+          cat("⚠️  Port was already empty - no change\n")
+          changes_made[port_num] <- "no change"
+        } else {
+          new_config$type[port_num] <- "none"
+          new_config$sensor[port_num] <- "none"
+          new_config$depth_cm[port_num] <- NA
+          new_config$status[port_num] <- NA
+          changes_made[port_num] <- "REMOVED"
+          cat("✓ Port ", port_num, " will be emptied\n", sep = "")
+        }
+        next
+      }
+      
+      # Port is occupied - get new sensor details
+      
+      ## Sensor type
+      sensor_type <- ui_select_or_specify(
+        paste0("Select sensor for port ", port_num, ":"),
+        existing_sensors,
+        allow_quit = FALSE
+      )
+      
+      ## Auto-determine type (vwc/weather)
+      sensor_category <- determine_sensor_type(sensor_type)
+      cat("✓ Sensor type detected:", sensor_category, "\n")
+      
+      ## Depth
+      has_depth <- ui_yes_no("Does this sensor measure at a specific depth?", 
+                             allow_quit = FALSE)
+      
+      new_depth <- NA
+      if (has_depth == "Y") {
+        repeat {
+          cat("Enter depth in cm (e.g., 10, 30, 50): ")
+          depth_input <- trimws(readline())
+          depth <- suppressWarnings(as.numeric(depth_input))
+          
+          if (!is.na(depth) && depth >= 0) {
+            new_depth <- depth
+            cat("✓ Depth:", depth, "cm\n")
+            break
+          } else {
+            cat("⚠️  Invalid depth. Must be a positive number.\n")
+          }
+        }
+      } else {
+        cat("✓ No depth measurement\n")
+      }
+      
+      ## Defunct status
+      is_working <- ui_yes_no("Is this sensor in good working order? (If you say no, considered 'defunct' - broken but still plugged in)", 
+                              allow_quit = FALSE)
+      
+      new_status <- NA
+      if (is_working == "N") {
+        new_status <- "defunct"
+        cat("⚠️  Sensor marked as defunct\n")
+      } else {
+        cat("✓ Sensor is functional\n")
+      }
+      
+      # Update config
+      new_config$type[port_num] <- sensor_category
+      new_config$sensor[port_num] <- sensor_type
+      new_config$depth_cm[port_num] <- new_depth
+      new_config$status[port_num] <- new_status
+      
+      # Determine what changed
+      if (current_config$sensor[port_num] == "none") {
+        changes_made[port_num] <- "ADDED"
+      } else {
+        changes_made[port_num] <- "CHANGED"
+      }
+      
+      cat("✓ Port ", port_num, " updated\n", sep = "")
     }
     
-    # Port is occupied - get new sensor details
+    ################################################################################
+    #### VALIDATION ####
+    ################################################################################
     
-    ## Sensor type
-    sensor_type <- ui_select_or_specify(
-      paste0("Select sensor for port ", port_num, ":"),
-      existing_sensors,
-      allow_quit = FALSE
-    )
+    # Check for duplicate ports
+    occupied_ports <- new_config[new_config$sensor != "none", ]
+    if (nrow(occupied_ports) > 0) {
+      valid <- validate_no_duplicate_ports(occupied_ports)
+      if (!isTRUE(valid)) {
+        cat("❌ Error:", valid, "\n")
+        return(NULL)
+      }
+    }
     
-    ## Auto-determine type (vwc/weather)
-    sensor_category <- determine_sensor_type(sensor_type)
-    cat("✓ Sensor type detected:", sensor_category, "\n")
+    ################################################################################
+    #### SUMMARY & CONFIRMATION ####
+    ################################################################################
     
-    ## Depth
-    has_depth <- ui_yes_no("Does this sensor measure at a specific depth?", 
-                           allow_quit = FALSE)
+    cat("\n============================================\n")
+    cat("Port Configuration Changes:\n")
+    cat("============================================\n")
+    cat("Change datetime: ", format(change_datetime), "\n\n", sep = "")
     
-    new_depth <- NA
-    if (has_depth == "Y") {
-      repeat {
-        cat("Enter depth in cm (e.g., 10, 30, 50): ")
-        depth_input <- trimws(readline())
-        depth <- suppressWarnings(as.numeric(depth_input))
+    any_changes <- FALSE
+    for (i in 1:6) {
+      if (changes_made[i] != "no change" && changes_made[i] != "") {
+        any_changes <- TRUE
+        cat("  Port ", i, " [", changes_made[i], "]: ", sep = "")
         
-        if (!is.na(depth) && depth >= 0) {
-          new_depth <- depth
-          cat("✓ Depth:", depth, "cm\n")
-          break
+        if (new_config$sensor[i] == "none") {
+          cat("Empty\n")
         } else {
-          cat("⚠️  Invalid depth. Must be a positive number.\n")
+          cat(new_config$sensor[i], " (", new_config$type[i], ")", sep = "")
+          if (!is.na(new_config$depth_cm[i])) {
+            cat(" @ ", new_config$depth_cm[i], "cm", sep = "")
+          }
+          if (!is.na(new_config$status[i]) && new_config$status[i] == "defunct") {
+            cat(" [DEFUNCT]", sep = "")
+          }
+          cat("\n")
         }
       }
-    } else {
-      cat("✓ No depth measurement\n")
     }
     
-    ## Defunct status
-    is_working <- ui_yes_no("Is this sensor in good working order? (If you say no, considered 'defunct' - broken but still plugged in)", 
-                            allow_quit = FALSE)
-    
-    # Then below:
-    new_status <- NA
-    if (is_working == "N") {  # REVERSED
-      new_status <- "defunct"
-      cat("⚠️  Sensor marked as defunct\n")
-    } else {
-      cat("✓ Sensor is functional\n")
+    if (!any_changes) {
+      cat("  No changes made\n")
     }
+    cat("============================================\n\n")
     
-    # Update config
-    new_config$type[port_num] <- sensor_category
-    new_config$sensor[port_num] <- sensor_type
-    new_config$depth_cm[port_num] <- new_depth
-    new_config$status[port_num] <- new_status
-    
-    # Determine what changed
-    if (current_config$sensor[port_num] == "none") {
-      changes_made[port_num] <- "ADDED"
-    } else {
-      changes_made[port_num] <- "CHANGED"
-    }
-    
-    cat("✓ Port ", port_num, " updated\n", sep = "")
-  }
-  
-  ################################################################################
-  #### VALIDATION ####
-  ################################################################################
-  
-  # Check for duplicate ports
-  occupied_ports <- new_config[new_config$sensor != "none", ]
-  if (nrow(occupied_ports) > 0) {
-    valid <- validate_no_duplicate_ports(occupied_ports)
-    if (!isTRUE(valid)) {
-      cat("❌ Error:", valid, "\n")
+    if (!any_changes) {
+      cat("⚠️  No ports were changed. Configuration not updated.\n")
       return(NULL)
     }
-  }
-  
-  ################################################################################
-  #### SUMMARY & CONFIRMATION ####
-  ################################################################################
-  
-  cat("\n============================================\n")
-  cat("Port Configuration Changes:\n")
-  cat("============================================\n")
-  cat("Change datetime: ", format(change_datetime), "\n\n", sep = "")
-  
-  any_changes <- FALSE
-  for (i in 1:6) {
-    if (changes_made[i] != "no change" && changes_made[i] != "") {
-      any_changes <- TRUE
-      cat("  Port ", i, " [", changes_made[i], "]: ", sep = "")
-      
-      if (new_config$sensor[i] == "none") {
-        cat("Empty\n")
+    
+    confirm <- ui_yes_no("Save these changes?", allow_quit = FALSE)
+    
+    if (confirm == "Y") {
+      break  # Exit repeat loop, proceed to save
+    }
+    
+    # User said no - offer to restart or cancel
+    restart <- ui_yes_no("Start over and reconfigure ports again?", allow_quit = FALSE)
+    
+    if (restart != "Y") {
+      cat("❌ Cancelled - configuration not updated\n")
+      return(NULL)
+    }
+    
+    cat("\n--- RESTARTING PORT UPDATE ---\n")
+    cat("--- CURRENT PORT CONFIGURATION ---\n")
+    for (i in 1:6) {
+      if (current_config$sensor[i] == "none") {
+        cat("  Port ", i, ": Empty\n", sep = "")
       } else {
-        cat(new_config$sensor[i], " (", new_config$type[i], ")", sep = "")
-        if (!is.na(new_config$depth_cm[i])) {
-          cat(" @ ", new_config$depth_cm[i], "cm", sep = "")
+        cat("  Port ", i, ": ", current_config$sensor[i], 
+            " (", current_config$type[i], ")", sep = "")
+        if (!is.na(current_config$depth_cm[i])) {
+          cat(" @ ", current_config$depth_cm[i], "cm", sep = "")
         }
-        if (!is.na(new_config$status[i]) && new_config$status[i] == "defunct") {
+        if (!is.na(current_config$status[i]) && current_config$status[i] == "defunct") {
           cat(" [DEFUNCT]", sep = "")
         }
         cat("\n")
       }
     }
-  }
-  
-  if (!any_changes) {
-    cat("  No changes made\n")
-  }
-  cat("============================================\n\n")
-  
-  if (!any_changes) {
-    cat("⚠️  No ports were changed. Configuration not updated.\n")
-    return(NULL)
-  }
-  
-  confirm <- ui_yes_no("Save these changes?", allow_quit = FALSE)
-  if (confirm != "Y") {
-    cat("❌ Cancelled - configuration not updated\n")
-    return(NULL)
-  }
+    cat("\n")
+    # Loop continues, restarts port configuration
+    
+  }  # End repeat loop
   
   ################################################################################
   #### CALL LOGIC FUNCTION ####
@@ -3010,7 +3793,23 @@ ui_update_ports <- function() {
     return(NULL)
   }
   
-  cat("\n✓ Port configuration updated successfully!\n")
+  cat("\n✓ Port configuration updated successfully\n")
+  
+  # Log to maintenance
+  log_result <- create_maintenance_entry(
+    field_visit_date = as.Date(change_datetime),
+    station_id = device_row$station_id,
+    station_type = device_row$station_type,
+    device_serial = device_serial,
+    action_type = "port_config_change",
+    details = "Port configuration updated",
+    ports_updated = TRUE,
+    logged_by = ui_ask_whois_logging()
+  )
+  
+  if (isTRUE(log_result)) {
+    cat("✓ Port configuration change logged to maintenance\n")
+  }
   
   return(TRUE)
 }
@@ -3567,7 +4366,8 @@ ui_remove_device <- function() {
   
   # Extract station_id
   station_id <- sub(" \\(.*\\)$", "", selected)
-  station_devices <- get_station_devices(station_id)
+  station_devices <- get_active_devices_or_notify(station_id, "device removal")
+  if (is.null(station_devices)) return(NULL)
   cat("✓ Station:", station_id, "\n\n")
   
   # Show devices at this station
@@ -3959,6 +4759,7 @@ metadata_manager <- function() {
         cat("  5. Device removal (taking device out of service)\n")
         cat("  6. Station relocated (moved to new location)\n")
         cat("  7. Station decommissioned (entire station shut down)\n")
+        cat("  8. Field surveyed elevation of station or loggers\n")
         cat("  q. Back to main menu\n")
         
         work_choice <- trimws(readline())
@@ -4097,7 +4898,7 @@ metadata_manager <- function() {
         }
         
         ### Option 6: Station relocated
-        else if (work_choice == "5") {
+        else if (work_choice == "6") {
           result <- ui_relocate_station()
           
           if (!is.null(result)) {
@@ -4110,7 +4911,7 @@ metadata_manager <- function() {
         }
         
         ### Option 7: Station decommissioned
-        else if (work_choice == "6") {
+        else if (work_choice == "7") {
           result <- ui_decommission_station()
           
           if (!is.null(result)) {
@@ -4120,6 +4921,17 @@ metadata_manager <- function() {
           } else {
             next
           }
+        }
+        
+        ### Option 8: Surveyed elevation of station or logger
+        else if (work_choice == "8") {
+          result <- ui_survey_elevations()
+          
+          if (!is.null(result)) {
+            cat("\n✓ Elevation survey complete\n")
+          }
+          # Continue to next iteration (allow more work)
+          next
         }
         
         else {

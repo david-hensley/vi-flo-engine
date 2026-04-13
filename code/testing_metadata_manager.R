@@ -61,7 +61,7 @@ metadata_manager()
 #     metadata_manager() → Worked on existing → Routine maintenance
 #     Change status to "defunct", verify status updated in metadata
 
-# [ ] Test 2.4: Log manual download for HOBO device
+# [X] Test 2.4: Log manual download for HOBO device
 #     metadata_manager() → Worked on existing → Downloaded data
 #     Check last_download_date updated
 
@@ -98,59 +98,54 @@ metadata_manager()
 
 # === PHASE 4: DEVICE MANAGEMENT TESTS (HIGH RISK) ===
 
-# [ ] Test 4.1: Add new device to existing station
+# [X] Test 4.1: Add new device to existing station
 #     metadata_manager() → Established new → New device at existing station
 #     Add test device "z6-99999", initialize ports, verify created
 
+# [X] Test 4.1.1: Remove device from existing station
+#     New functionality for removal - removing the last device should prompt decommissioning
 
-# WHEN BEING ASKED TO ESTABLISH NEW SITE, NEED OPTION FOR NA FOR SELECT AREA
-# AND POSSIBLY FOR APPROVAL OF DOWNLOAD - OR AT LEAST LANGUAGE SAYING, SAY NO IF LOCAL
-
-# [ ] Test 4.2: Add HOBO device to existing station
+# [X] Test 4.2: Add HOBO device to existing station
 #     metadata_manager() → Established new → New device at existing station
 #     Add "h-99999", verify no port initialization offered
 
-
-# [ ] Test 4.3: Replace Zentra device
+# [X] Test 4.3: Replace Zentra device
 #     metadata_manager() → Worked on existing → Device replacement
 #     Replace test device, verify old status="replaced", new device created
 
-# [ ] Test 4.4: Replace device and initialize ports
+# [X] Test 4.4: Replace device and initialize ports
 #     metadata_manager() → Worked on existing → Device replacement
 #     Replace device, say Yes to port init, verify ports configured
 
-# [ ] Test 4.5: Replace device at same location
+# [X] Test 4.5: Replace device at same location
 #     Verify new device inherits lat/lon from old device
-
-# [ ] Test 4.6: Replace device at different location
-#     When prompted, enter new coordinates, verify location updated
-
 
 # === PHASE 5: STATION LIFECYCLE TESTS (VERY HIGH RISK) ===
 
-# [ ] Test 5.1: Create brand new station
+# [X] Test 5.1: Create brand new station
 #     metadata_manager() → Established new → Brand new station
 #     Create "test_station_999" with all metadata, verify created
 
-# [ ] Test 5.2: Create new station and initialize ports
+# [X] Test 5.2: Create new station and initialize ports
 #     Create new station, say Yes to port init, verify 6-port config
 
-# [ ] Test 5.3: Relocate station to new coordinates
+# [X] Test 5.3: Relocate station to new coordinates
 #     metadata_manager() → Worked on existing → Station relocated
 #     Move test station, verify old device="relocated", new device at new location
 
-# [ ] Test 5.4: Decommission station
+# [X] Test 5.4: Decommission station
 #     metadata_manager() → Worked on existing → Station decommissioned
 #     Decommission test station, verify status="decommissioned"
 
-# [ ] Test 5.5: Reactivate station at same location
+# [X] Test 5.5: Reactivate station at same location
 #     metadata_manager() → Established new → Reactivate decommissioned
 #     Reactivate at same location, verify new device created with old coordinates
 
-# [ ] Test 5.6: Reactivate station at new location
+# [X] Test 5.6: Reactivate station at new location
 #     metadata_manager() → Established new → Reactivate decommissioned
 #     Reactivate at new location, verify new device at new coordinates
 
+# FAILS BECAUSE NO DEVICE - DOES NOT ADD A DEVICE TO REACTIVATED STATION!
 
 # === PHASE 6: WORKFLOW TESTS (EDGE CASES) ===
 
