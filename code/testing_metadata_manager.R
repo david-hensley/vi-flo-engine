@@ -2,14 +2,35 @@
 source(file.path(Sys.getenv("VI_FLO_ENGINE_ROOT"), "code/functions/setup_functions.R"))
 load_functions("metadata_manager")
 load_functions("metadata")
+load_functions("validation")
 
 ################################################################################
-# To backup (run once at start):
-#source(file.path(Sys.getenv("VI_FLO_ENGINE_ROOT"), "tools", "backup_directory_for_testing.R"))
-# To restore (run anytime to reset):
-source(file.path(Sys.getenv("VI_FLO_ENGINE_ROOT"), "tools", "restore_directory_from_backup.R"))
+# TESTING WORKFLOW
 ################################################################################
-metadata_manager()
+#
+# 1. BACKUP (run once at start of testing session):
+#    source(file.path(Sys.getenv("VI_FLO_ENGINE_ROOT"), "tools", "backup_directory_for_testing.R"))
+#
+# 2. VALIDATE BASELINE (confirm starting state is clean):
+#    validate_metadata()
+#
+# 3. RUN TEST:
+#    metadata_manager()
+#
+# 4. VALIDATE AFTER TEST:
+#    validate_metadata()
+#
+# 5. RESTORE (anytime to reset):
+#    source(file.path(Sys.getenv("VI_FLO_ENGINE_ROOT"), "tools", "restore_directory_from_backup.R"))
+#
+################################################################################
+
+# Quick validation check
+cat("Running baseline validation...\n")
+baseline <- validate_metadata()
+
+# Launch manager (comment out if just validating)
+# metadata_manager()
 
 
 ################################################################################

@@ -154,16 +154,21 @@ format_datetime_safe <- function(dt_col) {
 #' @param tz Character. Timezone name e.g. "America/Puerto_Rico"
 #' @return POSIXct vector. Datetime objects
 parse_datetime_flexible <- function(datetime_vector, tz) {
-  # Try R's ISO format first (YYYY-MM-DD HH:MM:SS)
+  # Handle mixed formats: try each format on elements that haven't parsed yet
   result <- as.POSIXct(datetime_vector, format = "%Y-%m-%d %H:%M:%S", tz = tz)
-  # If all failed, try Excel format with AM/PM (M/D/YYYY H:MM:SS AM/PM)
-  if (all(is.na(result))) {
-    result <- as.POSIXct(datetime_vector, format = "%m/%d/%Y %I:%M %p", tz = tz)
+  
+  # For any that failed, try Excel format with AM/PM (M/D/YYYY H:MM:SS AM/PM)
+  still_na <- is.na(result) & !is.na(datetime_vector) & datetime_vector != ""
+  if (any(still_na)) {
+    result[still_na] <- as.POSIXct(datetime_vector[still_na], format = "%m/%d/%Y %I:%M %p", tz = tz)
   }
-  # If still all failed, try Excel 24-hour format (M/D/YYYY HH:MM:SS)
-  if (all(is.na(result))) {
-    result <- as.POSIXct(datetime_vector, format = "%m/%d/%Y %H:%M", tz = tz)
+  
+  # For any still failed, try Excel 24-hour format (M/D/YYYY HH:MM)
+  still_na <- is.na(result) & !is.na(datetime_vector) & datetime_vector != ""
+  if (any(still_na)) {
+    result[still_na] <- as.POSIXct(datetime_vector[still_na], format = "%m/%d/%Y %H:%M", tz = tz)
   }
+  
   return(result)
 }
 
@@ -172,11 +177,14 @@ parse_datetime_flexible <- function(datetime_vector, tz) {
 #' @param date_vector Character vector. Date strings in either YYYY-MM-DD or M/D/YYYY format
 #' @return Date vector. Date objects
 parse_date_flexible <- function(date_vector) {
-  # Try R's ISO format first (YYYY-MM-DD)
+  # Handle mixed formats: try ISO first, then Excel for any that failed
   result <- as.Date(date_vector, format = "%Y-%m-%d")
-  # If all failed, try Excel's format (M/D/YYYY)
-  if (all(is.na(result))) {
-    result <- as.Date(date_vector, format = "%m/%d/%Y")
+  
+  # For any that failed (NA), try Excel's format (M/D/YYYY)
+  still_na <- is.na(result) & !is.na(date_vector) & date_vector != ""
+  if (any(still_na)) {
+    result[still_na] <- as.Date(date_vector[still_na], format = "%m/%d/%Y")
   }
+  
   return(result)
 }
