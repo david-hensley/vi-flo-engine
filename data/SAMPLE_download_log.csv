@@ -1,18 +1,2 @@
-timestamp,station,start_date,end_date,n_records,filepath
-1/26/2026 14:57,pfc1_vwc1,7/13/2021 13:15,7/20/2021 13:15,1344,internal/raw/weather/pfc1_vwc1_20210713_20210720_raw.rds
-,,,,,
-,,,,,
-,,,,,
-,,,,,
-,,,,,
-,,,,,
-,,,,,
-,,,,,
-,,,,,
-,,,,,
-,,,,,
-,,,,,
-,,,,,
-,,,,,
-,,,,,
-,,,,,
+timestamp,station,start_date,end_date,n_records,filepath,download_type
+1/26/2026 14:57,pfc1_vwc1,7/13/2021 13:15,7/20/2021 13:15,1344,internal/raw/vwc/pfc1_vwc1_20210713_20210720_raw.rds,automatic

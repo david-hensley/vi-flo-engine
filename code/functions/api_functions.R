@@ -142,11 +142,15 @@ safe_download_zentra_station <- function(station, start = NULL, end = NULL, all 
     dir.create(station_dir, recursive = TRUE)
     message("Created directory: ", station_dir)
   }
-  # Generate filename
-  start_date <- format(start, "%Y%m%d")
-  end_date <- format(end, "%Y%m%d")
-  filename <- paste0(station, "_", start_date, "_", end_date, "_raw.rds")
+  # Generate filename via the shared helper, so the automated and manual
+  # ingest paths cannot drift apart. See file_naming_functions.R.
+  if (!exists("build_raw_filename")) load_functions("file_naming")
+  filename <- build_raw_filename(station, start, end, ext = "rds")
   filepath <- file.path(station_dir, filename)
+
+  # Warn if this range overlaps data already archived for this station.
+  # Deliberately non-blocking: boundary-day overlap is normal.
+  check_raw_overlap(station, start, end, dir = station_dir)
   # Save
   saveRDS(data, filepath)
   message("✓ Saved to: ", filepath)
@@ -164,6 +168,11 @@ safe_download_zentra_station <- function(station, start = NULL, end = NULL, all 
     end_date = format(end, "%Y-%m-%d %H:%M:%S"),
     n_records = nrow(data),
     filepath = filepath_relative,
+    # "automatic" = pulled through the Zentra API by this function.
+    # "manual" = offloaded by hand in the field; written by the local
+    # ingest workflow. Column order must match download_log.csv, since
+    # the append below uses col.names = FALSE.
+    download_type = "automatic",
     stringsAsFactors = FALSE
   )
   log_file <- file.path(wds("meta_internal"), "download_log.csv")

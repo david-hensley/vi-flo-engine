@@ -1,8 +1,8 @@
-"named_path","path"
-"backup","backup"
-"external_raw_weather","external/raw/weather"
-"internal_raw_streamflow","internal/raw/streamflow"
-"internal_raw_vwc","internal/raw/vwc"
-"internal_raw_weather","internal/raw/weather"
-"meta_external","metadata/external"
-"meta_internal","metadata/internal"
+named_path,path
+backup,backup
+external_raw_weather,external/raw/weather
+internal_raw_hydro,internal/raw/streamflow
+internal_raw_vwc,internal/raw/vwc
+internal_raw_weather,internal/raw/weather
+meta_external,metadata/external
+meta_internal,metadata/internal

@@ -9,6 +9,47 @@ All notable changes to the VI-FLO Engine project are documented here.
 - `metadata_manager_functions.R`
   - Function code file for `metadata_manager.R`
   - Separates UI functions from core functions
+- `file_naming_functions.R`
+  - Single source of truth for raw data file naming, used by both the automated
+    API path and the manual field-offload path so the two cannot drift apart
+  - `build_raw_filename()` builds `{station}_{YYYYMMDD}_{YYYYMMDD}_raw.{ext}`
+  - `parse_raw_filename()` reads a filename back into station and date range,
+    parsing right-anchored so station IDs containing underscores are handled
+  - `list_raw_files()` inventories archived files for a station
+  - `check_raw_overlap()` warns when a proposed date range overlaps already
+    archived data. Non-blocking by design: boundary-day overlap is normal for a
+    logger downloaded and redeployed the same day, and duplicate records are
+    resolved at processing by deduplicating on timestamp
+  - `coerce_datetime_flexible()` accepts POSIXct, Date, text, or an Excel serial
+    number, chaining `parse_datetime_flexible()` then `parse_date_flexible()`
+- `download_log.csv` and `SAMPLE_download_log.csv`
+  - Added `$download_type` column - `automatic` for ZentraCloud API downloads,
+    `manual` for data offloaded by hand from a logger in the field
+- `/tools/migrate_download_type.R`
+  - One-time migration adding `$download_type` to an existing download log and
+    backfilling all prior rows as `automatic`. Backs up before writing, verifies
+    after, and is safe to run twice
+
+### Changed
+- `default_datamap.csv`
+  - Renamed named path `internal_raw_streamflow` to `internal_raw_hydro` to match
+    the `station_type` values used in device metadata. Underlying path unchanged
+  - Fixes path resolution for hydro stations, which failed because
+    `safe_download_zentra_station()` builds the key as
+    `paste0("internal_raw_", station_type)`
+- `api_functions.R`
+  - `safe_download_zentra_station()` now delegates filename generation to
+    `build_raw_filename()` instead of formatting its own string
+  - Runs `check_raw_overlap()` before saving
+  - Records `download_type = "automatic"` in the download log
+- `DATA_DICTIONARY.md`
+  - Documented `$download_type`
+  - Clarified that `$last_update` is `NA` for local (offline) devices by design -
+    it records remote contact, which a HOBO logger structurally cannot report
+
+### Fixed
+- `SAMPLE_download_log.csv`
+  - Corrected a sample row filing a `_vwc1` station under `internal/raw/weather/`
 
 ---
 
