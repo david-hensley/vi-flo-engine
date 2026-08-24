@@ -29,6 +29,16 @@ All notable changes to the VI-FLO Engine project are documented here.
   - One-time migration adding `$download_type` to an existing download log and
     backfilling all prior rows as `automatic`. Backs up before writing, verifies
     after, and is safe to run twice
+- `pending_ingest_functions.R`
+  - Tracks field data offloads that have been started but not finished, so an
+    interrupted download workflow is remembered by the system rather than by a
+    person - the failure mode VI-FLO exists to prevent
+  - `pending_ingest.csv` records station, device, field visit, and the stage
+    reached; nothing is written to the download log or `last_record_date`
+    until data is genuinely archived
+  - `check_pending()` surfaces outstanding offloads and flags stale ones
+  - Deferred writes rather than transactional rollback: nothing is ever
+    un-written, so nothing can be un-written incorrectly
 
 ### Changed
 - `default_datamap.csv`
