@@ -6,6 +6,19 @@ All notable changes to the VI-FLO Engine project are documented here.
 ## [v0.5.0] (unreleased)
 
 ### Added
+- `local_ingest_functions.R`
+  - Interactive workflow for archiving manually-offloaded data (HOBO shuttle
+    readouts, local Zentra downloads)
+  - Instruction text held in clearly-bannered constants for easy editing
+  - Detects the datetime column rather than assuming a position, since Onset's
+    export format changed with the move to the LI-COR platform
+  - Time-anchored scan helps locate a mis-saved export without pointing the
+    user at machine-generated files
+  - `update_last_record_date()` - did not previously exist
+- `tools/launcher/`
+  - RStudio project and `.Rprofile` that launch the metadata manager directly
+    on double-click, via the `rstudio.sessionInit` hook. Batch files cannot do
+    this because `readline()` returns immediately in non-interactive R
 - `metadata_manager_functions.R`
   - Function code file for `metadata_manager.R`
   - Separates UI functions from core functions
@@ -60,6 +73,10 @@ All notable changes to the VI-FLO Engine project are documented here.
 ### Fixed
 - `SAMPLE_download_log.csv`
   - Corrected a sample row filing a `_vwc1` station under `internal/raw/weather/`
+- `file_naming_functions.R`
+  - `%Y` silently accepted two-digit years, so HOBOware's default `MM/DD/YY`
+    export parsed "03/02/26" as the year 26 AD. Now detected and re-parsed,
+    with a hard guard rejecting any year outside 1970-2100
 
 ---
 

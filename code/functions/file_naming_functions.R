@@ -56,6 +56,47 @@ coerce_datetime_flexible <- function(x, tz = NULL) {
     }
   }
 
+  # %Y silently accepts a two-digit year and takes it literally, so
+  # "03/02/26" parses as the year 26 AD. HOBOware's default export format is
+  # MM/DD/YY, so this would otherwise corrupt every logger file we ingest.
+  # Detect implausible years and re-parse with two-digit-year formats.
+  yrs <- as.numeric(format(parsed, "%Y"))
+  if (any(!is.na(yrs) & (yrs < 1970 | yrs > 2100))) {
+    two_digit_formats <- c(
+      "%m/%d/%y %I:%M:%S %p",
+      "%m/%d/%y %H:%M:%S",
+      "%m/%d/%y %I:%M %p",
+      "%m/%d/%y %H:%M",
+      "%m/%d/%y",
+      "%y-%m-%d %H:%M:%S",
+      "%d/%m/%y %H:%M:%S"
+    )
+    for (fmt in two_digit_formats) {
+      attempt <- suppressWarnings(
+        as.POSIXct(as.character(x), format = fmt, tz = tz)
+      )
+      att_yrs <- as.numeric(format(attempt, "%Y"))
+      # Accept only if it parses at least as much AND yields sane years
+      if (sum(!is.na(attempt)) >= sum(!is.na(parsed)) &&
+          all(is.na(att_yrs) | (att_yrs >= 1970 & att_yrs <= 2100))) {
+        parsed <- attempt
+        break
+      }
+    }
+  }
+
+  # Final guard: never hand back a date that cannot be real. Silently wrong
+  # dates are far more damaging than a refusal, because they propagate into
+  # filenames and the download log.
+  yrs <- as.numeric(format(parsed, "%Y"))
+  bad <- !is.na(yrs) & (yrs < 1970 | yrs > 2100)
+  if (any(bad)) {
+    stop("Parsed an implausible date (year ", yrs[which(bad)[1]], ") from '",
+         as.character(x)[which(bad)[1]], "'. The date format in this file was ",
+         "not recognised - check whether it uses an unusual layout.",
+         call. = FALSE)
+  }
+
   if (any(is.na(parsed))) {
     stop("Could not parse datetime: '", as.character(x)[which(is.na(parsed))[1]],
          "'. Expected a date (2026-01-31) or datetime (2026-01-31 14:30:00). ",
