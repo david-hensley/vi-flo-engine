@@ -397,7 +397,7 @@ update_station_status <- function(station_id, new_status) {
       station_devices <- metadata[metadata$station_id == station_id, ]
       
       # Check if any active devices exist
-      active_statuses <- c("online", "local", "nonresponsive", "defunct")
+      active_statuses <- c("online", "local", "manual", "nonresponsive", "defunct")
       active_devices <- station_devices[station_devices$status %in% active_statuses, ]
       
       if (nrow(active_devices) > 0) {
@@ -1242,9 +1242,16 @@ ui_prompt_datetime <- function(prompt, allow_now = TRUE, allow_quit = TRUE,
 ui_prompt_status_change <- function(current_status, allow_quit = TRUE, restrict_to_device_level = FALSE) {
   cat("\nCurrent status: ", current_status, "\n", sep = "")
   cat("\nStatus options:\n")
-  cat("  online/local     = working normally\n")
+  cat("  online           = working, reports to the cloud over a cellular\n")
+  cat("                     connection\n")
+  cat("  local            = working, but out of cellular service - data\n")
+  cat("                     reaches the cloud only when offloaded on site\n")
+  cat("                     (e.g. Bluetooth) and uploaded\n")
+  cat("  manual           = working, no cloud at all - data comes off by\n")
+  cat("                     shuttle or cable and is archived by hand\n")
   cat("  defunct          = broken but still deployed\n")
-  cat("  nonresponsive    = device not communicating\n")
+  cat("  nonresponsive    = should be communicating with the cloud but is\n")
+  cat("                     not, for an unknown reason\n")
   
   if (!restrict_to_device_level) {
     # Show all statuses
@@ -1269,7 +1276,7 @@ ui_prompt_status_change <- function(current_status, allow_quit = TRUE, restrict_
   
   # Build allowed status list
   if (restrict_to_device_level) {
-    allowed_statuses <- c("online", "local", "defunct", "nonresponsive")
+    allowed_statuses <- c("online", "local", "manual", "defunct", "nonresponsive")
   } else {
     allowed_statuses <- get_metadata_unique_values("status")
   }
@@ -1462,9 +1469,9 @@ ui_log_maintenance <- function() {
   # Get device info to check status
   device_row <- station_devices[station_devices$device_serial == device_serial, ][1, ]
   
-  if (tolower(device_row$status) == "local") {
-    # Local stations are never approved for download - skip prompt
-    cat("\n✓ Status is 'local' - skipping download approval (local stations not auto-downloaded)\n")
+  if (tolower(device_row$status) == "manual") {
+    # Manual stations have no cloud pathway at all - approval is meaningless
+    cat("\n✓ Status is 'manual' - skipping download approval (data is offloaded by hand)\n")
   } else {
     approve_response <- ui_yes_no("\nApprove this station for download?")
     if (approve_response == "Y") {
@@ -1620,13 +1627,47 @@ ui_log_download <- function() {
     cat("✓ Updated last_download_date\n")
   }
   
-  #### 10 - Download approval (optional)
+  #### 10 - Download approval / cloud upload
   # Get device info to check status
   device_row <- station_devices[station_devices$device_serial == device_serial, ][1, ]
+  device_status <- tolower(device_row$status)
   
-  if (tolower(device_row$status) == "local") {
-    # Local stations are never approved for download - skip prompt
-    cat("\n✓ Status is 'local' - skipping download approval (local stations not auto-downloaded)\n")
+  if (device_status == "manual") {
+    # Manual stations have no cloud pathway at all - approval is meaningless.
+    # The data is archived directly in step 11 below.
+    cat("\n✓ Status is 'manual' - skipping download approval (data is offloaded by hand)\n")
+    
+  } else if (device_status == "local") {
+    # Local stations reach ZentraCloud, but only because someone offloads on
+    # site and uploads afterwards. Until that upload happens the data exists
+    # nowhere but the field device, and there is no point approving a download
+    # of data the cloud does not have yet.
+    cat("\n--- CLOUD UPLOAD ---\n\n")
+    cat("This station is out of cellular service, so its data reaches\n")
+    cat("ZentraCloud only when you upload what you offloaded on site.\n\n")
+    
+    uploaded <- ui_yes_no("Have you uploaded this data to ZentraCloud?",
+                          allow_quit = FALSE)
+    
+    if (uploaded == "Y") {
+      result <- update_download_approval(station_id, TRUE)
+      if (!isTRUE(result)) {
+        cat("⚠️  Warning: Could not update download approval:", result, "\n")
+      } else {
+        cat("✓ Station approved for download - new data is available in the cloud\n")
+      }
+    } else {
+      cat("\nUntil the upload happens, this data exists only on the field\n")
+      cat("device. Upload it as soon as you can.\n\n")
+      
+      add_pending_ingest(station_id, device_serial, field_visit_date,
+                         logged_by, "awaiting_cloud_upload",
+                         notes = "Offloaded on site, not yet uploaded to ZentraCloud")
+      
+      cat("✓ Recorded as unfinished - you will be reminded every time you\n")
+      cat("  open the metadata manager.\n")
+    }
+    
   } else {
     approve_response <- ui_yes_no("\nApprove this station for future downloads?")
     if (approve_response == "Y") {
@@ -1637,6 +1678,21 @@ ui_log_download <- function() {
         cat("✓ Station approved for download\n")
       }
     }
+  }
+  
+  #### 11 - Archive the data (manual stations only)
+  # The field record is now written and stays true regardless of what happens
+  # next. Archiving is a separate matter, and if it cannot be completed the
+  # ingest workflow records a pending row rather than abandoning quietly.
+  if (device_status == "manual") {
+    ui_ingest_local_data(
+      station_id       = station_id,
+      device_serial    = device_serial,
+      station_type     = station_type,
+      mfger            = device_row$mfger,
+      field_visit_date = field_visit_date,
+      logged_by        = logged_by
+    )
   }
   
   cat("\n✓ All done!\n")
@@ -2443,10 +2499,10 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL, suppr
     cat("✓ Status:", status, "\n")
     
     ## Download approval
-    if (tolower(status) == "local") {
-      # Local stations are never approved for download
+    if (tolower(status) == "manual") {
+      # Manual stations have no cloud pathway - automatic download impossible
       download_approved <- FALSE
-      cat("\n✓ Status is 'local' - automatic download disabled\n")
+      cat("\n✓ Status is 'manual' - automatic download disabled\n")
     } else {
       cat("\nApprove this device for automatic download?\n")
       cat("(If there is still something needing to be updated in metadata about this device, select NO)\n")
@@ -2456,10 +2512,11 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL, suppr
     }
     
     ## Expiry date (optional)
-    if (tolower(status) == "local") {
-      # Local stations don't have cloud subscriptions
+    if (tolower(status) == "manual") {
+      # Manual stations have no cloud subscription. Note that 'local' stations
+      # DO - their data reaches ZentraCloud, just not over the air.
       expiry_date <- NA
-      cat("✓ No cloud subscription (local station)\n")
+      cat("✓ No cloud subscription (manual station)\n")
     } else {
       cat("\nEnter cloud subscription expiry date if applicable (YYYY-MM-DD) or press Enter to skip:\n")
       expiry_input <- trimws(readline())
@@ -2841,10 +2898,10 @@ ui_relocate_station <- function() {
   cat("✓ Status:", new_status, "\n")
   
   ## Download approval
-  if (tolower(new_status) == "local") {
-    # Local stations are never approved for download
+  if (tolower(new_status) == "manual") {
+    # Manual stations have no cloud pathway - automatic download impossible
     download_approved <- FALSE
-    cat("\n✓ Status is 'local' - automatic download disabled\n")
+    cat("\n✓ Status is 'manual' - automatic download disabled\n")
   } else {
     download_approved_response <- ui_yes_no("\nApprove station for download at new location?", 
                                             allow_quit = FALSE)
@@ -2955,7 +3012,7 @@ ui_decommission_station <- function() {
   station_devices <- get_station_devices(station_id)
   
   # Check if there's anything to decommission
-  active_statuses <- c("online", "local", "nonresponsive", "defunct", "removed")
+  active_statuses <- c("online", "local", "manual", "nonresponsive", "defunct", "removed")
   decommissionable <- station_devices[station_devices$status %in% active_statuses, ]
   
   if (nrow(decommissionable) == 0) {
@@ -3072,7 +3129,7 @@ ui_reactivate_station <- function() {
   truly_decommissioned <- c()
   for (sid in decommissioned_stations) {
     station_devices <- metadata[metadata$station_id == sid, ]
-    active_statuses <- c("online", "local", "nonresponsive", "defunct")
+    active_statuses <- c("online", "local", "manual", "nonresponsive", "defunct")
     has_active <- any(station_devices$status %in% active_statuses)
     
     if (!has_active) {
@@ -4394,7 +4451,7 @@ ui_remove_device <- function() {
   ################################################################################
   
   # Check if this is the only active device at the station
-  active_statuses <- c("online", "local", "nonresponsive")
+  active_statuses <- c("online", "local", "manual", "nonresponsive")
   active_devices <- station_devices[station_devices$status %in% active_statuses, ]
   
   if (nrow(active_devices) == 1 && active_devices$device_serial[1] == device_serial) {
@@ -4719,7 +4776,12 @@ metadata_manager <- function() {
     
     cat("\n============================================\n")
     cat("  VI-FLO Engine - Metadata Manager\n")
-    cat("============================================\n\n")
+    cat("============================================\n")
+    
+    #### Unfinished business first
+    # Data left on a logger, a shuttle, or a phone is data at risk. Raising it
+    # here every single time is the point: the system remembers, not the person.
+    if (exists("check_pending")) check_pending()
     
     #### TOP LEVEL - What happened?
     cat("What happened?\n")

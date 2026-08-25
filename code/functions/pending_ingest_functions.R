@@ -25,17 +25,21 @@
 # Ordered. Each represents a point where the human has to go and do something
 # before the workflow can continue.
 PENDING_STAGES <- c(
-  "awaiting_offload",      # data still on the shuttle / phone
-  "awaiting_shuttle_drop", # offloaded, not yet placed in shuttle_readouts
-  "awaiting_temp_csv",     # readout in place, CSV not yet exported
-  "awaiting_rename"        # temp CSV made, not yet renamed to final filename
+  "awaiting_offload",       # data still on the shuttle
+  "awaiting_shuttle_drop",  # offloaded, not yet placed in shuttle_readouts
+  "awaiting_temp_csv",      # readout in place, CSV not yet exported
+  "awaiting_rename",        # temp CSV made, not yet archived
+  "awaiting_cloud_upload"   # local Zentra offloaded on site, not yet uploaded
+                            # to ZentraCloud - until it is, the data exists
+                            # only on the field device
 )
 
 PENDING_STAGE_LABELS <- c(
   awaiting_offload      = "data not yet offloaded to computer",
   awaiting_shuttle_drop = "readout folder not yet filed",
   awaiting_temp_csv     = "CSV not yet exported",
-  awaiting_rename       = "file not yet renamed"
+  awaiting_rename       = "file not yet archived",
+  awaiting_cloud_upload = "not yet uploaded to ZentraCloud"
 )
 
 PENDING_COLUMNS <- c(
@@ -219,7 +223,7 @@ check_pending <- function(stale_days = 14, verbose = TRUE) {
 
   if (verbose) {
     cat("\n")
-    cat("!! ", nrow(pending), " unfinished data offload",
+    cat("!! ", nrow(pending), " unfinished data task",
         ifelse(nrow(pending) == 1, "", "s"), ":\n", sep = "")
 
     for (i in seq_len(nrow(pending))) {
@@ -235,8 +239,9 @@ check_pending <- function(stale_days = 14, verbose = TRUE) {
     }
 
     if (any(!is.na(age) & age > stale_days)) {
-      cat("\n   Data left on a logger or shuttle is data at risk of being\n")
-      cat("   lost, overwritten, or filled by a redeployment.\n")
+      cat("\n   Data that has not reached the archive - still on a logger, a\n")
+      cat("   shuttle, a field device, or an unexported file - is data at\n")
+      cat("   risk of being lost, overwritten, or filled by a redeployment.\n")
     }
     cat("\n")
   }

@@ -7,14 +7,22 @@ All notable changes to the VI-FLO Engine project are documented here.
 
 ### Added
 - `local_ingest_functions.R`
-  - Interactive workflow for archiving manually-offloaded data (HOBO shuttle
-    readouts, local Zentra downloads)
+  - Interactive workflow for archiving manually-offloaded data - HOBO shuttle
+    readouts and cable-downloaded Zentra loggers
   - Instruction text held in clearly-bannered constants for easy editing
   - Detects the datetime column rather than assuming a position, since Onset's
     export format changed with the move to the LI-COR platform
   - Time-anchored scan helps locate a mis-saved export without pointing the
-    user at machine-generated files
+    user at machine-generated files. The anchor is what makes it trustworthy:
+    nothing machine-generated is written while the workflow waits for the user,
+    so anything newer is necessarily theirs
+  - `archive_local_data()` holds all writing and never prompts, so a future GUI
+    can call it directly rather than reimplementing it
   - `update_last_record_date()` - did not previously exist
+- `status = "manual"` for devices with no cloud pathway at all - data comes off
+  by shuttle or cable and is archived by hand. Distinct from `local`, which
+  means out of cellular service but still reaching ZentraCloud once offloaded
+  on site and uploaded
 - `tools/launcher/`
   - RStudio project and `.Rprofile` that launch the metadata manager directly
     on double-click, via the `rstudio.sessionInit` hook. Batch files cannot do
@@ -49,7 +57,11 @@ All notable changes to the VI-FLO Engine project are documented here.
   - `pending_ingest.csv` records station, device, field visit, and the stage
     reached; nothing is written to the download log or `last_record_date`
     until data is genuinely archived
-  - `check_pending()` surfaces outstanding offloads and flags stale ones
+  - `check_pending()` runs at the top of every metadata manager menu and flags
+    stale items
+  - `awaiting_cloud_upload` stage covers a `local` Zentra offloaded on site but
+    not yet uploaded to ZentraCloud - until it is, the data exists only on the
+    field device
   - Deferred writes rather than transactional rollback: nothing is ever
     un-written, so nothing can be un-written incorrectly
 
@@ -65,10 +77,28 @@ All notable changes to the VI-FLO Engine project are documented here.
     `build_raw_filename()` instead of formatting its own string
   - Runs `check_raw_overlap()` before saving
   - Records `download_type = "automatic"` in the download log
+- `ui_log_download()`
+  - Branches on `status`: `manual` devices route to the local ingest workflow;
+    `local` devices are asked whether the data has been uploaded to ZentraCloud
+  - Field records - maintenance entry, `last_visit`, `last_download_date` - are
+    written immediately, since they stay true regardless of whether the file
+    ever reaches the archive. `download_log` and `last_record_date` assert
+    something about the archive and are written only once that is true
+- Download approval and cloud subscription expiry now gate on `manual` rather
+  than `local`. `local` devices ARE API-downloadable - their data reaches
+  ZentraCloud, just not over the air - so treating them as un-downloadable was
+  wrong, and had caused real confusion about `fb1_vwc1`
+- `validation_functions.R`
+  - Accepts `manual` as a valid status
+  - Check 6 moved from `local` to `manual`
 - `DATA_DICTIONARY.md`
-  - Documented `$download_type`
-  - Clarified that `$last_update` is `NA` for local (offline) devices by design -
-    it records remote contact, which a HOBO logger structurally cannot report
+  - Documented `$download_type` and the `manual` status
+  - Rewrote `$status` to describe every active value and how data reaches the
+    archive for each, plus the terminal statuses
+  - Clarified that `$last_update` is `NA` by design for `local` and `manual`
+    devices - it records remote contact, which they structurally cannot report
+  - Corrected `deploy_date` to `deploy_datetime` to match the schema
+  - Removed markdown escape characters throughout
 
 ### Fixed
 - `SAMPLE_download_log.csv`

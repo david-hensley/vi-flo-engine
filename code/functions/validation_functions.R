@@ -15,7 +15,7 @@
 #'      deploy_datetime, lat, lon, timezone, mfger
 #'   4. Coordinates must be valid: lat [-90, 90], lon [-180, 180]
 #'   5. Status must be from known set
-#'   6. download_approved must be FALSE for local stations
+#'   6. download_approved must be FALSE for manual stations
 #'
 #' PORT CONFIGURATIONS:
 #'   7. Only one active config per device+port (end_datetime = NA)
@@ -222,7 +222,7 @@ validate_metadata <- function(verbose = TRUE, stop_on_error = FALSE) {
   }
   
   # CHECK 5: Valid status values
-  valid_statuses <- c("online", "local", "nonresponsive", "defunct", 
+  valid_statuses <- c("online", "local", "manual", "nonresponsive", "defunct", 
                       "removed", "replaced", "relocated", "decommissioned")
   
   invalid_status <- !metadata$status %in% valid_statuses
@@ -238,22 +238,26 @@ validate_metadata <- function(verbose = TRUE, stop_on_error = FALSE) {
     record_pass("status values")
   }
   
-  # CHECK 6: Local stations should have download_approved = FALSE
+  # CHECK 6: Manual stations should have download_approved = FALSE
+  # Manual stations have no cloud pathway at all, so automatic download is
+  # impossible and approval is meaningless. Note this does NOT apply to
+  # 'local' stations - their data does reach ZentraCloud (offloaded on site
+  # and uploaded), so they are legitimately API-downloadable and approvable.
   if ("download_approved" %in% names(metadata)) {
-    local_approved <- metadata$status == "local" & 
-                      !is.na(metadata$download_approved) & 
-                      metadata$download_approved == TRUE
+    manual_approved <- metadata$status == "manual" & 
+                       !is.na(metadata$download_approved) & 
+                       metadata$download_approved == TRUE
     
-    if (any(local_approved)) {
-      problem_rows <- metadata[local_approved, 
+    if (any(manual_approved)) {
+      problem_rows <- metadata[manual_approved, 
                                c("unique_id", "station_id", "device_serial", "status", "download_approved")]
       record_violation(
-        "LOCAL_DOWNLOAD_APPROVED",
-        paste(sum(local_approved), "local station(s) have download_approved = TRUE"),
+        "MANUAL_DOWNLOAD_APPROVED",
+        paste(sum(manual_approved), "manual station(s) have download_approved = TRUE"),
         problem_rows
       )
     } else {
-      record_pass("local stations download_approved = FALSE")
+      record_pass("manual stations download_approved = FALSE")
     }
   }
   

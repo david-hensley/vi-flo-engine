@@ -355,7 +355,7 @@ ui_ingest_local_data <- function(station_id, device_serial, station_type,
     gate <- if (is_hobo) HOBO_OFFLOAD_GATE else ZENTRA_OFFLOAD_GATE
 
     offloaded <- ui_yes_no(gate)
-    if (offloaded == "Q") return(NULL)
+    if (offloaded == "Q") return(invisible(NULL))
 
     if (offloaded == "N") {
       directions <- if (is_hobo) HOBO_OFFLOAD_DIRECTIONS else
@@ -377,7 +377,7 @@ ui_ingest_local_data <- function(station_id, device_serial, station_type,
       cat("reminded every time you open the metadata manager.\n\n")
       cat("Nothing has been written to the download log - that happens only\n")
       cat("once the data is genuinely archived.\n\n")
-      return(FALSE)
+      return(invisible(FALSE))
     }
 
     #### Stage 2 - shuttle drop (HOBO only) ####
@@ -388,14 +388,14 @@ ui_ingest_local_data <- function(station_id, device_serial, station_type,
       cat("     ", shuttle_dir, "\n\n", sep = "")
 
       dropped <- ui_yes_no("Can you confirm the readout folder is there?")
-      if (dropped == "Q") return(NULL)
+      if (dropped == "Q") return(invisible(NULL))
 
       if (dropped == "N") {
         add_pending_ingest(station_id, device_serial, field_visit_date,
                            logged_by, "awaiting_shuttle_drop",
                            notes = "Readout folder not yet filed")
         cat("\nRecorded as unfinished. You will be reminded.\n\n")
-        return(FALSE)
+        return(invisible(FALSE))
       }
     }
   }
@@ -452,7 +452,7 @@ ui_ingest_local_data <- function(station_id, device_serial, station_type,
                          logged_by, "awaiting_temp_csv",
                          notes = "Export not completed")
       cat("\nRecorded as unfinished. You will be reminded.\n\n")
-      return(FALSE)
+      return(invisible(FALSE))
     }
   }
 
@@ -469,12 +469,12 @@ ui_ingest_local_data <- function(station_id, device_serial, station_type,
         add_pending_ingest(station_id, device_serial, field_visit_date,
                            logged_by, "awaiting_temp_csv",
                            notes = "Exported file could not be read")
-        return(FALSE)
+        return(invisible(FALSE))
       }
       file.remove(temp_path)
-      return(ui_ingest_local_data(station_id, device_serial, station_type,
+      return(invisible(ui_ingest_local_data(station_id, device_serial, station_type,
                                   mfger, field_visit_date, logged_by,
-                                  resume_stage = "awaiting_temp_csv"))
+                                  resume_stage = "awaiting_temp_csv")))
     }
 
     final_name <- build_raw_filename(station_id, parsed$start, parsed$end,
@@ -494,7 +494,7 @@ ui_ingest_local_data <- function(station_id, device_serial, station_type,
     cat("     ", final_name, "\n\n", sep = "")
 
     confirmed <- ui_yes_no("Does this look correct?")
-    if (confirmed == "Q") return(NULL)
+    if (confirmed == "Q") return(invisible(NULL))
 
     if (confirmed == "Y") break
 
@@ -512,42 +512,98 @@ ui_ingest_local_data <- function(station_id, device_serial, station_type,
                          notes = "Export produced unexpected date range")
       cat("\nRecorded as unfinished. The temporary file has been left in\n")
       cat("place at:\n     ", temp_path, "\n\n", sep = "")
-      return(FALSE)
+      return(invisible(FALSE))
     }
 
     file.remove(temp_path)
-    return(ui_ingest_local_data(station_id, device_serial, station_type,
+    return(invisible(ui_ingest_local_data(station_id, device_serial, station_type,
                                 mfger, field_visit_date, logged_by,
-                                resume_stage = "awaiting_temp_csv"))
+                                resume_stage = "awaiting_temp_csv")))
   }
 
-  #### Stage 5 - archive ####
+  #### Stage 5 - hand off to the non-interactive writer ####
+  result <- archive_local_data(
+    station_id    = station_id,
+    device_serial = device_serial,
+    csv_path      = temp_path,
+    parsed        = parsed,
+    final_name    = final_name,
+    raw_dir       = raw_dir
+  )
+
+  if (!isTRUE(result$success)) {
+    cat("\n  X ", result$message, "\n", sep = "")
+    add_pending_ingest(station_id, device_serial, field_visit_date,
+                       logged_by, "awaiting_rename",
+                       notes = result$message)
+    cat("\nRecorded as unfinished. You will be reminded.\n\n")
+    return(invisible(FALSE))
+  }
+
+  for (line in result$messages) cat("+ ", line, "\n", sep = "")
+  for (line in result$warnings) cat("!  ", line, "\n", sep = "")
+
+  cat("\n+ Data archived.\n\n")
+  return(invisible(TRUE))
+}
+
+
+#' Archives an exported data file - no prompting, no console dependency
+#'
+#' The writing half of the local ingest workflow, deliberately separated from
+#' the interactive half so a future GUI can call it directly rather than
+#' reimplementing it. Takes values, returns a result; never asks a question.
+#'
+#' Order matters here. The RDS is written first and confirmed on disk before
+#' the CSV is deleted, so a failure never destroys the only copy. The
+#' archive-asserting writes - download_log and last_record_date - come last,
+#' once the file is genuinely in the archive and the claim is true.
+#'
+#' @param station_id Character. Station ID
+#' @param device_serial Character. Device serial number
+#' @param csv_path Character. Path to the exported CSV to archive
+#' @param parsed List. Output of read_exported_csv()
+#' @param final_name Character. Filename from build_raw_filename()
+#' @param raw_dir Character. Directory to archive into
+#' @return List with success (logical), message (character), messages and
+#'   warnings (character vectors for the caller to display)
+archive_local_data <- function(station_id, device_serial, csv_path, parsed,
+                               final_name, raw_dir) {
+
+  messages <- character(0)
+  warnings <- character(0)
+
   final_path <- file.path(raw_dir, final_name)
 
+  #### Write the RDS ####
   saved <- tryCatch({
     saveRDS(parsed$data, final_path)
     TRUE
   }, error = function(e) {
-    cat("\n  X Could not save the RDS file: ", conditionMessage(e), "\n", sep = "")
-    FALSE
+    conditionMessage(e)
   })
 
-  if (!saved) {
-    add_pending_ingest(station_id, device_serial, field_visit_date,
-                       logged_by, "awaiting_rename",
-                       notes = "RDS conversion failed")
-    return(FALSE)
+  if (!isTRUE(saved)) {
+    return(list(success = FALSE,
+                message = paste0("Could not save the RDS file: ", saved),
+                messages = messages, warnings = warnings))
   }
 
-  cat("\n+ Saved: ", final_name, "\n", sep = "")
-
-  # Only remove the CSV once the RDS is confirmed on disk
-  if (file.exists(final_path)) {
-    file.remove(temp_path)
-    cat("+ Removed temporary CSV\n")
+  if (!file.exists(final_path)) {
+    return(list(success = FALSE,
+                message = "RDS file was not found on disk after writing",
+                messages = messages, warnings = warnings))
   }
 
-  #### Stage 6 - the archive-asserting writes, now that they are true ####
+  messages <- c(messages, paste0("Saved: ", final_name))
+
+  #### Only now is it safe to remove the CSV ####
+  if (file.exists(csv_path)) {
+    file.remove(csv_path)
+    messages <- c(messages, "Removed temporary CSV")
+  }
+
+  #### Archive-asserting writes ####
   filepath_relative <- sub(paste0("^", Sys.getenv("VI_FLO_DATA_ROOT"), "/?"),
                            "", final_path)
   filepath_relative <- sub("^/", "", filepath_relative)
@@ -565,26 +621,34 @@ ui_ingest_local_data <- function(station_id, device_serial, station_type,
 
   log_file <- file.path(wds("meta_internal"), "download_log.csv")
 
-  if (file.exists(log_file)) {
-    write.table(log_entry, log_file, sep = ",", append = TRUE,
-                col.names = FALSE, row.names = FALSE, qmethod = "double")
+  logged <- tryCatch({
+    if (file.exists(log_file)) {
+      write.table(log_entry, log_file, sep = ",", append = TRUE,
+                  col.names = FALSE, row.names = FALSE, qmethod = "double")
+    } else {
+      write.csv(log_entry, log_file, row.names = FALSE)
+    }
+    TRUE
+  }, error = function(e) conditionMessage(e))
+
+  if (isTRUE(logged)) {
+    messages <- c(messages, "Logged to download_log.csv (manual)")
   } else {
-    write.csv(log_entry, log_file, row.names = FALSE)
+    warnings <- c(warnings, paste0("Could not write download log: ", logged))
   }
-  cat("+ Logged to download_log.csv (manual)\n")
 
   result <- update_last_record_date(device_serial, parsed$end)
   if (isTRUE(result)) {
-    cat("+ Updated last_record_date\n")
+    messages <- c(messages, "Updated last_record_date")
   } else {
-    cat("!  Warning: could not update last_record_date: ", result, "\n", sep = "")
+    warnings <- c(warnings, paste0("Could not update last_record_date: ", result))
   }
 
-  #### Stage 7 - clear the pending row ####
+  #### Clear the pending row - the workflow is complete ####
   clear_pending_ingest(station_id, device_serial)
 
-  cat("\n+ Data archived.\n\n")
-  return(TRUE)
+  list(success = TRUE, message = "Data archived",
+       messages = messages, warnings = warnings)
 }
 
 
