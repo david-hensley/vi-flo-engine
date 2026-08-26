@@ -53,6 +53,33 @@ All notable changes to the VI-FLO Engine project are documented here.
     VI-EPSCoR (2021-2025) and VI-FLO began in 2026, so device-level history
     from that period was not recorded and is not recoverable. The data is
     unaffected; what is missing is provenance, not measurements
+- `validation_functions.R`
+  - Loads and checks `download_log.csv`, which validation had never examined
+  - Confirms every logged filepath resolves to a file that exists. The log is
+    the record of what has been archived; if a file is moved or renamed by
+    hand, the log still claims it exists and nothing else would notice
+  - Confirms every station in the download log exists in device metadata
+- `metadata_manager_functions.R`
+  - Survey now ASSIGNS device roles from the elevations it measures, rather
+    than requiring them beforehand. Requiring roles first was backwards - you
+    had to guess a role to obtain the measurement that tells you the role.
+    Primary is downstream, downstream is lower, and the survey measures that
+  - Where roles are already set, the survey warns if the measurement
+    contradicts them - a secondary logger measuring lower than the primary
+    means the roles are inverted and the hydraulic slope would come out with
+    the wrong sign
+  - Adding a device that COMPLETES a paired stream gauge now offers to record
+    the elevation survey immediately, since the difference between the two is
+    the hydraulic slope and it cannot be measured until both rows exist. A
+    lone logger gets no such prompt - a single gauge rated from flow-meter
+    measurements is a finished arrangement, not a half-built pair
+  - Where a survey measurement contradicts the recorded roles, the workflow
+    offers to switch them, naming both devices. The measurement is the
+    evidence, so it corrects the record rather than sending the user elsewhere
+  - Guardrail when creating a station whose ID already exists: for hydro it
+    explains that a paired gauge is two devices at ONE station, and names the
+    correct workflow. Previously it suggested a numbered second station
+  - `device_label()` renders a device as name-then-serial throughout the survey
 
 ### Changed
 - Manufacturer is recorded as `HOBO` rather than `Onset` - it is what the
@@ -79,6 +106,26 @@ All notable changes to the VI-FLO Engine project are documented here.
 - `tools/testing/`
   - Replaced by `save_metadata_state()` and `revert_metadata_state()`, which
     need no separate scripts
+
+### Fixed
+- `metadata_manager_functions.R`
+  - `$last_record_date` was omitted from `format_datetime_safe()` in all ten
+    metadata writers, so the first real value written by the ingest workflow
+    would have been mangled into a raw number by the next save
+- `setup_functions.R`
+  - `format_datetime_safe()` assumed a POSIXct column. A column that is
+    entirely NA comes back from `read.csv()` typed as logical, and one read
+    without date parsing as character; `format()` reads its second argument as
+    `trim` for both and errored. Now checks the type first
+- `metadata_manager_functions.R`
+  - `ui_correct_device_details()` treated the return of `ui_select_from_menu()`
+    as an index when it returns the selected string, so the station lookup
+    silently found nothing
+  - Display of a metadata value compared it to `""`, which errors on POSIXct
+    and yields NA on numeric. `blank_or_value()` converts before testing
+  - After a role switch during survey, the secondary elevation shown in the
+    confirmation was computed before the swap and displayed a stale figure.
+    The saved values were correct; only the display was wrong
 
 ---
 

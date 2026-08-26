@@ -16,6 +16,7 @@
 #'   4. Coordinates must be valid: lat [-90, 90], lon [-180, 180]
 #'   5. Status must be from known set
 #'   6. download_approved must be FALSE for manual stations
+#'   7. Every download log filepath resolves to a file that exists
 #'
 #' PORT CONFIGURATIONS:
 #'   7. Only one active config per device+port (end_datetime = NA)
@@ -100,6 +101,13 @@ validate_metadata <- function(verbose = TRUE, stop_on_error = FALSE) {
     return(NULL)
   })
   
+  dlog <- tryCatch({
+    load_download_log()
+  }, error = function(e) {
+    record_violation("LOAD_DOWNLOAD", paste("Failed to load download_log.csv:", e$message))
+    return(NULL)
+  })
+  
   if (is.null(metadata)) {
     return(list(
       valid = FALSE,
@@ -114,6 +122,10 @@ validate_metadata <- function(verbose = TRUE, stop_on_error = FALSE) {
   }
   if (!is.null(maint)) {
     if (verbose) cat("  Loaded", nrow(maint), "maintenance entries\n")
+  }
+  
+  if (!is.null(dlog)) {
+    if (verbose) cat("  Loaded", nrow(dlog), "download records\n")
   }
   
   # ==========================================================================
@@ -421,6 +433,54 @@ validate_metadata <- function(verbose = TRUE, stop_on_error = FALSE) {
                          paste(unknown_actions, collapse = ", "), "\n")
       } else {
         record_pass("maintenance action_types known")
+      }
+    }
+  }
+  
+  # ==========================================================================
+  # DOWNLOAD LOG CHECKS
+  # ==========================================================================
+  
+  if (!is.null(dlog) && nrow(dlog) > 0) {
+    if (verbose) cat("\nChecking download log...\n")
+    
+    # CHECK: every logged filepath still resolves to a file on disk
+    # The log is the record of what has been archived. If a file has been
+    # moved, renamed, or deleted by hand, the log still claims it exists and
+    # nothing else would ever notice - the reference simply dangles until
+    # someone tries to use the data.
+    data_root <- Sys.getenv("VI_FLO_DATA_ROOT")
+    
+    if (nzchar(data_root) && "filepath" %in% names(dlog)) {
+      full_paths <- file.path(data_root, dlog$filepath)
+      missing <- !file.exists(full_paths)
+      
+      if (any(missing)) {
+        problem_rows <- dlog[missing, c("timestamp", "station", "filepath")]
+        record_violation(
+          "MISSING_ARCHIVED_FILE",
+          paste(sum(missing), "download log entr(ies) point at files that do not exist"),
+          problem_rows
+        )
+      } else {
+        record_pass("archived files exist")
+      }
+    }
+    
+    # CHECK: every station in the download log exists in metadata
+    if (!is.null(metadata) && "station" %in% names(dlog)) {
+      unknown <- !dlog$station %in% metadata$station_id
+      
+      if (any(unknown)) {
+        problem_rows <- dlog[unknown, c("timestamp", "station", "filepath")]
+        record_violation(
+          "UNKNOWN_DOWNLOAD_STATION",
+          paste("Download log references station(s) not in metadata:",
+                paste(unique(dlog$station[unknown]), collapse = ", ")),
+          problem_rows
+        )
+      } else {
+        record_pass("download log station_ids exist")
       }
     }
   }

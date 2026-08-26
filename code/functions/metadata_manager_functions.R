@@ -341,6 +341,7 @@ update_last_visit <- function(station_id, visit_date) {
     metadata$deploy_datetime <- format_datetime_safe(metadata$deploy_datetime)
     metadata$last_update <- format_datetime_safe(metadata$last_update)
     metadata$last_download_date <- format_datetime_safe(metadata$last_download_date)
+    metadata$last_record_date <- format_datetime_safe(metadata$last_record_date)
     metadata$last_visit <- as.character(metadata$last_visit)
     
     write.csv(metadata, "device_metadata.csv", row.names = FALSE)
@@ -372,6 +373,7 @@ update_device_status <- function(device_serial, new_status) {
     metadata$deploy_datetime <- format_datetime_safe(metadata$deploy_datetime)
     metadata$last_update <- format_datetime_safe(metadata$last_update)
     metadata$last_download_date <- format_datetime_safe(metadata$last_download_date)
+    metadata$last_record_date <- format_datetime_safe(metadata$last_record_date)
     metadata$last_visit <- as.character(metadata$last_visit)
     metadata$expiry_date <- as.character(metadata$expiry_date)
     
@@ -436,6 +438,7 @@ update_station_status <- function(station_id, new_status) {
     metadata$deploy_datetime <- format_datetime_safe(metadata$deploy_datetime)
     metadata$last_update <- format_datetime_safe(metadata$last_update)
     metadata$last_download_date <- format_datetime_safe(metadata$last_download_date)
+    metadata$last_record_date <- format_datetime_safe(metadata$last_record_date)
     metadata$last_visit <- as.character(metadata$last_visit)
     metadata$expiry_date <- as.character(metadata$expiry_date)
     
@@ -485,6 +488,7 @@ update_device_location <- function(device_serial, lat, lon, elev) {
     metadata$deploy_datetime <- format_datetime_safe(metadata$deploy_datetime)
     metadata$last_update <- format_datetime_safe(metadata$last_update)
     metadata$last_download_date <- format_datetime_safe(metadata$last_download_date)
+    metadata$last_record_date <- format_datetime_safe(metadata$last_record_date)
     metadata$last_visit <- as.character(metadata$last_visit)
     metadata$expiry_date <- as.character(metadata$expiry_date)
     
@@ -520,6 +524,7 @@ update_last_download_date <- function(device_serial, download_date) {
     metadata$deploy_datetime <- format_datetime_safe(metadata$deploy_datetime)
     metadata$last_update <- format_datetime_safe(metadata$last_update)
     metadata$last_download_date <- format_datetime_safe(metadata$last_download_date)
+    metadata$last_record_date <- format_datetime_safe(metadata$last_record_date)
     metadata$last_visit <- as.character(metadata$last_visit)
     # Only format expiry_date if it exists
     if ("expiry_date" %in% names(metadata)) {
@@ -548,6 +553,7 @@ survey_device_elevation <- function(device_serial, elevation) {
     metadata$deploy_datetime <- format_datetime_safe(metadata$deploy_datetime)
     metadata$last_update <- format_datetime_safe(metadata$last_update)
     metadata$last_download_date <- format_datetime_safe(metadata$last_download_date)
+    metadata$last_record_date <- format_datetime_safe(metadata$last_record_date)
     metadata$last_visit <- as.character(metadata$last_visit)
     metadata$expiry_date <- as.character(metadata$expiry_date)
     
@@ -585,6 +591,7 @@ survey_dual_logger_elevations <- function(station_id, primary_serial, secondary_
     metadata$deploy_datetime <- format_datetime_safe(metadata$deploy_datetime)
     metadata$last_update <- format_datetime_safe(metadata$last_update)
     metadata$last_download_date <- format_datetime_safe(metadata$last_download_date)
+    metadata$last_record_date <- format_datetime_safe(metadata$last_record_date)
     metadata$last_visit <- as.character(metadata$last_visit)
     metadata$expiry_date <- as.character(metadata$expiry_date)
     
@@ -904,6 +911,7 @@ add_new_device <- function(device_data) {
     metadata$deploy_datetime <- format_datetime_safe(metadata$deploy_datetime)
     metadata$last_update <- format_datetime_safe(metadata$last_update)
     metadata$last_download_date <- format_datetime_safe(metadata$last_download_date)
+    metadata$last_record_date <- format_datetime_safe(metadata$last_record_date)
     metadata$last_visit <- as.character(metadata$last_visit)
     metadata$expiry_date <- as.character(metadata$expiry_date)
     
@@ -975,6 +983,7 @@ relocate_station <- function(station_id, new_lat, new_lon, deploy_datetime,
     metadata$deploy_datetime <- format_datetime_safe(metadata$deploy_datetime)
     metadata$last_update <- format_datetime_safe(metadata$last_update)
     metadata$last_download_date <- format_datetime_safe(metadata$last_download_date)
+    metadata$last_record_date <- format_datetime_safe(metadata$last_record_date)
     metadata$last_visit <- as.character(metadata$last_visit)
     
     write.csv(metadata, "device_metadata.csv", row.names = FALSE)
@@ -1788,24 +1797,136 @@ ui_survey_elevations <- function() {
     secondary_device <- station_hobos[!is.na(station_hobos$device_role) & 
                                         tolower(station_hobos$device_role) == "secondary", ]
     
-    if (nrow(primary_device) == 0) {
-      cat("❌ No device with role 'primary' found at this station\n")
-      cat("   Set device roles first using routine maintenance\n")
-      return(NULL)
-    }
-    
-    if (nrow(secondary_device) == 0) {
-      cat("❌ No device with role 'secondary' found at this station\n")
-      cat("   Set device roles first using routine maintenance\n")
-      return(NULL)
+    #### Roles not yet assigned - the survey itself determines them ####
+    # Requiring roles before surveying is backwards: you have to guess a role
+    # to obtain the measurement that tells you the role. Primary is the
+    # downstream logger, downstream is lower, and the survey measures exactly
+    # that. So measure first, then assign.
+    if (nrow(primary_device) == 0 || nrow(secondary_device) == 0) {
+      
+      if (nrow(station_hobos) != 2) {
+        cat("❌ Device roles are not set at this station, and it has ",
+            nrow(station_hobos), " logger(s) rather than 2.\n", sep = "")
+        cat("   Roles can only be assigned by survey for a paired gauge.\n")
+        return(NULL)
+      }
+      
+      cat("--- ASSIGN ROLES BY SURVEY ---\n\n")
+      cat("Neither logger has a role yet. Primary means the DOWNSTREAM logger,\n")
+      cat("which is the lower of the two - so the survey decides this rather\n")
+      cat("than you having to know it in advance.\n\n")
+      
+      dev_a <- station_hobos[1, ]
+      dev_b <- station_hobos[2, ]
+      
+      cat("Loggers at this station:\n")
+      cat("  A. ", device_label(dev_a), "\n", sep = "")
+      cat("  B. ", device_label(dev_b), "\n\n", sep = "")
+      
+      repeat {
+        cat("Enter elevation of logger A - ", device_label(dev_a), " - in metres: ", sep = "")
+        elev_a <- suppressWarnings(as.numeric(trimws(readline())))
+        if (!is.na(elev_a)) break
+        cat("⚠️  Invalid number.\n")
+      }
+      
+      repeat {
+        cat("\nEnter elevation difference (B - A) in metres:\n")
+        cat("  Positive = B is HIGHER than A\n")
+        cat("  Negative = B is LOWER than A\n")
+        cat("Difference: ")
+        diff_ba <- suppressWarnings(as.numeric(trimws(readline())))
+        if (!is.na(diff_ba)) break
+        cat("⚠️  Invalid number.\n")
+      }
+      
+      elev_b <- elev_a + diff_ba
+      
+      if (diff_ba == 0) {
+        cat("\n❌ The two loggers are at the same elevation, so neither is\n")
+        cat("   downstream of the other and no slope can be derived.\n")
+        cat("   Re-survey before assigning roles.\n")
+        return(NULL)
+      }
+      
+      # Lower = downstream = primary
+      if (elev_a < elev_b) {
+        primary_device   <- dev_a
+        secondary_device <- dev_b
+        primary_elev     <- elev_a
+        elevation_diff   <- diff_ba
+      } else {
+        primary_device   <- dev_b
+        secondary_device <- dev_a
+        primary_elev     <- elev_b
+        elevation_diff   <- -diff_ba
+      }
+      
+      cat("\n--- ROLES DETERMINED BY SURVEY ---\n\n")
+      cat("  Primary   (downstream, lower): ", device_label(primary_device),
+          "  ", primary_elev, " m\n", sep = "")
+      cat("  Secondary (upstream, higher):  ", device_label(secondary_device),
+          "  ", primary_elev + elevation_diff, " m\n", sep = "")
+      cat("  Difference: ", sprintf("%+.2f", elevation_diff), " m\n\n", sep = "")
+      
+      if (ui_yes_no("Assign these roles and save the elevations?",
+                    allow_quit = FALSE) != "Y") {
+        cat("❌ Cancelled - nothing saved\n")
+        return(NULL)
+      }
+      
+      #### Write the roles before the elevations ####
+      backup_metadata()
+      metadata <- load_zentra_metadata()
+      
+      p_idx <- which(metadata$device_serial == primary_device$device_serial &
+                     metadata$station_id == station_id &
+                     !metadata$status %in% c("removed", "replaced", "relocated",
+                                             "decommissioned"))
+      s_idx <- which(metadata$device_serial == secondary_device$device_serial &
+                     metadata$station_id == station_id &
+                     !metadata$status %in% c("removed", "replaced", "relocated",
+                                             "decommissioned"))
+      
+      metadata$device_role[p_idx[1]] <- "primary"
+      metadata$device_role[s_idx[1]] <- "secondary"
+      
+      metadata$deploy_datetime    <- format_datetime_safe(metadata$deploy_datetime)
+      metadata$last_update        <- format_datetime_safe(metadata$last_update)
+      metadata$last_download_date <- format_datetime_safe(metadata$last_download_date)
+      metadata$last_record_date   <- format_datetime_safe(metadata$last_record_date)
+      metadata$last_visit         <- as.character(metadata$last_visit)
+      if ("expiry_date" %in% names(metadata)) {
+        metadata$expiry_date <- as.character(metadata$expiry_date)
+      }
+      write.csv(metadata, file.path(wds("meta_internal"), "device_metadata.csv"),
+                row.names = FALSE)
+      cat("✓ Roles assigned\n")
+      
+      #### Then the elevations, through the existing logic function ####
+      result <- survey_dual_logger_elevations(
+        station_id       = station_id,
+        primary_serial   = primary_device$device_serial,
+        secondary_serial = secondary_device$device_serial,
+        primary_elev     = primary_elev,
+        elevation_diff   = elevation_diff
+      )
+      
+      if (!isTRUE(result)) {
+        cat("❌ Error:", result, "\n")
+        return(NULL)
+      }
+      cat("✓ Elevations saved successfully\n")
+      
+      return(TRUE)
     }
     
     # Use first match if multiple (shouldn't happen but be safe)
     primary_device <- primary_device[1, ]
     secondary_device <- secondary_device[1, ]
     
-    cat("Primary logger:   ", primary_device$device_serial, "\n", sep = "")
-    cat("Secondary logger: ", secondary_device$device_serial, "\n\n", sep = "")
+    cat("Primary logger:   ", device_label(primary_device), "\n", sep = "")
+    cat("Secondary logger: ", device_label(secondary_device), "\n\n", sep = "")
     
     #### Primary elevation ####
     cat("--- PRIMARY LOGGER ELEVATION ---\n\n")
@@ -1873,12 +1994,80 @@ ui_survey_elevations <- function() {
       }
     }
     
+    #### Does the measurement contradict the recorded roles? ####
+    # Primary is the downstream logger and downstream is lower, so a negative
+    # difference means the roles on record are the wrong way round. The
+    # measurement is the evidence, so offer to correct the roles from it
+    # rather than sending the user elsewhere to fix it by hand.
+    if (elevation_diff < 0) {
+      p_name <- device_label(primary_device)
+      s_name <- device_label(secondary_device)
+
+      cat("\n--- ROLES LOOK INVERTED ---\n\n")
+      cat("You have measured ", s_name, "\n", sep = "")
+      cat("as ", sprintf("%.2f", abs(elevation_diff)), " m LOWER than ", p_name, ".\n\n", sep = "")
+      cat("Primary means the DOWNSTREAM logger, which is the lower of the two.\n")
+      cat("So this measurement says the roles on record are the wrong way round.\n\n")
+      cat("Switch them?\n")
+      cat("  ", s_name, " would become PRIMARY   (downstream, lower)\n", sep = "")
+      cat("  ", p_name, " would become SECONDARY (upstream, higher)\n\n", sep = "")
+
+      switch_roles <- ui_yes_no("Switch the roles and save?", allow_quit = FALSE)
+
+      if (switch_roles == "Y") {
+        backup_metadata()
+        metadata <- load_zentra_metadata()
+
+        active <- !metadata$status %in% c("removed", "replaced", "relocated",
+                                          "decommissioned")
+        p_idx <- which(metadata$device_serial == primary_device$device_serial &
+                       metadata$station_id == station_id & active)
+        s_idx <- which(metadata$device_serial == secondary_device$device_serial &
+                       metadata$station_id == station_id & active)
+
+        metadata$device_role[p_idx[1]] <- "secondary"
+        metadata$device_role[s_idx[1]] <- "primary"
+
+        metadata$deploy_datetime    <- format_datetime_safe(metadata$deploy_datetime)
+        metadata$last_update        <- format_datetime_safe(metadata$last_update)
+        metadata$last_download_date <- format_datetime_safe(metadata$last_download_date)
+        metadata$last_record_date   <- format_datetime_safe(metadata$last_record_date)
+        metadata$last_visit         <- as.character(metadata$last_visit)
+        if ("expiry_date" %in% names(metadata)) {
+          metadata$expiry_date <- as.character(metadata$expiry_date)
+        }
+        write.csv(metadata, file.path(wds("meta_internal"), "device_metadata.csv"),
+                  row.names = FALSE)
+        cat("\n✓ Roles switched\n")
+
+        # Swap locally so the save below writes the right elevations to the
+        # right devices, and flip the sign so the difference is positive again
+        tmp              <- primary_device
+        primary_device   <- secondary_device
+        secondary_device <- tmp
+        primary_elev     <- primary_elev + elevation_diff
+        elevation_diff   <- -elevation_diff
+        # secondary_elev was computed before the swap - recompute it, or the
+        # confirmation below displays a stale figure
+        secondary_elev   <- primary_elev + elevation_diff
+
+      } else {
+        cat("\nRoles left as they are. Note the hydraulic slope will come out\n")
+        cat("with the wrong sign unless the measurement is re-checked.\n\n")
+
+        if (ui_yes_no("Save these elevations anyway?", allow_quit = FALSE) != "Y") {
+          cat("❌ Cancelled - elevations not saved\n")
+          return(NULL)
+        }
+      }
+    }
+    
     #### Confirmation ####
     cat("============================================\n")
     cat("Ready to save elevations:\n")
     cat("  Station: ", station_id, "\n", sep = "")
-    cat("  Primary (", primary_device$device_serial, "): ", primary_elev, " m\n", sep = "")
-    cat("  Secondary (", secondary_device$device_serial, "): ", secondary_elev, " m\n", sep = "")
+    cat("  Primary   ", device_label(primary_device), ": ", primary_elev, " m\n", sep = "")
+    cat("  Secondary ", device_label(secondary_device), ": ", secondary_elev, " m\n", sep = "")
     cat("  Difference: ", sprintf("%+.2f", elevation_diff), " m\n", sep = "")
     cat("============================================\n\n")
     
@@ -2257,6 +2446,33 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL, suppr
     cat("✓ Station type:", station_type, "\n")
     
     ## Station ID
+    # Is this actually a new station at all? A second logger at a paired
+    # stream gauge is a second DEVICE at one station, not a second station -
+    # and arriving here with the bare ID already taken almost always means the
+    # wrong branch was chosen four prompts ago. Say so now rather than
+    # suggesting a counter that quietly creates a station nobody wanted.
+    base_id <- paste0(tolower(site), "_", tolower(station_type))
+    
+    if (isTRUE(validate_station_exists(base_id))) {
+      cat("\n⚠️  Station '", base_id, "' already exists at this site.\n\n", sep = "")
+      
+      if (tolower(station_type) == "hydro") {
+        cat("   A stream gauge often has TWO loggers - a primary downstream and\n")
+        cat("   a secondary upstream - but they are two devices at ONE station,\n")
+        cat("   sharing the station ID. That is not a second station.\n\n")
+      }
+      
+      cat("   To add another logger to '", base_id, "', cancel and choose\n", sep = "")
+      cat("   'New device at existing active station' from the previous menu.\n\n")
+      cat("   Continue here ONLY if this is a genuinely separate station that\n")
+      cat("   happens to share the site and type - it will be numbered.\n\n")
+      
+      if (ui_yes_no("Is this a separate new station?", allow_quit = FALSE) == "N") {
+        cat("\n❌ Cancelled - use 'New device at existing active station' instead\n")
+        return(NULL)
+      }
+    }
+    
     # station_id is derivable from site + station_type, so typing it is pure
     # error surface - a typo creates a station that matches nothing. Suggest
     # it and let the user ratify.
@@ -2864,8 +3080,7 @@ ui_replace_device <- function() {
     }
 
     if (surveyed == "Y") {
-      cat("\nRecord it now with the elevation survey workflow\n")
-      cat("(existing station work, option 8).\n")
+      ui_survey_elevations()
     } else {
       cat("\nThe elevation is blank until it is surveyed. A missing elevation\n")
       cat("is safer than a stale one - it announces itself, and the survey\n")
@@ -4820,6 +5035,7 @@ ui_delete_metadata_row <- function() {
   metadata$deploy_datetime <- format_datetime_safe(metadata$deploy_datetime)
   metadata$last_update <- format_datetime_safe(metadata$last_update)
   metadata$last_download_date <- format_datetime_safe(metadata$last_download_date)
+  metadata$last_record_date <- format_datetime_safe(metadata$last_record_date)
   metadata$last_visit <- as.character(metadata$last_visit)
   metadata$expiry_date <- as.character(metadata$expiry_date)
   
@@ -4946,7 +5162,7 @@ metadata_manager <- function() {
         cat("  6. Station relocated (moved to new location)\n")
         cat("  7. Station decommissioned (entire station shut down)\n")
         cat("  8. Field surveyed elevation of station or loggers\n")
-        cat("  9. Correct device details (model, name, role, interval)\n")
+        cat("  9. Correct device details (model, name, role, interval, coords)\n")
         cat("  q. Back to main menu\n")
         
         work_choice <- trimws(readline())
@@ -5169,6 +5385,43 @@ metadata_manager <- function() {
           
           if (is_hobo_device(device_row$mfger)) {
             cat("✓ HOBO device added - no port configuration needed\n")
+            
+            #### Surveyed elevation ####
+            # Only once a station HAS a pair. A single water level logger is a
+            # legitimate permanent arrangement - flow can come from a rating
+            # curve built on flow-meter measurements instead of a hydraulic
+            # slope - so a lone logger is not a half-finished gauge and should
+            # not be nagged as one.
+            #
+            # A pair is different: the elevation difference between the two IS
+            # the slope, and until it is surveyed the station produces water
+            # levels that cannot become flow. The survey can only run once both
+            # rows exist, which is exactly now.
+            if (tolower(device_row$station_type) == "hydro") {
+              
+              station_devices <- get_active_station_devices(device_row$station_id)
+              roles <- tolower(station_devices$device_role)
+              has_pair <- sum(!is.na(roles) & roles %in% c("primary", "secondary")) >= 2
+              unsurveyed <- any(is.na(station_devices$elev))
+              
+              if (has_pair && unsurveyed) {
+                cat("\n--- SURVEYED ELEVATION ---\n\n")
+                cat("This station now has a primary and a secondary logger. The\n")
+                cat("elevation difference between them is the hydraulic slope,\n")
+                cat("and until it is surveyed the water levels cannot become flow.\n\n")
+                
+                do_survey <- ui_yes_no("Do you have the elevation survey data to enter now?",
+                                       allow_quit = FALSE)
+                
+                if (do_survey == "Y") {
+                  ui_survey_elevations()
+                } else {
+                  cat("\nNo problem - record it later with 'Field surveyed\n")
+                  cat("elevation' (option 8) under existing station work.\n")
+                }
+              }
+            }
+            
           } else {
             # Zentra device - ask about ports
             cat("\nInitialize port configuration now? (Y/N): ")
@@ -5286,7 +5539,8 @@ ui_correct_device_details <- function() {
   cat("  Correct Device Details\n")
   cat("============================================\n\n")
   cat("For fixing details recorded wrongly or left blank:\n")
-  cat("  - model, device name, device role, logging interval\n\n")
+  cat("  - model, device name, device role, logging interval\n")
+  cat("  - deploy datetime, latitude, longitude\n\n")
   cat("NOT for things that happened in the field. A device swap, a station\n")
   cat("move, or a status change belong in their own workflows, so that they\n")
   cat("leave a maintenance log entry behind.\n\n")
@@ -5307,7 +5561,9 @@ ui_correct_device_details <- function() {
     cat("Cancelled\n")
     return(invisible(NULL))
   }
-  station_id <- station_list[[selected]]$station_id
+  # ui_select_from_menu returns the chosen STRING, not an index, so strip the
+  # parenthesised site name back off it.
+  station_id <- sub(" \\(.*\\)$", "", selected)
 
   devices <- get_active_station_devices(station_id)
   if (nrow(devices) == 0) {
@@ -5327,7 +5583,8 @@ ui_correct_device_details <- function() {
       cat("Cancelled\n")
       return(invisible(NULL))
     }
-    device_serial <- devices$device_serial[dsel]
+    # Also a string - the serial is the part before any role in parentheses
+    device_serial <- trimws(sub(" \\(.*\\)$", "", dsel))
   }
 
   #### Show current values ####
@@ -5355,7 +5612,7 @@ ui_correct_device_details <- function() {
     cat("\n--- CURRENT VALUES ---\n\n")
     for (i in seq_along(editable)) {
       value <- metadata[[editable[i]]][idx]
-      display <- if (is.na(value) || value == "") "(blank)" else as.character(value)
+      display <- blank_or_value(value)
       cat("  ", i, ". ", format(editable[i], width = 14), " ", display, "\n", sep = "")
     }
     cat("  q. Done\n\n")
@@ -5373,9 +5630,7 @@ ui_correct_device_details <- function() {
     field <- editable[as.numeric(choice)]
     current <- metadata[[field]][idx]
 
-    cat("\nCurrent ", field, ": ",
-        if (is.na(current) || current == "") "(blank)" else as.character(current),
-        "\n", sep = "")
+    cat("\nCurrent ", field, ": ", blank_or_value(current), "\n", sep = "")
 
     #### Field-specific prompting ####
     if (field %in% c("model", "device_role")) {
@@ -5451,11 +5706,8 @@ ui_correct_device_details <- function() {
 
     #### Confirm ####
     cat("\n  ", field, "\n", sep = "")
-    cat("    from: ",
-        if (is.na(current) || current == "") "(blank)" else as.character(current),
-        "\n", sep = "")
-    cat("    to:   ",
-        if (is.na(new_value)) "(blank)" else as.character(new_value), "\n\n", sep = "")
+    cat("    from: ", blank_or_value(current), "\n", sep = "")
+    cat("    to:   ", blank_or_value(new_value), "\n\n", sep = "")
 
     confirmed <- ui_yes_no("Apply this correction?", allow_quit = FALSE)
     if (confirmed == "N") {
@@ -5601,4 +5853,36 @@ ui_prompt_device_status <- function(allow_quit = TRUE) {
 
     cat("⚠️  Invalid selection\n")
   }
+}
+
+
+#' Renders a metadata value for display, or "(blank)" if it is empty
+#'
+#' Comparing a value to "" only works for characters. On a POSIXct it tries to
+#' coerce "" into a datetime and errors; on a numeric it yields NA, which if()
+#' cannot use. Convert to character first, then test.
+#'
+#' @param value A single metadata value of any type
+#' @return Character, either the value or "(blank)"
+blank_or_value <- function(value) {
+  if (length(value) == 0 || is.na(value)) return("(blank)")
+  as_text <- as.character(value)
+  if (!nzchar(trimws(as_text))) return("(blank)")
+  as_text
+}
+
+
+#' Names a device for display: its own name first, serial as the qualifier
+#'
+#' A HOBOware name means something to the person standing at the station; an
+#' eight-digit serial does not. Fall back to the serial alone when unnamed.
+#'
+#' @param device_row One row of device metadata
+#' @return Character
+device_label <- function(device_row) {
+  nm <- device_row$device_name
+  if (is.null(nm) || length(nm) == 0 || is.na(nm) || !nzchar(trimws(nm))) {
+    return(as.character(device_row$device_serial))
+  }
+  paste0(nm, " (", device_row$device_serial, ")")
 }
