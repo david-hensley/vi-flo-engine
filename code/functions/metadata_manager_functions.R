@@ -2187,22 +2187,65 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL, suppr
     }
     
     ## Site full name
-    cat("\nEnter site full name (e.g., 'Salt River 1'), lower numbers are further upstream:\n")
-    site_full <- trimws(readline())
-    if (site_full == "") {
-      cat("❌ Site name cannot be empty\n")
+    # Offered as a list, not free text. A new station at an existing site is
+    # the common case, and a typo here ("Salt River 1 " vs "Salt River 1")
+    # silently fragments a site into two across the metadata.
+    cat("\nSite name - lower numbers are further upstream.\n")
+    existing_sites <- get_metadata_unique_values("site_full")
+    site_full <- ui_select_or_specify("Select site:", existing_sites)
+    if (is.null(site_full)) {
+      cat("❌ Cancelled\n")
       return(NULL)
     }
     cat("✓ Site:", site_full, "\n")
     
     ## Site abbreviation
-    cat("\nEnter site abbreviation (e.g., 'sr1' for Salt River 1):\n")
-    site <- trimws(readline())
-    if (site == "") {
-      cat("❌ Site abbreviation cannot be empty\n")
-      return(NULL)
+    # site_full and site are a pair. If the site already exists, its
+    # abbreviation is already established - deriving it removes any chance of
+    # the two disagreeing.
+    metadata_all <- load_zentra_metadata()
+    matching <- metadata_all$site[metadata_all$site_full == site_full]
+    matching <- unique(matching[!is.na(matching)])
+    
+    if (length(matching) == 1) {
+      site <- matching
+      cat("✓ Site abbrev:", site, "(existing)\n")
+      
+    } else if (length(matching) > 1) {
+      # Already fragmented - make the user resolve it rather than guessing
+      cat("\n⚠️  Site '", site_full, "' has more than one abbreviation in use: ",
+          paste(matching, collapse = ", "), "\n", sep = "")
+      cat("   This should not happen. Choose the correct one.\n")
+      site <- ui_select_or_specify("Select site abbreviation:", matching)
+      if (is.null(site)) {
+        cat("❌ Cancelled\n")
+        return(NULL)
+      }
+      cat("✓ Site abbrev:", site, "\n")
+      
+    } else {
+      cat("\nEnter site abbreviation (e.g., 'sr1' for Salt River 1):\n")
+      cat("  Two or three letters for the watershed, plus one for the area if\n")
+      cat("  needed, followed by the site number.\n")
+      site <- trimws(readline())
+      if (site == "") {
+        cat("❌ Site abbreviation cannot be empty\n")
+        return(NULL)
+      }
+      site <- tolower(site)
+      
+      if (site %in% get_metadata_unique_values("site")) {
+        existing_full <- unique(metadata_all$site_full[metadata_all$site == site])
+        cat("\n⚠️  Abbreviation '", site, "' is already used by: ",
+            paste(existing_full, collapse = ", "), "\n", sep = "")
+        confirm <- ui_yes_no("Use it anyway?", allow_quit = FALSE)
+        if (confirm == "N") {
+          cat("❌ Cancelled\n")
+          return(NULL)
+        }
+      }
+      cat("✓ Site abbrev:", site, "\n")
     }
-    cat("✓ Site abbrev:", site, "\n")
     
     ## Station type
     existing_types <- get_metadata_unique_values("station_type")
@@ -2214,12 +2257,18 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL, suppr
     cat("✓ Station type:", station_type, "\n")
     
     ## Station ID
-    cat("\nEnter station ID (e.g., 'sr1_weather'):\n")
+    # station_id is derivable from site + station_type, so typing it is pure
+    # error surface - a typo creates a station that matches nothing. Suggest
+    # it and let the user ratify.
+    suggested <- suggest_station_id(site, station_type)
+    
+    cat("\nStation ID\n")
+    cat("  Suggested: ", suggested, "\n", sep = "")
+    cat("  Press Enter to accept, or type a different ID:\n")
+    
     station_id <- trimws(readline())
-    if (station_id == "") {
-      cat("❌ Station ID cannot be empty\n")
-      return(NULL)
-    }
+    if (station_id == "") station_id <- suggested
+    station_id <- tolower(station_id)
     
     # Check if station already exists
     existing_check <- validate_station_exists(station_id)
@@ -2508,12 +2557,7 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL, suppr
     cat("\n--- STATUS & SETTINGS ---\n\n")
     
     ## Status
-    existing_statuses <- get_metadata_unique_values("status")
-    # Filter out workflow-specific statuses
-    excluded_statuses <- c("replaced", "relocated", "decommissioned")
-    allowed_statuses <- setdiff(existing_statuses, excluded_statuses)
-    
-    status <- ui_select_or_specify("Select device status:", allowed_statuses)
+    status <- ui_prompt_device_status()
     if (is.null(status)) {
       cat("❌ Cancelled\n")
       return(NULL)
@@ -2771,6 +2815,63 @@ ui_replace_device <- function() {
   cat("\n✓ Device replacement complete!\n")
   cat("  Old:", old_device_serial, "(replaced)\n")
   cat("  New:", new_device_serial, "\n")
+  
+  #### Surveyed elevation is now suspect ####
+  # A replacement logger is rarely at exactly the height of the one it
+  # replaced - and at a dual-logger stream gauge, the elevation difference IS
+  # the hydraulic slope. A stale elevation carried forward silently produces a
+  # wrong slope, and a wrong slope produces wrong flow. Missing is safer than
+  # wrong: at least a gap announces itself.
+  old_elev <- old_device_row$elev
+  
+  if (tolower(old_device_row$station_type) == "hydro" &&
+      !is.na(old_elev)) {
+    
+    cat("\n--- SURVEYED ELEVATION ---\n\n")
+    cat("The device you replaced had a surveyed elevation of ", old_elev, " m.\n",
+        sep = "")
+    cat("The replacement is unlikely to sit at exactly that height, and at a\n")
+    cat("dual-logger gauge the elevation difference IS the hydraulic slope.\n")
+    cat("Carrying the old figure forward would silently produce wrong flow.\n\n")
+    
+    surveyed <- ui_yes_no("Have you surveyed the new device's elevation?",
+                          allow_quit = FALSE)
+    
+    # The new row inherited the old elevation from the station, so clearing it
+    # takes an explicit write - it does not start blank.
+    metadata <- load_zentra_metadata()
+    new_idx <- which(metadata$device_serial == new_device_serial &
+                     metadata$station_id == station_id &
+                     !metadata$status %in% c("removed", "replaced", "relocated",
+                                             "decommissioned"))
+
+    if (length(new_idx) > 0 && !is.na(metadata$elev[new_idx[1]])) {
+      metadata$elev[new_idx[1]] <- NA
+
+      metadata$deploy_datetime    <- format_datetime_safe(metadata$deploy_datetime)
+      metadata$last_update        <- format_datetime_safe(metadata$last_update)
+      metadata$last_download_date <- format_datetime_safe(metadata$last_download_date)
+      metadata$last_record_date   <- format_datetime_safe(metadata$last_record_date)
+      metadata$last_visit         <- as.character(metadata$last_visit)
+      if ("expiry_date" %in% names(metadata)) {
+        metadata$expiry_date <- as.character(metadata$expiry_date)
+      }
+
+      write.csv(metadata,
+                file.path(wds("meta_internal"), "device_metadata.csv"),
+                row.names = FALSE)
+      cat("\n✓ Cleared the inherited elevation on the new device\n")
+    }
+
+    if (surveyed == "Y") {
+      cat("\nRecord it now with the elevation survey workflow\n")
+      cat("(existing station work, option 8).\n")
+    } else {
+      cat("\nThe elevation is blank until it is surveyed. A missing elevation\n")
+      cat("is safer than a stale one - it announces itself, and the survey\n")
+      cat("workflow will prompt for it.\n")
+    }
+  }
   
   # Log to maintenance
   log_result <- create_maintenance_entry(
@@ -5242,7 +5343,12 @@ ui_correct_device_details <- function() {
   }
   idx <- idx[1]
 
-  editable <- c("model", "device_name", "device_role", "interval_min")
+  # Descriptive fields only. deploy_datetime, lat and lon are here because a
+  # value recorded wrongly at creation has no other route to being fixed -
+  # but note that lat/lon changing because the DEVICE MOVED is an event, and
+  # belongs in the relocation or replacement workflow so it leaves a log entry.
+  editable <- c("model", "device_name", "device_role", "interval_min",
+                "deploy_datetime", "lat", "lon")
   editable <- editable[editable %in% names(metadata)]
 
   repeat {
@@ -5292,6 +5398,51 @@ ui_correct_device_details <- function() {
         next
       }
 
+    } else if (field == "deploy_datetime") {
+      cat("Enter deploy datetime (YYYY-MM-DD HH:MM:SS): ")
+      input <- trimws(readline())
+      if (input == "") {
+        cat("Not changed\n")
+        next
+      }
+      parsed <- tryCatch(coerce_datetime_flexible(input, metadata$timezone[idx]),
+                         error = function(e) NULL)
+      if (is.null(parsed)) {
+        cat("Could not read that as a date or datetime\n")
+        next
+      }
+      new_value <- format(parsed, "%Y-%m-%d %H:%M:%S")
+
+    } else if (field %in% c("lat", "lon")) {
+      # Corrections only. A device that physically moved is an event - use the
+      # relocation or replacement workflow so the move is logged.
+      cat("\nOnly for correcting a coordinate recorded wrongly.\n")
+      cat("If the device MOVED, cancel and use relocation or replacement\n")
+      cat("instead, so the move is recorded in the maintenance log.\n\n")
+      cat("Enter new ", field, " (decimal degrees): ", sep = "")
+      input <- trimws(readline())
+      new_value <- suppressWarnings(as.numeric(input))
+      if (is.na(new_value)) {
+        cat("Invalid - must be a number in decimal degrees\n")
+        next
+      }
+      limit <- if (field == "lat") 90 else 180
+      if (abs(new_value) > limit) {
+        cat("Invalid - ", field, " must be between -", limit, " and ", limit,
+            "\n", sep = "")
+        next
+      }
+      # These stations are all in the Virgin Islands; a sign error puts a
+      # coordinate in the Indian Ocean and nothing downstream would notice.
+      if (field == "lat" && (new_value < 17 || new_value > 19)) {
+        cat("\n⚠️  ", new_value, " is outside the Virgin Islands (17-19 N)\n", sep = "")
+        if (ui_yes_no("Is that right?", allow_quit = FALSE) == "N") next
+      }
+      if (field == "lon" && (new_value > -64 || new_value < -66)) {
+        cat("\n⚠️  ", new_value, " is outside the Virgin Islands (-64 to -66 W)\n", sep = "")
+        if (ui_yes_no("Is that right?", allow_quit = FALSE) == "N") next
+      }
+
     } else {
       cat("Enter new ", field, " (or press Enter to leave blank): ", sep = "")
       new_value <- trimws(readline())
@@ -5336,4 +5487,118 @@ ui_correct_device_details <- function() {
 
   cat("\nDone.\n")
   invisible(TRUE)
+}
+
+
+#' Suggests the next station ID for a site and station type
+#'
+#' station_id is site + station_type, sometimes with a counter. Whether the
+#' counter applies is not a property of the type in the abstract - it is
+#' whatever that type does at that site. Weather stations are unnumbered
+#' because there is only ever one; vwc stations are numbered because there are
+#' several. So the rule is read from the existing data rather than hardcoded.
+#'
+#' If numbered stations of this type already exist at this site, the next
+#' number is suggested. If an unnumbered one exists, the site already has the
+#' one it gets, and a counter is started at 2. Otherwise the bare form.
+#'
+#' @param site Character. Site abbreviation, e.g. "sr1"
+#' @param station_type Character. e.g. "hydro", "vwc"
+#' @return Character. Suggested station_id
+suggest_station_id <- function(site, station_type) {
+
+  base <- paste0(tolower(site), "_", tolower(station_type))
+
+  metadata <- load_zentra_metadata()
+  existing <- unique(metadata$station_id[!is.na(metadata$station_id)])
+
+  # Anything at this site of this type, numbered or not
+  pattern <- paste0("^", base, "([0-9]+)?$")
+  hits <- existing[grepl(pattern, existing)]
+
+  if (length(hits) == 0) return(base)
+
+  # Pull the numeric suffixes that are present
+  suffixes <- sub(paste0("^", base), "", hits)
+  numbers <- suppressWarnings(as.numeric(suffixes[suffixes != ""]))
+  numbers <- numbers[!is.na(numbers)]
+
+  if (length(numbers) > 0) {
+    return(paste0(base, max(numbers) + 1))
+  }
+
+  # Only an unnumbered one exists - this site already has its single station
+  # of this type, so a second needs a counter. Start at 2; the existing
+  # unnumbered station is understood as number 1.
+  paste0(base, "2")
+}
+
+
+#' Prompts for a device status, in a deliberate order, with meanings
+#'
+#' The generic picker sorted whatever statuses happened to exist in the
+#' metadata alphabetically, which put "defunct" first and offered no clue what
+#' any of them meant. Statuses are a fixed vocabulary, so they are listed here
+#' explicitly rather than discovered - a new status should be a considered
+#' addition, not something that appears because someone typed it once.
+#'
+#' Terminal statuses (replaced, relocated, decommissioned) are deliberately
+#' absent: those are set by their own workflows, which log the event.
+#'
+#' @param allow_quit Logical. Allow 'q' to cancel (default TRUE)
+#' @return Status string, or NULL if cancelled
+ui_prompt_device_status <- function(allow_quit = TRUE) {
+
+  statuses <- c("manual", "online", "local", "nonresponsive", "defunct")
+
+  meanings <- c(
+    manual        = "no cloud at all - data comes off by shuttle or cable",
+    online        = "reports to the cloud over a cellular connection",
+    local         = "out of cellular service - reaches the cloud when offloaded on site",
+    nonresponsive = "should be communicating with the cloud but is not",
+    defunct       = "broken or lost, but still deployed"
+  )
+
+  repeat {
+    cat("\nSelect device status:\n")
+    for (i in seq_along(statuses)) {
+      cat("  ", i, ". ", format(statuses[i], width = 14), " ",
+          meanings[statuses[i]], "\n", sep = "")
+    }
+    cat("  ", length(statuses) + 1, ". other (specify)\n", sep = "")
+
+    if (allow_quit) {
+      cat("\nEnter selection (or 'q' to quit): ")
+    } else {
+      cat("\nEnter selection: ")
+    }
+
+    choice <- trimws(readline())
+
+    if (allow_quit && tolower(choice) == "q") return(NULL)
+
+    if (grepl("^[0-9]+$", choice)) {
+      n <- as.numeric(choice)
+
+      if (n >= 1 && n <= length(statuses)) return(statuses[n])
+
+      if (n == length(statuses) + 1) {
+        cat("Enter status: ")
+        custom <- tolower(trimws(readline()))
+        if (custom == "") {
+          cat("⚠️  Status cannot be empty\n")
+          next
+        }
+        # A status outside the vocabulary will fail validate_metadata(), so
+        # say that now rather than letting it surface later.
+        cat("\n⚠️  '", custom, "' is not one of the known statuses. It will be\n",
+            "   reported as a violation by validate_metadata() until it is\n",
+            "   added to the valid list in validation_functions.R.\n", sep = "")
+        if (ui_yes_no("Use it anyway?", allow_quit = FALSE) == "Y") return(custom)
+        next
+      }
+    }
+
+    cat("⚠️  Invalid selection\n")
+  }
 }

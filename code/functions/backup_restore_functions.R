@@ -161,12 +161,37 @@ restore_directory <- function(backup_dir, dest_dir, confirm = TRUE) {
     stop("❌ Backup directory is empty")
   }
   
+  # How old is this backup? A stale snapshot sitting in the expected place
+  # looks exactly like a fresh one, and restoring from it silently rolls back
+  # every change made since. The age is the single most important thing to
+  # know before agreeing to overwrite live metadata.
+  backup_full <- list.files(backup_dir, recursive = TRUE, full.names = TRUE,
+                            all.files = TRUE)
+  backup_full <- backup_full[!basename(backup_full) %in% c(".", "..")]
+  newest <- suppressWarnings(max(file.info(backup_full)$mtime, na.rm = TRUE))
+  age_days <- as.numeric(difftime(Sys.time(), newest, units = "days"))
+  
   # Show what will be restored
   cat("Source:      ", backup_dir, "\n")
   cat("Destination: ", dest_dir, "\n")
-  cat("Files to restore: ", length(backup_files), "\n\n")
+  cat("Files to restore: ", length(backup_files), "\n")
   
-  cat("⚠️  WARNING: This will OVERWRITE existing files in destination!\n\n")
+  if (is.finite(age_days)) {
+    cat("Backup taken:     ", format(newest, "%Y-%m-%d %H:%M:%S"),
+        "  (", round(age_days), " days ago)\n", sep = "")
+  }
+  cat("\n")
+  
+  cat("⚠️  WARNING: This will OVERWRITE existing files in destination!\n")
+  
+  if (is.finite(age_days) && age_days > 14) {
+    cat("\n")
+    cat("🛑 THIS BACKUP IS ", round(age_days), " DAYS OLD.\n", sep = "")
+    cat("   Every metadata change made since then will be lost - new devices,\n")
+    cat("   maintenance entries, downloads, corrections.\n")
+    cat("   If you meant to reset a testing session, take a FRESH backup first.\n")
+  }
+  cat("\n")
   
   # Confirmation
   if (confirm) {
@@ -240,4 +265,70 @@ restore_directory <- function(backup_dir, dest_dir, confirm = TRUE) {
   cat("✓ Restoration complete!\n\n")
   
   return(TRUE)
+}
+
+
+################################################################################
+#                          METADATA SAVEPOINTS                                 #
+#                                                                              #
+# A SAVEPOINT is not a backup, and the distinction matters:                    #
+#                                                                              #
+#   backup_metadata()      Automatic. Runs on every write. Keeps timestamped   #
+#                          copies of individual files in                       #
+#                          metadata/internal/backups/. History accumulates.    #
+#                          Use it to undo one bad write.                       #
+#                                                                              #
+#   save_metadata_state()  Manual. Taken when you choose. Copies the whole     #
+#                          meta_internal folder to one fixed location. No      #
+#                          history - there is only ever one, and taking a new  #
+#                          one discards the old. Use it to reset an entire     #
+#                          testing session.                                    #
+#                                                                              #
+# The savepoint currently lives in the "backup" named path, which is a         #
+# historical name and not a description of what it holds.                      #
+################################################################################
+
+#' Saves the current state of all metadata, so it can be returned to
+#'
+#' Take one at the START of a testing session, then revert to it as often as
+#' needed. There is only ever ONE savepoint: taking a new one overwrites the
+#' previous, without recovering it.
+#'
+#' Take a fresh one every session. The savepoint always lands in the same
+#' place, so a months-old one looks identical to a new one until you revert to
+#' it and lose everything since.
+#'
+#' @param confirm Logical. Prompt before saving (default TRUE)
+#' @return TRUE if saved
+save_metadata_state <- function(confirm = TRUE) {
+  backup_directory(
+    source_dir      = wds("meta_internal"),
+    backup_dir      = wds("backup"),
+    confirm         = confirm,
+    allow_overwrite = TRUE
+  )
+}
+
+
+#' Reverts all metadata to the last savepoint
+#'
+#' Discards every metadata change made since save_metadata_state() was run -
+#' devices, maintenance entries, downloads, corrections. This is not recovery
+#' from damage; it is deliberately throwing work away.
+#'
+#' Check the age it reports before confirming. Reverting to a stale savepoint
+#' does not fail loudly. It succeeds.
+#'
+#' For undoing a single mistake, the timestamped files in
+#' metadata/internal/backups/ are almost always what you want instead - they
+#' are minutes old and file-specific.
+#'
+#' @param confirm Logical. Prompt before reverting (default TRUE)
+#' @return TRUE if reverted
+revert_metadata_state <- function(confirm = TRUE) {
+  restore_directory(
+    backup_dir = wds("backup"),
+    dest_dir   = wds("meta_internal"),
+    confirm    = confirm
+  )
 }

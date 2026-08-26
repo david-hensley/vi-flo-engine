@@ -1,5 +1,7 @@
 # VI-FLO migration: add model column to device_metadata.csv
 #
+# APPLIED: 2026-08-26. Retained for reference until the next version tag.
+#
 # ONE-TIME SCRIPT. Adds a `model` column immediately after `mfger`, recording
 # the device model (e.g. U20-001-01, ZL6). The model determines what the
 # numbers mean - a HOBO U20-001-01 is the 9 m range version and the -04 is
@@ -13,7 +15,7 @@
 #
 # Usage:
 #   source(file.path(Sys.getenv("VI_FLO_ENGINE_ROOT"), "code/start.R"))
-#   source(file.path(Sys.getenv("VI_FLO_ENGINE_ROOT"), "tools/migrate_add_model.R"))
+#   source(file.path(Sys.getenv("VI_FLO_ENGINE_ROOT"), "tools/migrations/migrate_add_model.R"))
 
 migrate_add_model <- function() {
 

@@ -3,7 +3,86 @@ All notable changes to the VI-FLO Engine project are documented here.
 
 ---
 
-## [v0.5.0] (unreleased)
+## [v0.6.0] (unreleased)
+
+### Added
+- `code/start.R`
+  - Loads everything needed for an interactive session in one line
+- `setup_functions.R`
+  - `load_all_functions()` discovers every `*_functions.R` file rather than
+    listing them, so a new one is picked up with no list to update. The
+    launcher's `.Rprofile` now uses it too - its hardcoded list had already
+    drifted out of date
+- `device_metadata.csv` and `SAMPLE_device_metadata.csv`
+  - Added `$model` column immediately after `$mfger`. The model determines what
+    the numbers mean: a HOBO U20-001-01 is the 9 m range version and the -04 is
+    4 m, so without it a pressure reading cannot be judged in or out of spec
+- `metadata_functions.R`
+  - `is_hobo_device()` holds the accepted manufacturer spellings in one place,
+    replacing the same alias check repeated at five call sites
+- `metadata_manager_functions.R`
+  - `ui_correct_device_details()` (existing station work, option 9) corrects
+    descriptive fields recorded wrongly or left blank: model, device name,
+    device role, interval, deploy datetime, latitude, longitude. Deliberately
+    not a general row editor - things that HAPPENED belong in their own
+    workflows, which log them
+  - `suggest_station_id()` proposes the station ID from site and type, reading
+    the numbering rule from existing data rather than hardcoding it. Whether a
+    type carries a counter is whatever that type does at that site
+  - `ui_prompt_device_status()` lists statuses in a deliberate order with their
+    meanings. The previous prompt sorted whatever values happened to exist
+    alphabetically, which put `defunct` first and could not offer a status
+    nobody had typed yet
+  - Site name is now chosen from a list, and its abbreviation derived from the
+    existing record, so a typo can no longer fragment one site into two
+  - Replacing a device at a hydro station now clears the inherited elevation
+    and explains why: at a dual-logger gauge the elevation difference IS the
+    hydraulic slope, so a stale figure silently produces wrong flow. Missing is
+    safer than wrong
+- `backup_restore_functions.R`
+  - `save_metadata_state()` and `revert_metadata_state()`. These are SAVEPOINTS,
+    not backups: one only, no history, taken deliberately to reset a testing
+    session. `backup_metadata()` remains the actual backup - automatic,
+    timestamped, per-file
+- `tools/migrations/` and `README.md`
+  - One-off scripts separated from live utilities, each stamped with the date
+    it was applied, to be deleted at the next version tag. The README records
+    the shape a migration should follow
+- `README.md`
+  - Data provenance section: the network was deployed under Ridge to Reef
+    VI-EPSCoR (2021-2025) and VI-FLO began in 2026, so device-level history
+    from that period was not recorded and is not recoverable. The data is
+    unaffected; what is missing is provenance, not measurements
+
+### Changed
+- Manufacturer is recorded as `HOBO` rather than `Onset` - it is what the
+  loggers are called operationally, what the software is named, and what the
+  file extension says. `Onset` is still accepted on input as an alias
+- `restore_directory()` reports the age of the backup and warns above 14 days.
+  A stale snapshot in the expected place is indistinguishable from a fresh one,
+  and reverting to it succeeds silently rather than failing
+- Station `fb1_vwc1` renamed to `fb2_vwc1`. A site is a neighbourhood within a
+  watershed and several station types may share one, but the Fish Bay soil
+  moisture station sits at the coastal neighbourhood, which by the numbering
+  convention is fb2 - leaving fb1 for a possible upstream gauge. The Fish Bay
+  weather station is genuinely upstream and remains fb1
+- `DATA_DICTIONARY.md`
+  - Documented `$model`; noted that `$deploy_datetime` may predate the specific
+    device for stations established before VI-FLO
+  - Corrected `deploy_date` to `deploy_datetime`; removed markdown escapes
+
+### Removed
+- `tools/log_maintenance_interactive.R`, `tools/initialize_port_config.R`,
+  `tools/update_port_configs.R`
+  - Superseded by the metadata manager, which does the same jobs and logs them.
+    1,614 lines that looked live and would have written to real metadata
+- `tools/testing/`
+  - Replaced by `save_metadata_state()` and `revert_metadata_state()`, which
+    need no separate scripts
+
+---
+
+## [v0.5.0] - 2026-08-25
 
 ### Added
 - `local_ingest_functions.R`

@@ -1,5 +1,7 @@
 # VI-FLO migration: fb1_vwc1 -> fb2_vwc1
 #
+# APPLIED: 2026-08-26. Retained for reference until the next version tag.
+#
 # ONE-TIME SCRIPT.
 #
 # A site is a neighbourhood within a watershed, and several station types may
@@ -21,7 +23,7 @@
 #
 # Usage:
 #   source(file.path(Sys.getenv("VI_FLO_ENGINE_ROOT"), "code/start.R"))
-#   source(file.path(Sys.getenv("VI_FLO_ENGINE_ROOT"), "tools/migrate_fb1_to_fb2.R"))
+#   source(file.path(Sys.getenv("VI_FLO_ENGINE_ROOT"), "tools/migrations/migrate_fb1_to_fb2.R"))
 
 migrate_fb1_to_fb2 <- function(dry_run = TRUE) {
 

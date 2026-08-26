@@ -1,5 +1,7 @@
 # VI-FLO migration: add download_type column to download_log.csv
 #
+# APPLIED: 2026-08-23. Retained for reference until the next version tag.
+#
 # ONE-TIME SCRIPT. Adds a `download_type` column recording whether a download
 # came through the Zentra API ("automatic") or was offloaded by hand from a
 # logger in the field ("manual"). All pre-existing rows are API downloads and
@@ -10,7 +12,7 @@
 # Usage:
 #   source(file.path(Sys.getenv("VI_FLO_ENGINE_ROOT"), "code/functions/setup_functions.R"))
 #   load_functions("metadata")
-#   source(file.path(Sys.getenv("VI_FLO_ENGINE_ROOT"), "tools/migrate_download_type.R"))
+#   source(file.path(Sys.getenv("VI_FLO_ENGINE_ROOT"), "tools/migrations/migrate_download_type.R"))
 
 migrate_download_type <- function() {
 
