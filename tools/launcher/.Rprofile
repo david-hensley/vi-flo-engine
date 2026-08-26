@@ -21,12 +21,9 @@ setHook("rstudio.sessionInit", function(newSession) {
 
   source(file.path(engine_root, "code/functions/setup_functions.R"))
 
-  load_functions("metadata")
-  load_functions("metadata_manager")
-  load_functions("validation")
-  load_functions("file_naming")
-  load_functions("pending_ingest")
-  load_functions("local_ingest")
+  # Discovers the function files rather than listing them, so a new one is
+  # picked up here automatically
+  load_all_functions(quiet = TRUE)
 
   cat("\n")
   metadata_manager()

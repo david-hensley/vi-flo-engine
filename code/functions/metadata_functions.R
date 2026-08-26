@@ -258,3 +258,19 @@ write_maintenance_entry <- function(field_visit_date, station_id, station_type,
   message("✓ Maintenance entry logged for ", station_id, " (", device_serial, ")")
   invisible(TRUE)
 }
+
+
+#' Is this device a HOBO logger?
+#'
+#' Single place where the accepted manufacturer spellings live. "HOBO" is the
+#' value VI-FLO writes - it is what the loggers are called operationally, what
+#' the software is named, and what the file extension says. "Onset" is kept as
+#' an accepted alias because it is the manufacturer name printed on older
+#' devices and someone will eventually type it.
+#'
+#' @param mfger Character. Manufacturer value from device metadata
+#' @return Logical
+is_hobo_device <- function(mfger) {
+  tolower(trimws(as.character(mfger))) %in% c("hobo", "onset")
+}
+

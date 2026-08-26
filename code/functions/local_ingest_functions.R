@@ -345,7 +345,7 @@ ui_ingest_local_data <- function(station_id, device_serial, station_type,
   if (!dir.exists(raw_dir)) dir.create(raw_dir, recursive = TRUE)
 
   #### Which instruction set ####
-  is_hobo <- tolower(mfger) %in% c("onset", "hobo")
+  is_hobo <- is_hobo_device(mfger)
   instructions <- if (is_hobo) HOBO_EXPORT_INSTRUCTIONS else
                                 ZENTRA_LOCAL_EXPORT_INSTRUCTIONS
 

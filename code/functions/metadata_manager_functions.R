@@ -852,7 +852,7 @@ add_new_device <- function(device_data) {
     # Generate unique_id based on manufacturer
     if (tolower(device_data$mfger) == "meter") {
       prefix <- "z"
-    } else if (tolower(device_data$mfger) %in% c("onset", "hobo")) {
+    } else if (is_hobo_device(device_data$mfger)) {
       prefix <- "h"
     } else {
       return("Unknown manufacturer, cannot determine unique_id prefix")
@@ -878,6 +878,7 @@ add_new_device <- function(device_data) {
       device_role = device_data$device_role,
       device_name = device_data$device_name,
       mfger = device_data$mfger,
+      model = device_data$model,
       lat = device_data$lat,
       lon = device_data$lon,
       elev = device_data$elev,
@@ -1741,7 +1742,7 @@ ui_survey_elevations <- function() {
     
     # Get all stations and filter to those with 2+ HOBO devices
     metadata <- load_zentra_metadata()
-    hobo_devices <- metadata[tolower(metadata$mfger) %in% c("onset", "hobo"), ]
+    hobo_devices <- metadata[is_hobo_device(metadata$mfger), ]
     
     if (nrow(hobo_devices) == 0) {
       cat("❌ No HOBO devices found in metadata\n")
@@ -2327,6 +2328,27 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL, suppr
     }
     cat("✓ Manufacturer:", mfger, "\n")
     
+    ## Model
+    # The model determines what the numbers mean. A HOBO U20-001-01 is the 9 m
+    # range version and the -04 is 4 m - without this, you cannot tell whether a
+    # pressure reading is in spec or off the end of the sensor.
+    existing_models <- get_metadata_unique_values("model")
+    if (length(existing_models) > 0) {
+      model <- ui_select_or_specify("Select model:", existing_models)
+      if (is.null(model)) {
+        cat("❌ Cancelled\n")
+        return(NULL)
+      }
+    } else {
+      cat("\nEnter device model (e.g. 'U20-001-01', 'ZL6'):\n")
+      model <- trimws(readline())
+      if (model == "") {
+        model <- NA
+        cat("✓ No model recorded\n")
+      }
+    }
+    if (!is.na(model)) cat("✓ Model:", model, "\n")
+    
     ## Device role (optional)
     specify_role <- ui_yes_no("Specify a device role (recommended)?", allow_quit = FALSE)
     if (specify_role == "N") {
@@ -2587,6 +2609,7 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL, suppr
     device_role = device_role,
     device_name = device_name,
     mfger = mfger,
+    model = model,
     lat = lat,
     lon = lon,
     elev = elev,
@@ -4822,6 +4845,7 @@ metadata_manager <- function() {
         cat("  6. Station relocated (moved to new location)\n")
         cat("  7. Station decommissioned (entire station shut down)\n")
         cat("  8. Field surveyed elevation of station or loggers\n")
+        cat("  9. Correct device details (model, name, role, interval)\n")
         cat("  q. Back to main menu\n")
         
         work_choice <- trimws(readline())
@@ -4920,7 +4944,7 @@ metadata_manager <- function() {
             metadata <- load_zentra_metadata()
             new_device_row <- metadata[metadata$device_serial == result$new_device_serial, ][1, ]
             
-            if (tolower(new_device_row$mfger) %in% c("onset", "hobo")) {
+            if (is_hobo_device(new_device_row$mfger)) {
               cat("✓ HOBO device - no port configuration needed\n")
             } else {
               # Zentra device - ask about ports
@@ -4996,6 +5020,12 @@ metadata_manager <- function() {
           next
         }
         
+        ### Option 9: Correct device details
+        else if (work_choice == "9") {
+          ui_correct_device_details()
+          next
+        }
+        
         else {
           cat("⚠️  Invalid selection\n")
         }
@@ -5036,7 +5066,7 @@ metadata_manager <- function() {
           metadata <- load_zentra_metadata()
           device_row <- metadata[metadata$device_serial == result$device_serial, ][1, ]
           
-          if (tolower(device_row$mfger) %in% c("onset", "hobo")) {
+          if (is_hobo_device(device_row$mfger)) {
             cat("✓ HOBO device added - no port configuration needed\n")
           } else {
             # Zentra device - ask about ports
@@ -5062,7 +5092,7 @@ metadata_manager <- function() {
           metadata <- load_zentra_metadata()
           device_row <- metadata[metadata$device_serial == result$device_serial, ][1, ]
           
-          if (tolower(device_row$mfger) %in% c("onset", "hobo")) {
+          if (is_hobo_device(device_row$mfger)) {
             cat("✓ HOBO device - no port configuration needed\n")
           } else {
             # Zentra device - ask about ports
@@ -5133,4 +5163,177 @@ metadata_manager <- function() {
     
   }  # End main loop
   
+}
+
+
+#' Corrects device details recorded wrongly or left blank
+#'
+#' For DESCRIPTIVE fields only - things that are properties of the device
+#' rather than records of something happening. Correcting a typo in a model
+#' number is a correction; a device being replaced or a station moving are
+#' EVENTS and belong in their own workflows, where they leave a maintenance
+#' log entry behind.
+#'
+#' Deliberately not a general row editor. A general editor would become the
+#' easy path for changes that ought to be logged, and the log is the only
+#' record of why anything changed.
+#'
+#' @return TRUE if a change was made, NULL if cancelled
+ui_correct_device_details <- function() {
+
+  cat("\n============================================\n")
+  cat("  Correct Device Details\n")
+  cat("============================================\n\n")
+  cat("For fixing details recorded wrongly or left blank:\n")
+  cat("  - model, device name, device role, logging interval\n\n")
+  cat("NOT for things that happened in the field. A device swap, a station\n")
+  cat("move, or a status change belong in their own workflows, so that they\n")
+  cat("leave a maintenance log entry behind.\n\n")
+
+  #### Select station and device ####
+  station_list <- get_station_list()
+  if (length(station_list) == 0) {
+    cat("No stations found in metadata.\n")
+    return(invisible(NULL))
+  }
+
+  station_options <- sapply(station_list, function(s) {
+    paste0(s$station_id, " (", s$site_full, ")")
+  })
+
+  selected <- ui_select_from_menu("Select station:", station_options)
+  if (is.null(selected)) {
+    cat("Cancelled\n")
+    return(invisible(NULL))
+  }
+  station_id <- station_list[[selected]]$station_id
+
+  devices <- get_active_station_devices(station_id)
+  if (nrow(devices) == 0) {
+    cat("No active devices at this station.\n")
+    return(invisible(NULL))
+  }
+
+  if (nrow(devices) == 1) {
+    device_serial <- devices$device_serial[1]
+    cat("\nDevice: ", device_serial, "\n", sep = "")
+  } else {
+    device_options <- paste0(devices$device_serial,
+                             ifelse(is.na(devices$device_role), "",
+                                    paste0(" (", devices$device_role, ")")))
+    dsel <- ui_select_from_menu("Select device:", device_options)
+    if (is.null(dsel)) {
+      cat("Cancelled\n")
+      return(invisible(NULL))
+    }
+    device_serial <- devices$device_serial[dsel]
+  }
+
+  #### Show current values ####
+  metadata <- load_zentra_metadata()
+  idx <- which(metadata$device_serial == device_serial &
+               metadata$station_id == station_id &
+               !metadata$status %in% c("removed", "replaced", "relocated",
+                                       "decommissioned"))
+
+  if (length(idx) == 0) {
+    cat("Could not find an active row for that device.\n")
+    return(invisible(NULL))
+  }
+  idx <- idx[1]
+
+  editable <- c("model", "device_name", "device_role", "interval_min")
+  editable <- editable[editable %in% names(metadata)]
+
+  repeat {
+    cat("\n--- CURRENT VALUES ---\n\n")
+    for (i in seq_along(editable)) {
+      value <- metadata[[editable[i]]][idx]
+      display <- if (is.na(value) || value == "") "(blank)" else as.character(value)
+      cat("  ", i, ". ", format(editable[i], width = 14), " ", display, "\n", sep = "")
+    }
+    cat("  q. Done\n\n")
+    cat("Which field to correct? ")
+
+    choice <- trimws(readline())
+    if (tolower(choice) == "q") break
+
+    if (!grepl("^[0-9]+$", choice) ||
+        as.numeric(choice) < 1 || as.numeric(choice) > length(editable)) {
+      cat("Invalid selection\n")
+      next
+    }
+
+    field <- editable[as.numeric(choice)]
+    current <- metadata[[field]][idx]
+
+    cat("\nCurrent ", field, ": ",
+        if (is.na(current) || current == "") "(blank)" else as.character(current),
+        "\n", sep = "")
+
+    #### Field-specific prompting ####
+    if (field %in% c("model", "device_role")) {
+      existing <- get_metadata_unique_values(field)
+      if (length(existing) > 0) {
+        new_value <- ui_select_or_specify(paste0("Select ", field, ":"), existing)
+        if (is.null(new_value)) next
+      } else {
+        cat("Enter new ", field, " (or press Enter to leave blank): ", sep = "")
+        new_value <- trimws(readline())
+        if (new_value == "") new_value <- NA
+      }
+
+    } else if (field == "interval_min") {
+      cat("Enter logging interval in minutes: ")
+      input <- trimws(readline())
+      new_value <- suppressWarnings(as.numeric(input))
+      if (is.na(new_value) || new_value <= 0) {
+        cat("Invalid interval - must be a positive number\n")
+        next
+      }
+
+    } else {
+      cat("Enter new ", field, " (or press Enter to leave blank): ", sep = "")
+      new_value <- trimws(readline())
+      if (new_value == "") new_value <- NA
+    }
+
+    #### Confirm ####
+    cat("\n  ", field, "\n", sep = "")
+    cat("    from: ",
+        if (is.na(current) || current == "") "(blank)" else as.character(current),
+        "\n", sep = "")
+    cat("    to:   ",
+        if (is.na(new_value)) "(blank)" else as.character(new_value), "\n\n", sep = "")
+
+    confirmed <- ui_yes_no("Apply this correction?", allow_quit = FALSE)
+    if (confirmed == "N") {
+      cat("Not applied\n")
+      next
+    }
+
+    #### Write ####
+    backup_metadata()
+
+    metadata[[field]][idx] <- new_value
+
+    setwd(wds("meta_internal"))
+    metadata$deploy_datetime    <- format_datetime_safe(metadata$deploy_datetime)
+    metadata$last_update        <- format_datetime_safe(metadata$last_update)
+    metadata$last_download_date <- format_datetime_safe(metadata$last_download_date)
+    metadata$last_record_date   <- format_datetime_safe(metadata$last_record_date)
+    metadata$last_visit         <- as.character(metadata$last_visit)
+    if ("expiry_date" %in% names(metadata)) {
+      metadata$expiry_date <- as.character(metadata$expiry_date)
+    }
+
+    write.csv(metadata, "device_metadata.csv", row.names = FALSE)
+    cat("Updated ", field, "\n", sep = "")
+
+    # Re-read so the display reflects what is actually on disk
+    metadata <- load_zentra_metadata()
+  }
+
+  cat("\nDone.\n")
+  invisible(TRUE)
 }
