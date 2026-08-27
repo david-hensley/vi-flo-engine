@@ -1554,7 +1554,11 @@ ui_log_download <- function() {
   
   #### 4 - Download details
   cat("\nEnter download details (one line):\n")
-  cat("  (e.g., 'Downloaded via waterproof shuttle' or 'Zentra download to iPhone')\n")
+  cat("  Describe the DOWNLOAD only - how the data came off, and anything\n")
+  cat("  that bears on reading the record.\n")
+  cat("  (e.g. 'Shuttle offload, readout complete' or 'Bluetooth to phone')\n")
+  cat("  Maintenance you did on the same visit gets its own entry - you will\n")
+  cat("  be asked about it next.\n")
   details <- readline()
   if (details == "") {
     details <- "Manual download"
@@ -5121,21 +5125,43 @@ metadata_manager <- function() {
     #### Unfinished business first
     # Data left on a logger, a shuttle, or a phone is data at risk. Raising it
     # here every single time is the point: the system remembers, not the person.
-    if (exists("check_pending")) check_pending()
+    n_pending <- 0
+    if (exists("check_pending")) {
+      pending_now <- check_pending()
+      n_pending <- nrow(pending_now)
+    }
     
     #### TOP LEVEL - What happened?
     cat("What happened?\n")
     cat("  1. Worked on existing station/device\n")
     cat("  2. Established new station/device or reactivated old station\n")
     cat("  3. View/check metadata\n")
+    if (n_pending > 0) {
+      cat("  r. Resume an unfinished data task\n")
+    }
     cat("  q. Quit\n")
     cat("\nEnter selection: ")
     
     top_choice <- trimws(readline())
     
     if (tolower(top_choice) == "q") {
+      #### Station photos ####
+      # Photos are filed by hand and nothing else in the system asks for them,
+      # so they are quietly forgotten. The reminder goes here, on the way out,
+      # rather than on every menu loop.
+      photo_dir <- file.path(wds("meta_internal"), "station_photos")
+      cat("\nIf you took station photos on this visit, file them here:\n\n")
+      cat("     ", photo_dir, "\n\n", sep = "")
+      cat("  Named station_id_YYYY-MM-DD, e.g. sr1_hydro_2026-03-02.jpeg\n")
+      
       cat("\n✓ Exiting Metadata Manager\n")
       return(invisible(TRUE))
+    }
+    
+    #### Resume an unfinished data task ####
+    if (tolower(top_choice) == "r" && n_pending > 0) {
+      ui_resume_pending_ingest()
+      next
     }
     
     # Hidden admin function - delete metadata row
@@ -5218,9 +5244,14 @@ metadata_manager <- function() {
           result <- ui_log_download()
           
           if (!is.null(result)) {
-            cat("\nDid you do anything else at this station? (Y/N)\n")
-            cat("  If you also replaced/relocated/decommissioned, select that workflow next.\n")
-            cat("Response: ")
+            # Asked, not left to the user to volunteer. A note about clearing
+            # debris buried in a download's details line can never answer
+            # "when was this last cleaned?" - action_type is what makes
+            # maintenance findable, and only its own entry carries one.
+            cat("\nDid you do anything else at this station on this visit?\n")
+            cat("  Cleaning, battery change, inspection, notes  -> routine maintenance\n")
+            cat("  Sensor swap, device replaced, station moved  -> its own workflow\n")
+            cat("Response (Y/N): ")
             more_work <- toupper(trimws(readline()))
             if (more_work != "Y" && more_work != "1") {
               break
@@ -5885,4 +5916,93 @@ device_label <- function(device_row) {
     return(as.character(device_row$device_serial))
   }
   paste0(nm, " (", device_row$device_serial, ")")
+}
+
+
+#' Resumes an unfinished data ingest
+#'
+#' check_pending() reports outstanding work; this acts on it. Without it the
+#' only apparent route is to run the download workflow again, which would be
+#' wrong - the field record was already written, so a second pass would
+#' duplicate the maintenance entry and re-stamp last_visit. What is actually
+#' outstanding is the archiving alone.
+#'
+#' @return TRUE if an ingest completed, FALSE if deferred again, NULL if cancelled
+ui_resume_pending_ingest <- function() {
+
+  pending <- load_pending_ingest()
+
+  if (nrow(pending) == 0) {
+    cat("\nNo unfinished data tasks.\n")
+    return(invisible(NULL))
+  }
+
+  cat("\n============================================\n")
+  cat("  Resume Unfinished Data Task\n")
+  cat("============================================\n\n")
+
+  options <- character(nrow(pending))
+  for (i in seq_len(nrow(pending))) {
+    label <- PENDING_STAGE_LABELS[pending$stage[i]]
+    if (is.na(label)) label <- pending$stage[i]
+    options[i] <- paste0(pending$station_id[i],
+                         "  visited ", pending$field_visit_date[i],
+                         "  - ", label)
+  }
+
+  selected <- ui_select_from_menu("Select task to resume:", options)
+  if (is.null(selected)) {
+    cat("Cancelled\n")
+    return(invisible(NULL))
+  }
+
+  idx <- which(options == selected)[1]
+  row <- pending[idx, ]
+
+  #### Fill in what the pending row does not carry ####
+  metadata <- load_zentra_metadata()
+  dev <- metadata[metadata$device_serial == row$device_serial &
+                  metadata$station_id == row$station_id, ]
+
+  if (nrow(dev) == 0) {
+    cat("\n❌ Device ", row$device_serial, " is no longer in metadata for ",
+        row$station_id, ".\n", sep = "")
+    cat("   The device may have been removed since this task was recorded.\n")
+    return(invisible(NULL))
+  }
+  dev <- dev[1, ]
+
+  #### A cloud upload is not an ingest - it just needs confirming ####
+  if (row$stage == "awaiting_cloud_upload") {
+    cat("This station was offloaded on site but the data has not yet been\n")
+    cat("uploaded to ZentraCloud.\n\n")
+
+    uploaded <- ui_yes_no("Has it been uploaded now?", allow_quit = FALSE)
+
+    if (uploaded == "Y") {
+      result <- update_download_approval(row$station_id, TRUE)
+      if (!isTRUE(result)) {
+        cat("⚠️  Warning: could not update download approval: ", result, "\n", sep = "")
+      } else {
+        cat("✓ Station approved for download - new data is available in the cloud\n")
+      }
+      clear_pending_ingest(row$station_id, row$device_serial)
+      cat("✓ Task cleared\n\n")
+      return(invisible(TRUE))
+    }
+
+    cat("\nLeft outstanding - you will be reminded again.\n\n")
+    return(invisible(FALSE))
+  }
+
+  #### Otherwise hand back to the ingest workflow at the recorded stage ####
+  ui_ingest_local_data(
+    station_id       = row$station_id,
+    device_serial    = row$device_serial,
+    station_type     = dev$station_type,
+    mfger            = dev$mfger,
+    field_visit_date = as.Date(row$field_visit_date),
+    logged_by        = row$logged_by,
+    resume_stage     = row$stage
+  )
 }

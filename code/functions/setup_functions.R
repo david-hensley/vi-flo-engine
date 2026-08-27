@@ -14,6 +14,43 @@ load_functions <- function(func_name) {
   invisible(TRUE)
 }
 
+#' Loads every function file in code/functions/
+#'
+#' Discovers the files rather than listing them, so a new _functions.R file is
+#' picked up automatically and there is no list to forget to update.
+#'
+#' setup_functions.R is skipped - if you are calling this, it is already loaded.
+#'
+#' @param quiet Logical. Suppress the per-file confirmations (default FALSE)
+#' @return Invisible character vector of the prefixes loaded
+load_all_functions <- function(quiet = FALSE) {
+
+  func_dir <- file.path(Sys.getenv("VI_FLO_ENGINE_ROOT"), "code", "functions")
+
+  if (!dir.exists(func_dir)) {
+    stop("Cannot find code/functions - is VI_FLO_ENGINE_ROOT set correctly?",
+         call. = FALSE)
+  }
+
+  files <- list.files(func_dir, pattern = "_functions\\.R$")
+  prefixes <- sub("_functions\\.R$", "", files)
+  prefixes <- setdiff(prefixes, "setup")
+
+  for (p in prefixes) {
+    if (quiet) {
+      suppressMessages(load_functions(p))
+    } else {
+      load_functions(p)
+    }
+  }
+
+  if (!quiet) {
+    message("\u2713 ", length(prefixes), " function files loaded")
+  }
+
+  invisible(prefixes)
+}
+
 #' Reads the datamap_engine.csv in the data root and lists the named_paths for the user
 read_datamap <- function(){
   setwd(Sys.getenv("VI_FLO_DATA_ROOT"))

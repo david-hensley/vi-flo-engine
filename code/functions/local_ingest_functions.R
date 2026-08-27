@@ -45,10 +45,11 @@ Follow these steps:
 
      {shuttle_dir}
 
-2. Open it and find the .hobo file corresponding to this download
+2. Open it and find the .hobo file for this logger{device_hint}
 3. Double click the correct .hobo file to open it in HOBOware
-4. A pop-up called 'Plot Setup' appears. You must UNCHECK all the 'events'
-   under 'Select internal logger events to plot'. Change nothing else.
+4. A pop-up called 'Plot Setup' appears. Find the section called
+   'Select internal logger events to plot' - UNCHECK every event listed
+   there. Change nothing else.
 5. When this is done, press 'Plot'
 6. You will see a plot of the data on the screen. Now we export it:
    File > Export Table Data
@@ -234,16 +235,56 @@ find_recent_file_in_data_root <- function(since,
 #' @param tz Character. Timezone for parsing
 #' @return List with data, start, end, n_records - or NULL with a message on
 #'   failure
-read_exported_csv <- function(filepath, tz = NULL) {
+read_exported_csv <- function(filepath, tz = NULL, expected_serial = NULL) {
 
   if (is.null(tz)) {
     metadata <- load_zentra_metadata()
     tz <- metadata$timezone[1]
   }
 
+  #### Find the header row ####
+  # HOBOware writes a title line above the headers - "Plot Title: Backup" -
+  # which has one field where the rest of the file has several, and read.csv
+  # refuses the file outright. Rather than hardcoding skip = 1, find the first
+  # line whose field count matches the body of the file. That survives a
+  # format change that adds or removes preamble lines.
+  #
+  # fileEncoding handles the UTF-8 BOM HOBOware also writes, which would
+  # otherwise corrupt the first column name.
+  counts <- suppressWarnings(
+    tryCatch(count.fields(filepath, sep = ",", quote = "\"",
+                          blank.lines.skip = FALSE),
+             error = function(e) NULL)
+  )
+
+  if (is.null(counts) || length(counts) < 2) {
+    cat("\n  X Could not read the file - it may be empty or not a CSV.\n")
+    return(NULL)
+  }
+
+  look <- counts[seq_len(min(30, length(counts)))]
+  body_width <- as.numeric(names(sort(table(look[look > 1]), decreasing = TRUE))[1])
+  header_line <- which(look == body_width)[1]
+
+  if (is.na(header_line)) {
+    cat("\n  X Could not identify a header row in this file.\n")
+    return(NULL)
+  }
+
+  skip_lines <- header_line - 1
+
+  if (skip_lines > 0) {
+    cat("\n  Skipped ", skip_lines, " preamble line(s) above the header\n", sep = "")
+  }
+
   data <- tryCatch(
-    read.csv(filepath, stringsAsFactors = FALSE, check.names = FALSE),
-    error = function(e) NULL
+    read.csv(filepath, stringsAsFactors = FALSE, check.names = FALSE,
+             skip = skip_lines, fileEncoding = "UTF-8-BOM"),
+    error = function(e) {
+      tryCatch(read.csv(filepath, stringsAsFactors = FALSE, check.names = FALSE,
+                        skip = skip_lines),
+               error = function(e2) NULL)
+    }
   )
 
   if (is.null(data) || nrow(data) == 0) {
@@ -251,10 +292,34 @@ read_exported_csv <- function(filepath, tz = NULL) {
     return(NULL)
   }
 
+  #### Is this the right logger? ####
+  # HOBOware embeds the logger serial in the column headers:
+  #   "Abs Pres, kPa (LGR S/N: 21352826, SEN S/N: 21352826)"
+  # That is a direct check on whether the correct .hobo file was opened -
+  # far better than inferring it from dates, which a user has to judge.
+  found_serials <- unique(unlist(
+    regmatches(names(data),
+               gregexpr("(?<=LGR S/N: )[A-Za-z0-9-]+", names(data), perl = TRUE))
+  ))
+
+  if (!is.null(expected_serial) && length(found_serials) > 0) {
+    if (!expected_serial %in% found_serials) {
+      cat("\n  !  WARNING: this file was produced by a different logger.\n\n")
+      cat("     Expected serial: ", expected_serial, "\n", sep = "")
+      cat("     File says:       ", paste(found_serials, collapse = ", "), "\n\n", sep = "")
+      cat("     The wrong .hobo file was almost certainly opened in HOBOware.\n")
+      return(NULL)
+    } else {
+      cat("  Serial matches: ", expected_serial, "\n", sep = "")
+    }
+  }
+
   #### Find the datetime column ####
-  # Try by name first, then fall back to whichever column parses as dates.
+  # Detected, not assumed. Onset changed its export format when it moved to
+  # the LI-COR platform, and any file may have been opened in Excel on the way
+  # here, which rewrites datetimes into the local format.
   datetime_col <- NULL
-  name_patterns <- c("date.*time", "^date$", "^time$", "timestamp", "^#?\\s*$")
+  name_patterns <- c("date.*time", "^date$", "^time$", "timestamp")
 
   for (pattern in name_patterns) {
     hits <- grep(pattern, names(data), ignore.case = TRUE)
@@ -403,11 +468,23 @@ ui_ingest_local_data <- function(station_id, device_serial, station_type,
   #### Stage 3 - export loop ####
   repeat {
 
+    # The HOBOware name recorded for this device is the filename to look for.
+    # Naming it removes the guesswork from a folder of cryptically-named files.
+    meta_row <- load_zentra_metadata()
+    device_name <- meta_row$device_name[meta_row$device_serial == device_serial][1]
+    
+    device_hint <- if (!is.na(device_name) && nzchar(trimws(device_name))) {
+      paste0(" (should be named \"", device_name, ".hobo\")")
+    } else {
+      ""
+    }
+    
     cat(fill_instructions(instructions,
                           shuttle_dir = shuttle_dir,
                           raw_dir     = raw_dir,
                           temp_file   = temp_file,
-                          station_id  = station_id))
+                          station_id  = station_id,
+                          device_hint = device_hint))
     cat("\n")
 
     # Anchor: nothing machine-generated lands in the data root while we wait
@@ -459,7 +536,7 @@ ui_ingest_local_data <- function(station_id, device_serial, station_type,
   #### Stage 4 - read and confirm ####
   repeat {
 
-    parsed <- read_exported_csv(temp_path)
+    parsed <- read_exported_csv(temp_path, expected_serial = device_serial)
 
     if (is.null(parsed)) {
       cat("\n  1. Try the export again\n")
