@@ -1351,23 +1351,41 @@ ui_log_maintenance <- function() {
   cat("✓ Device:", device_serial, "\n")
   
   #### 4 - Action type (ROUTINE MAINTENANCE ONLY)
-  # Standard actions for routine maintenance
-  # Removed: relocation, device_removed, device_installed (separate workflows)
-  standard_actions <- c("cleaning", "battery", "inspection", "maintenance")
+  # Declared, not discovered. The previous version listed four standard actions
+  # and then appended every action_type ever seen in the log, minus an
+  # exclusion list. That list could never keep up: the moment a workflow wrote
+  # a new type - station_established, device_added - it appeared here as
+  # something a human could hand-log, which only a workflow should ever write.
+  #
+  # Listing what a person MAY choose inverts that. A new workflow-generated
+  # type cannot leak in by accident, because nothing is discovered at all.
+  action_options <- c(
+    "inspection only"     = "inspection",
+    "cleaning"            = "cleaning",
+    "maintenance"         = "maintenance",
+    "battery replacement" = "battery"
+  )
   
-  # Add custom actions from log history (exclude the ones with separate workflows)
-  custom_actions <- get_unique_action_types()
-  excluded_actions <- c(standard_actions, "other", "download", "sensor_swap", 
-                        "depth_change", "relocation", "device_removed", "device_installed", 
-                        "device_removal")  # ← Add this
-  custom_actions <- setdiff(custom_actions, excluded_actions)
+  # Relaunching is a HOBO concept - a Zentra is not launched and relaunched -
+  # so it is not offered where it cannot apply, rather than labelled and left
+  # for the user to filter.
+  device_meta <- load_zentra_metadata()
+  this_device <- device_meta[device_meta$device_serial == device_serial, ]
   
-  all_actions <- c(standard_actions, custom_actions)
+  if (nrow(this_device) > 0 && is_hobo_device(this_device$mfger[1])) {
+    action_options <- c(action_options, "relaunch" = "logger_relaunch")
+  }
   
-  action_type <- ui_select_or_specify("What action was performed?", all_actions)
+  action_type <- ui_select_or_specify("What action was performed?",
+                                      names(action_options))
   if (is.null(action_type)) {
     cat("❌ Cancelled\n")
     return(NULL)
+  }
+  
+  # Map the label back to the stored value; a custom entry is stored as typed
+  if (action_type %in% names(action_options)) {
+    action_type <- unname(action_options[action_type])
   }
   cat("✓ Action:", action_type, "\n")
   

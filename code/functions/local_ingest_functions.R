@@ -368,12 +368,25 @@ read_exported_csv <- function(filepath, tz = NULL, expected_serial = NULL) {
     return(NULL)
   }
 
+  #### What interval was this logger actually recording at? ####
+  # The timestamps are the ground truth. A logger set to a shorter interval
+  # than intended fills its memory sooner and stops early - which is exactly
+  # how a month of record goes missing without anything announcing it.
+  # Median rather than mean, so a single gap does not skew the answer.
+  observed_interval <- NA_real_
+  if (length(valid) > 2) {
+    diffs <- as.numeric(diff(sort(valid)), units = "mins")
+    diffs <- diffs[diffs > 0]
+    if (length(diffs) > 0) observed_interval <- stats::median(diffs)
+  }
+
   list(
     data = data,
     datetime_col = names(data)[datetime_col],
     start = min(valid),
     end = max(valid),
-    n_records = nrow(data)
+    n_records = nrow(data),
+    observed_interval = observed_interval
   )
 }
 
@@ -566,6 +579,54 @@ ui_ingest_local_data <- function(station_id, device_serial, station_type,
     cat("  Records:       ", format(parsed$n_records, big.mark = ","), "\n\n", sep = "")
 
     check_raw_overlap(station_id, parsed$start, parsed$end, dir = raw_dir)
+
+    #### Does the logger's actual interval match what metadata records? ####
+    meta_now <- load_zentra_metadata()
+    dev_row <- meta_now[meta_now$device_serial == device_serial &
+                        meta_now$station_id == station_id, ]
+    recorded_interval <- if (nrow(dev_row) > 0) dev_row$interval_min[1] else NA
+
+    if (!is.na(parsed$observed_interval) && !is.na(recorded_interval) &&
+        abs(parsed$observed_interval - recorded_interval) > 0.5) {
+
+      cat("--- LOGGING INTERVAL MISMATCH ---\n\n")
+      cat("  This file was recorded at ", parsed$observed_interval,
+          "-minute intervals.\n", sep = "")
+      cat("  Metadata says this device logs every ", recorded_interval,
+          " minutes.\n\n", sep = "")
+
+      if (parsed$observed_interval < recorded_interval) {
+        cat("  A shorter interval fills the logger's memory sooner, so it may\n")
+        cat("  have stopped recording before you next visited. Check the last\n")
+        cat("  record date above against the visit date.\n\n")
+      }
+
+      cat("  Consider relaunching this logger at ", recorded_interval,
+          " minutes on the next\n  field visit.\n\n", sep = "")
+      cat("  This file will also need resampling to a common interval during\n")
+      cat("  processing - the archived record keeps its original timestamps.\n\n")
+
+      cat("  interval_min is left as it is. It records what the logger is\n")
+      cat("  MEANT to be set to, not what went wrong on one deployment.\n\n")
+    }
+
+    #### Did the record stop before the visit? ####
+    # last_record_date against last_visit is how a gap announces itself for a
+    # local device. Nothing else would mention it: the file archives cleanly,
+    # the log row looks normal, and the missing month is simply absent.
+    days_short <- suppressWarnings(as.numeric(
+      difftime(as.Date(field_visit_date), as.Date(parsed$end), units = "days")))
+
+    if (!is.na(days_short) && days_short > 2) {
+      cat("--- RECORD ENDS BEFORE THE VISIT ---\n\n")
+      cat("  Last record: ", format(parsed$end, "%Y-%m-%d %H:%M"), "\n", sep = "")
+      cat("  Visited:     ", format(as.Date(field_visit_date), "%Y-%m-%d"),
+          "\n", sep = "")
+      cat("  Gap:         ", round(days_short), " days\n\n", sep = "")
+      cat("  The logger stopped before you got there - full memory, flat\n")
+      cat("  battery, or a failure. That period has no data and cannot be\n")
+      cat("  recovered.\n\n")
+    }
 
     cat("Proposed filename:\n")
     cat("     ", final_name, "\n\n", sep = "")

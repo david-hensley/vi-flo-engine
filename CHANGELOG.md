@@ -6,6 +6,19 @@ All notable changes to the VI-FLO Engine project are documented here.
 ## [v0.6.0] (unreleased)
 
 ### Added
+- `local_ingest_functions.R`
+  - Detects the interval the logger actually recorded at and warns when it
+    differs from `interval_min`. Not corrected: `interval_min` records what a
+    logger is MEANT to be set to, not what went wrong on one deployment
+  - Warns when the record ends more than two days before the field visit -
+    the logger stopped before anyone arrived, and that period is unrecoverable
+  - Reads real HOBOware exports: skips the "Plot Title" preamble by detecting
+    the header row rather than assuming a fixed offset, and handles the UTF-8
+    BOM
+  - Verifies the logger serial embedded in the column headers against the
+    device selected, so opening the wrong .hobo file is caught outright
+  - Instructions name the expected filename from `device_name`
+- `logger_relaunch` action type, offered for HOBO devices only
 - `code/start.R`
   - Loads everything needed for an interactive session in one line
 - `setup_functions.R`
@@ -97,6 +110,14 @@ All notable changes to the VI-FLO Engine project are documented here.
   - Documented `$model`; noted that `$deploy_datetime` may predate the specific
     device for stations established before VI-FLO
   - Corrected `deploy_date` to `deploy_datetime`; removed markdown escapes
+- Routine maintenance actions are now a declared list rather than the standard
+  four plus every action type ever seen in the log minus an exclusion list.
+  That list could not keep up - workflow-written types like
+  `station_established` were being offered as things a human could hand-log
+- Main menu offers `r. Resume an unfinished data task` when something is
+  pending. Previously `check_pending()` reported work with no way to act on
+  it, and the obvious guess would have duplicated the field record
+- Reminder on exit to file station photos
 
 ### Removed
 - `tools/log_maintenance_interactive.R`, `tools/initialize_port_config.R`,

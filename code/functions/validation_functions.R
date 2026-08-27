@@ -423,7 +423,7 @@ validate_metadata <- function(verbose = TRUE, stop_on_error = FALSE) {
                        "station_established", "device_added", "device_replacement", 
                        "device_removal", "station_relocation", "station_decommissioned",
                        "station_reactivated", "port_config_change", "elevation_survey",
-                       "metadata_deletion")
+                       "metadata_deletion", "logger_relaunch")
     
     if ("action_type" %in% names(maint)) {
       unknown_actions <- unique(maint$action_type[!maint$action_type %in% known_actions & 
