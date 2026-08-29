@@ -567,8 +567,10 @@ ui_ingest_local_data <- function(station_id, device_serial, station_type,
                                   resume_stage = "awaiting_temp_csv")))
     }
 
+    # Serial included: a paired gauge has two loggers at one station, and a
+    # station-level name would have the second overwrite the first.
     final_name <- build_raw_filename(station_id, parsed$start, parsed$end,
-                                     ext = "rds")
+                                     ext = "rds", device_serial = device_serial)
 
     cat("\n--------------------------------------------\n")
     cat("Read ", temp_file, "\n\n", sep = "")
@@ -819,7 +821,14 @@ update_last_record_date <- function(device_serial, record_datetime) {
       return("last_record_date column not present in device_metadata.csv")
     }
 
-    metadata$last_record_date[device_index] <- record_datetime
+    # Assign into a CHARACTER column, not the raw one. If last_record_date is
+    # entirely NA - as it is until the first ingest - read.csv types it as
+    # logical, and assigning a POSIXct into a logical vector silently strips
+    # the class and leaves the underlying number. The result looks like
+    # 1769927566 in the CSV: the right instant, stored uselessly.
+    lrd <- format_datetime_safe(metadata$last_record_date)
+    lrd[device_index] <- format(as.POSIXct(record_datetime), "%Y-%m-%d %H:%M:%S")
+    metadata$last_record_date <- lrd
 
     setwd(wds("meta_internal"))
     metadata$deploy_datetime    <- format_datetime_safe(metadata$deploy_datetime)

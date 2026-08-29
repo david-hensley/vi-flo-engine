@@ -1341,13 +1341,17 @@ ui_log_maintenance <- function() {
   cat("✓ Station:", station_id, "(", station_type, ")\n")
   
   #### 3 - Device selection
-  device_options <- station_devices$device_serial
+  # Labelled with the HOBOware name where there is one - a serial alone means
+  # nothing to someone deciding which of two loggers they worked on.
+  device_options <- vapply(seq_len(nrow(station_devices)),
+                           function(i) device_label(station_devices[i, ]),
+                           character(1))
   selected_device <- ui_select_from_menu("Select device:", device_options)
   if (is.null(selected_device)) {
     cat("❌ Cancelled\n")
     return(NULL)
   }
-  device_serial <- selected_device
+  device_serial <- station_devices$device_serial[match(selected_device, device_options)]
   cat("✓ Device:", device_serial, "\n")
   
   #### 4 - Action type (ROUTINE MAINTENANCE ONLY)
@@ -1561,13 +1565,17 @@ ui_log_download <- function() {
   cat("✓ Station:", station_id, "(", station_type, ")\n")
   
   #### 3 - Device selection
-  device_options <- station_devices$device_serial
+  # Labelled with the HOBOware name where there is one - a serial alone means
+  # nothing to someone deciding which of two loggers they worked on.
+  device_options <- vapply(seq_len(nrow(station_devices)),
+                           function(i) device_label(station_devices[i, ]),
+                           character(1))
   selected_device <- ui_select_from_menu("Select device:", device_options)
   if (is.null(selected_device)) {
     cat("❌ Cancelled\n")
     return(NULL)
   }
-  device_serial <- selected_device
+  device_serial <- station_devices$device_serial[match(selected_device, device_options)]
   cat("✓ Device:", device_serial, "\n")
   
   #### 4 - Download details
@@ -2993,14 +3001,16 @@ ui_replace_device <- function() {
   }
   
   # Select device to replace
-  device_options <- station_devices$device_serial
+  device_options <- vapply(seq_len(nrow(station_devices)),
+                           function(i) device_label(station_devices[i, ]),
+                           character(1))
   selected_device <- ui_select_from_menu("\nSelect device to replace:", device_options)
   if (is.null(selected_device)) {
     cat("❌ Cancelled\n")
     return(NULL)
   }
   
-  old_device_serial <- selected_device
+  old_device_serial <- station_devices$device_serial[match(selected_device, device_options)]
   old_device_row <- station_devices[station_devices$device_serial == old_device_serial, ][1, ]
   
   cat("✓ Replacing device:", old_device_serial, "\n")
@@ -4797,14 +4807,16 @@ ui_remove_device <- function() {
   }
   
   # Select device to remove
-  device_options <- station_devices$device_serial
+  device_options <- vapply(seq_len(nrow(station_devices)),
+                           function(i) device_label(station_devices[i, ]),
+                           character(1))
   selected_device <- ui_select_from_menu("\nSelect device to remove:", device_options)
   if (is.null(selected_device)) {
     cat("❌ Cancelled\n")
     return(NULL)
   }
   
-  device_serial <- selected_device
+  device_serial <- station_devices$device_serial[match(selected_device, device_options)]
   device_row <- station_devices[station_devices$device_serial == device_serial, ][1, ]
   
   ################################################################################
@@ -5781,6 +5793,26 @@ ui_correct_device_details <- function() {
 
     write.csv(metadata, "device_metadata.csv", row.names = FALSE)
     cat("Updated ", field, "\n", sep = "")
+
+    #### A rename is an event, not just a correction ####
+    # It explains why an old shuttle readout's filenames no longer match the
+    # names in metadata. Without a log entry, someone looking at a folder of
+    # files called "Backup.hobo" has nothing to tell them it is now "sr1".
+    if (field == "device_name") {
+      log_result <- create_maintenance_entry(
+        field_visit_date = Sys.Date(),
+        station_id       = station_id,
+        station_type     = metadata$station_type[idx],
+        device_serial    = device_serial,
+        action_type      = "device_renamed",
+        details          = paste0("Device name changed from '",
+                                  blank_or_value(current), "' to '",
+                                  blank_or_value(new_value), "'"),
+        ports_updated    = FALSE,
+        logged_by        = ui_ask_whois_logging()
+      )
+      if (isTRUE(log_result)) cat("Logged rename to maintenance\n")
+    }
 
     # Re-read so the display reflects what is actually on disk
     metadata <- load_zentra_metadata()

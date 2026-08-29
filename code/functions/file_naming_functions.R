@@ -118,18 +118,31 @@ coerce_datetime_flexible <- function(x, tz = NULL) {
 #' resolved at the merge/processing step by deduplicating on timestamp, not by
 #' distorting the filename.
 #'
+#' A device_serial may be supplied, and must be for anything manually ingested.
+#' A paired stream gauge has two loggers at ONE station, so a station-level name
+#' cannot distinguish their files - the second would silently overwrite the
+#' first. The SERIAL is used rather than the device name because names change:
+#' put a mutable thing in a filename and historic files stop matching the
+#' moment someone relabels a logger.
+#'
+#' API downloads pass no serial and keep station-level names, correctly - a
+#' Zentra station has one active device and the API collates across
+#' replacements.
+#'
 #' @param station Character. Station ID e.g. "sr1_hydro"
 #' @param start POSIXct, Date, character or Excel serial. First record
 #' @param end POSIXct, Date, character or Excel serial. Last record
 #' @param ext Character. File extension without the dot (default "rds")
 #' @param tz Character. Timezone for parsing text dates (default: from metadata)
+#' @param device_serial Character. Included in the name when supplied
 #' @return Character. The filename
 #' @examples
 #' \dontrun{
 #' build_raw_filename("sr1_hydro", as.POSIXct("2026-01-01"), as.POSIXct("2026-04-01"))
 #' # "sr1_hydro_20260101_20260401_raw.rds"
 #' }
-build_raw_filename <- function(station, start, end, ext = "rds", tz = NULL) {
+build_raw_filename <- function(station, start, end, ext = "rds", tz = NULL,
+                               device_serial = NULL) {
 
   if (is.null(station) || is.na(station) || !nzchar(station)) {
     stop("station must be a non-empty character string", call. = FALSE)
@@ -148,7 +161,13 @@ build_raw_filename <- function(station, start, end, ext = "rds", tz = NULL) {
 
   ext <- sub("^\\.", "", ext)  # tolerate ".rds" being passed
 
-  paste0(station, "_",
+  stem <- station
+  if (!is.null(device_serial) && !is.na(device_serial) &&
+      nzchar(trimws(device_serial))) {
+    stem <- paste0(station, "_", trimws(device_serial))
+  }
+
+  paste0(stem, "_",
          format(start, "%Y%m%d"), "_",
          format(end,   "%Y%m%d"),
          "_raw.", ext)
@@ -190,10 +209,22 @@ parse_raw_filename <- function(filename) {
   end   <- as.Date(end_str,   format = "%Y%m%d")
   if (is.na(start) || is.na(end)) return(NULL)
 
-  station <- paste(parts[1:(n - 2)], collapse = "_")
+  stem_parts <- parts[1:(n - 2)]
+  if (length(stem_parts) == 0) return(NULL)
+
+  # A trailing all-digit segment is a device serial, not part of the station
+  # ID - station IDs are always <site>_<type>, never numeric at the end.
+  device_serial <- NA_character_
+  if (length(stem_parts) > 2 && grepl("^[0-9]+$", stem_parts[length(stem_parts)])) {
+    device_serial <- stem_parts[length(stem_parts)]
+    stem_parts <- stem_parts[-length(stem_parts)]
+  }
+
+  station <- paste(stem_parts, collapse = "_")
   if (!nzchar(station)) return(NULL)
 
-  list(station = station, start = start, end = end, ext = ext)
+  list(station = station, device_serial = device_serial,
+       start = start, end = end, ext = ext)
 }
 
 
