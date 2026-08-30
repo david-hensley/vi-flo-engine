@@ -45,8 +45,14 @@ Follow these steps:
 
      {shuttle_dir}
 
-2. Open it and find the .hobo file for this logger{device_hint}
-3. Double click the correct .hobo file to open it in HOBOware
+2. Find the .hobo file for THIS logger:
+
+     >>>  {device_file}  <<<
+
+   Several loggers may be in the same readout folder, and their names are
+   not always obvious. Take a moment to check you have the right one.
+
+3. Double click that file to open it in HOBOware
 4. A pop-up called 'Plot Setup' appears. Find the section called
    'Select internal logger events to plot' - UNCHECK every event listed
    there. Change nothing else.
@@ -58,11 +64,9 @@ Follow these steps:
 
      {raw_dir}
 
-   and name the file:
+   and save it as:
 
      {temp_file}
-
-   then press 'Save'
 "
 ##### ===== END EDIT ===== #####
 
@@ -486,10 +490,10 @@ ui_ingest_local_data <- function(station_id, device_serial, station_type,
     meta_row <- load_zentra_metadata()
     device_name <- meta_row$device_name[meta_row$device_serial == device_serial][1]
     
-    device_hint <- if (!is.na(device_name) && nzchar(trimws(device_name))) {
-      paste0(" (should be named \"", device_name, ".hobo\")")
+    device_file <- if (!is.na(device_name) && nzchar(trimws(device_name))) {
+      paste0(device_name, ".hobo")
     } else {
-      ""
+      "(name not recorded - check the device serial in HOBOware)"
     }
     
     cat(fill_instructions(instructions,
@@ -497,7 +501,7 @@ ui_ingest_local_data <- function(station_id, device_serial, station_type,
                           raw_dir     = raw_dir,
                           temp_file   = temp_file,
                           station_id  = station_id,
-                          device_hint = device_hint))
+                          device_file = device_file))
     cat("\n")
 
     # Anchor: nothing machine-generated lands in the data root while we wait
@@ -580,7 +584,8 @@ ui_ingest_local_data <- function(station_id, device_serial, station_type,
     cat("  Last record:   ", format(parsed$end,   "%Y-%m-%d %H:%M:%S"), "\n", sep = "")
     cat("  Records:       ", format(parsed$n_records, big.mark = ","), "\n\n", sep = "")
 
-    check_raw_overlap(station_id, parsed$start, parsed$end, dir = raw_dir)
+    check_raw_overlap(station_id, parsed$start, parsed$end, dir = raw_dir,
+                      device_serial = device_serial)
 
     #### Does the logger's actual interval match what metadata records? ####
     meta_now <- load_zentra_metadata()

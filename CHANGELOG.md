@@ -3,7 +3,7 @@ All notable changes to the VI-FLO Engine project are documented here.
 
 ---
 
-## [v0.6.0] (unreleased)
+## [v0.6.0] 2026-08-29
 
 ### Added
 - `local_ingest_functions.R`

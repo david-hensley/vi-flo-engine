@@ -1086,9 +1086,24 @@ ui_yes_no <- function(prompt, allow_quit = TRUE) {
 #' @param allow_quit Logical. Allow 'q' to quit (default TRUE)
 #' @return Selected option string, or NULL if user quit
 ui_select_from_menu <- function(prompt, options, allow_quit = TRUE) {
+
+  # Station lists run to nearly thirty entries and every station at a site
+  # shares a prefix, so they read as one undifferentiated block. Grouping them
+  # by site makes the list scannable.
+  #
+  # Detected from the shape of the options rather than switched on by each of
+  # the nine callers that build these lists: a station option looks like
+  # "sr1_hydro (Salt River 1)". A device option - "21652379 (Adventure)" -
+  # starts with digits and has no underscore, so it is left alone.
+  is_station_list <- length(options) > 3 &&
+    all(grepl("^[a-z][a-z0-9]*_[a-z0-9]+ \\(.+\\)$", options))
+
+  groups <- if (is_station_list) sub("^.*\\((.+)\\)$", "\\1", options) else NULL
+
   repeat {
     cat(prompt, "\n", sep = "")
     for (i in seq_along(options)) {
+      if (!is.null(groups) && i > 1 && groups[i] != groups[i - 1]) cat("\n")
       cat("  ", i, ". ", options[i], "\n", sep = "")
     }
     
@@ -1308,11 +1323,41 @@ ui_prompt_status_change <- function(current_status, allow_quit = TRUE, restrict_
 #' Logs a maintenance entry and updates metadata as needed
 #' Relocation, device replacement, and port changes are separate workflows
 #' @return List with device_serial, station_id, action_type, or NULL if quit
-ui_log_maintenance <- function() {
+ui_log_maintenance <- function(prefill_station = NULL, prefill_device = NULL,
+                               prefill_visit_date = NULL,
+                               prefill_logged_by = NULL) {
   cat("\n============================================\n")
   cat("  Routine Maintenance Logger\n")
   cat("============================================\n\n")
   
+  #### Prefilled from a download on the same visit? ####
+  # Called straight after logging a download, the station, device, date and
+  # initials are all already known. Re-asking for them is three menus of
+  # keystrokes to arrive at the same answer, and every one is a chance to pick
+  # the wrong logger.
+  prefilled <- !is.null(prefill_station) && !is.null(prefill_device)
+
+  if (prefilled) {
+    field_visit_date <- prefill_visit_date
+    station_id       <- prefill_station
+    device_serial    <- prefill_device
+
+    station_devices <- get_active_devices_or_notify(station_id, "maintenance logging")
+    if (is.null(station_devices)) return(NULL)
+    station_devices <- order_devices_by_role(station_devices)
+    station_type <- station_devices$station_type[1]
+
+    this_row <- station_devices[station_devices$device_serial == device_serial, ]
+
+    cat("Carried over from the download you just logged:\n\n")
+    cat("  Date:    ", format(as.Date(field_visit_date)), "\n", sep = "")
+    cat("  Station: ", station_id, "\n", sep = "")
+    cat("  Device:  ",
+        if (nrow(this_row) > 0) device_label(this_row[1, ], with_role = TRUE)
+        else device_serial, "\n\n", sep = "")
+
+  } else {
+
   #### 1 - Field visit date
   field_visit_date <- ui_prompt_date("When did you visit the field?")
   if (is.null(field_visit_date)) {
@@ -1337,6 +1382,7 @@ ui_log_maintenance <- function() {
   station_id <- sub(" \\(.*\\)$", "", selected)
   station_devices <- get_active_devices_or_notify(station_id, "maintenance logging")
   if (is.null(station_devices)) return(NULL)
+  station_devices <- order_devices_by_role(station_devices)
   station_type <- station_devices$station_type[1]
   cat("✓ Station:", station_id, "(", station_type, ")\n")
   
@@ -1344,7 +1390,8 @@ ui_log_maintenance <- function() {
   # Labelled with the HOBOware name where there is one - a serial alone means
   # nothing to someone deciding which of two loggers they worked on.
   device_options <- vapply(seq_len(nrow(station_devices)),
-                           function(i) device_label(station_devices[i, ]),
+                           function(i) device_label(station_devices[i, ],
+                                                    with_role = TRUE),
                            character(1))
   selected_device <- ui_select_from_menu("Select device:", device_options)
   if (is.null(selected_device)) {
@@ -1353,6 +1400,8 @@ ui_log_maintenance <- function() {
   }
   device_serial <- station_devices$device_serial[match(selected_device, device_options)]
   cat("✓ Device:", device_serial, "\n")
+
+  }  # end of the non-prefilled path
   
   #### 4 - Action type (ROUTINE MAINTENANCE ONLY)
   # Declared, not discovered. The previous version listed four standard actions
@@ -1394,11 +1443,25 @@ ui_log_maintenance <- function() {
   cat("✓ Action:", action_type, "\n")
   
   #### 5 - Details
+  # "inspection" with nothing else said means the station was as it should be.
+  # Offered on Enter, shown explicitly so it is a stated finding rather than
+  # an empty field.
+  default_note <- if (action_type == "inspection") "In good order" else NULL
+
   cat("\nEnter details (one line):\n")
-  details <- readline()
-  cat("✓ Details recorded\n")
+  if (!is.null(default_note)) {
+    cat("  Press Enter for: ", default_note, "\n", sep = "")
+  }
+  details <- trimws(readline())
+  if (details == "" && !is.null(default_note)) details <- default_note
+  cat("✓ Details: ", details, "\n", sep = "")
   
   #### 6 - Who logged this?
+  if (prefilled && !is.null(prefill_logged_by)) {
+    logged_by <- prefill_logged_by
+    cat("\n✓ Logged by:", logged_by, "(carried over)\n")
+    logged_by_input <- NA
+  } else {
   cat("\nWho is logging this entry?\n")
   cat("  1. DAH\n")
   cat("  2. Enter custom initials (3 letters)\n")
@@ -1422,6 +1485,7 @@ ui_log_maintenance <- function() {
     logged_by <- "DAH"  # Default
   }
   cat("✓ Logged by:", logged_by, "\n")
+  }  # end of the non-prefilled logged_by path
   
   #### 7 - Status update (uses helper function for consistency)
   current_status <- station_devices$status[1]
@@ -1497,6 +1561,91 @@ ui_log_maintenance <- function() {
     }
   }
   
+  #### 11b - A relaunch is where a logger's settings change
+  # Relaunching is the only moment a HOBO's name and interval can change, and
+  # both live in metadata that nothing else updates. Asking here, while the
+  # visit is being logged, is the difference between a record that stays true
+  # and one that quietly drifts from the device on the riverbed.
+  if (action_type == "logger_relaunch") {
+    
+    meta_now <- load_zentra_metadata()
+    d_idx <- which(meta_now$device_serial == device_serial &
+                   meta_now$station_id == station_id &
+                   !meta_now$status %in% c("removed", "replaced", "relocated",
+                                           "decommissioned"))
+    
+    if (length(d_idx) > 0) {
+      d_idx <- d_idx[1]
+      changed <- FALSE
+      
+      #### Was it renamed? ####
+      old_name <- meta_now$device_name[d_idx]
+      cat("\n--- LOGGER SETTINGS ---\n\n")
+      cat("Current name in HOBOware: ", blank_or_value(old_name), "\n", sep = "")
+      
+      if (ui_yes_no("Did you rename the logger?", allow_quit = FALSE) == "Y") {
+        cat("Enter the new name exactly as set in HOBOware: ")
+        new_name <- trimws(readline())
+        
+        if (nzchar(new_name) && new_name != old_name) {
+          meta_now$device_name[d_idx] <- new_name
+          changed <- TRUE
+          cat("\u2713 Name: ", blank_or_value(old_name), " -> ", new_name, "\n", sep = "")
+          
+          # A rename is its own event - it explains why an older shuttle
+          # readout's filenames no longer match the names in metadata.
+          rename_log <- create_maintenance_entry(
+            field_visit_date = field_visit_date,
+            station_id       = station_id,
+            station_type     = station_type,
+            device_serial    = device_serial,
+            action_type      = "device_renamed",
+            details          = paste0("Renamed from '", blank_or_value(old_name),
+                                      "' to '", new_name, "' at relaunch"),
+            ports_updated    = FALSE,
+            logged_by        = logged_by
+          )
+          if (isTRUE(rename_log)) cat("\u2713 Rename logged\n")
+        }
+      }
+      
+      #### Was the interval changed? ####
+      old_interval <- meta_now$interval_min[d_idx]
+      cat("\nCurrent logging interval: ", blank_or_value(old_interval),
+          " minutes\n", sep = "")
+      
+      if (ui_yes_no("Did you change the logging interval?", allow_quit = FALSE) == "Y") {
+        repeat {
+          cat("Enter the new interval in minutes: ")
+          new_interval <- suppressWarnings(as.numeric(trimws(readline())))
+          if (!is.na(new_interval) && new_interval > 0) break
+          cat("\u26a0\ufe0f  Must be a positive number\n")
+        }
+        
+        if (new_interval != old_interval) {
+          meta_now$interval_min[d_idx] <- new_interval
+          changed <- TRUE
+          cat("\u2713 Interval: ", old_interval, " -> ", new_interval,
+              " minutes\n", sep = "")
+        }
+      }
+      
+      if (changed) {
+        meta_now$deploy_datetime    <- format_datetime_safe(meta_now$deploy_datetime)
+        meta_now$last_update        <- format_datetime_safe(meta_now$last_update)
+        meta_now$last_download_date <- format_datetime_safe(meta_now$last_download_date)
+        meta_now$last_record_date   <- format_datetime_safe(meta_now$last_record_date)
+        meta_now$last_visit         <- as.character(meta_now$last_visit)
+        if ("expiry_date" %in% names(meta_now)) {
+          meta_now$expiry_date <- as.character(meta_now$expiry_date)
+        }
+        write.csv(meta_now, file.path(wds("meta_internal"), "device_metadata.csv"),
+                  row.names = FALSE)
+        cat("\u2713 Metadata updated\n")
+      }
+    }
+  }
+  
   #### 12 - Download approval
   # Get device info to check status
   device_row <- station_devices[station_devices$device_serial == device_serial, ][1, ]
@@ -1561,6 +1710,7 @@ ui_log_download <- function() {
   station_id <- sub(" \\(.*\\)$", "", selected)
   station_devices <- get_active_devices_or_notify(station_id, "download logging")
   if (is.null(station_devices)) return(NULL)
+  station_devices <- order_devices_by_role(station_devices)
   station_type <- station_devices$station_type[1]
   cat("✓ Station:", station_id, "(", station_type, ")\n")
   
@@ -1568,7 +1718,8 @@ ui_log_download <- function() {
   # Labelled with the HOBOware name where there is one - a serial alone means
   # nothing to someone deciding which of two loggers they worked on.
   device_options <- vapply(seq_len(nrow(station_devices)),
-                           function(i) device_label(station_devices[i, ]),
+                           function(i) device_label(station_devices[i, ],
+                                                    with_role = TRUE),
                            character(1))
   selected_device <- ui_select_from_menu("Select device:", device_options)
   if (is.null(selected_device)) {
@@ -1579,17 +1730,31 @@ ui_log_download <- function() {
   cat("✓ Device:", device_serial, "\n")
   
   #### 4 - Download details
+  # A default offered on Enter, shown explicitly so it cannot be given by
+  # accident without having been read. Only for HOBO devices - a shuttle is
+  # not how a Zentra's data comes off.
+  this_dev <- station_devices[station_devices$device_serial == device_serial, ]
+  default_details <- if (nrow(this_dev) > 0 && is_hobo_device(this_dev$mfger[1])) {
+    "shuttle download"
+  } else {
+    NULL
+  }
+
   cat("\nEnter download details (one line):\n")
   cat("  Describe the DOWNLOAD only - how the data came off, and anything\n")
   cat("  that bears on reading the record.\n")
-  cat("  (e.g. 'Shuttle offload, readout complete' or 'Bluetooth to phone')\n")
   cat("  Maintenance you did on the same visit gets its own entry - you will\n")
   cat("  be asked about it next.\n")
-  details <- readline()
-  if (details == "") {
-    details <- "Manual download"
+  if (!is.null(default_details)) {
+    cat("  Press Enter for: ", default_details, "\n", sep = "")
+  } else {
+    cat("  (e.g. 'Bluetooth to phone, uploaded same day')\n")
   }
-  cat("✓ Details recorded\n")
+  details <- trimws(readline())
+  if (details == "") {
+    details <- if (!is.null(default_details)) default_details else "Manual download"
+  }
+  cat("✓ Details: ", details, "\n", sep = "")
   
   #### 5 - Who logged this?
   cat("\nWho is logging this entry?\n")
@@ -1737,10 +1902,12 @@ ui_log_download <- function() {
   
   cat("\n✓ All done!\n")
   
-  # Return info
+  # Return enough for a maintenance entry on the same visit to be prefilled
   return(list(
-    device_serial = device_serial,
-    station_id = station_id
+    device_serial    = device_serial,
+    station_id       = station_id,
+    field_visit_date = field_visit_date,
+    logged_by        = logged_by
   ))
 }
 
@@ -3002,7 +3169,8 @@ ui_replace_device <- function() {
   
   # Select device to replace
   device_options <- vapply(seq_len(nrow(station_devices)),
-                           function(i) device_label(station_devices[i, ]),
+                           function(i) device_label(station_devices[i, ],
+                                                    with_role = TRUE),
                            character(1))
   selected_device <- ui_select_from_menu("\nSelect device to replace:", device_options)
   if (is.null(selected_device)) {
@@ -3173,6 +3341,7 @@ ui_relocate_station <- function() {
   station_id <- sub(" \\(.*\\)$", "", selected)
   station_devices <- get_active_devices_or_notify(station_id, "station relocation")
   if (is.null(station_devices)) return(NULL)
+  station_devices <- order_devices_by_role(station_devices)
   
   # Get most recent active device
   station_devices_sorted <- station_devices[order(as.POSIXct(station_devices$deploy_datetime), 
@@ -4796,6 +4965,7 @@ ui_remove_device <- function() {
   station_id <- sub(" \\(.*\\)$", "", selected)
   station_devices <- get_active_devices_or_notify(station_id, "device removal")
   if (is.null(station_devices)) return(NULL)
+  station_devices <- order_devices_by_role(station_devices)
   cat("✓ Station:", station_id, "\n\n")
   
   # Show devices at this station
@@ -4808,7 +4978,8 @@ ui_remove_device <- function() {
   
   # Select device to remove
   device_options <- vapply(seq_len(nrow(station_devices)),
-                           function(i) device_label(station_devices[i, ]),
+                           function(i) device_label(station_devices[i, ],
+                                                    with_role = TRUE),
                            character(1))
   selected_device <- ui_select_from_menu("\nSelect device to remove:", device_options)
   if (is.null(selected_device)) {
@@ -5146,6 +5317,11 @@ ui_delete_metadata_row <- function() {
 #' Interactive decision tree that routes to appropriate UI functions
 metadata_manager <- function() {
   
+  # Row count at the start, so the exit summary can report what this session
+  # added rather than the whole log
+  entries_at_start <- tryCatch(nrow(load_maintenance_log()),
+                               error = function(e) NA_integer_)
+  
   repeat {  # Main loop - allows multiple operations
     
     cat("\n============================================\n")
@@ -5175,17 +5351,7 @@ metadata_manager <- function() {
     top_choice <- trimws(readline())
     
     if (tolower(top_choice) == "q") {
-      #### Station photos ####
-      # Photos are filed by hand and nothing else in the system asks for them,
-      # so they are quietly forgotten. The reminder goes here, on the way out,
-      # rather than on every menu loop.
-      photo_dir <- file.path(wds("meta_internal"), "station_photos")
-      cat("\nIf you took station photos on this visit, file them here:\n\n")
-      cat("     ", photo_dir, "\n\n", sep = "")
-      cat("  Named station_id_YYYY-MM-DD, e.g. sr1_hydro_2026-03-02.jpeg\n")
-      
-      cat("\n✓ Exiting Metadata Manager\n")
-      return(invisible(TRUE))
+      return(ui_exit_metadata_manager(entries_at_start))
     }
     
     #### Resume an unfinished data task ####
@@ -5274,13 +5440,26 @@ metadata_manager <- function() {
           result <- ui_log_download()
           
           if (!is.null(result)) {
-            # Asked, not left to the user to volunteer. A note about clearing
-            # debris buried in a download's details line can never answer
-            # "when was this last cleaned?" - action_type is what makes
-            # maintenance findable, and only its own entry carries one.
-            cat("\nDid you do anything else at this station on this visit?\n")
-            cat("  Cleaning, battery change, inspection, notes  -> routine maintenance\n")
-            cat("  Sensor swap, device replaced, station moved  -> its own workflow\n")
+            # Nobody visits a station, downloads it, and does nothing else -
+            # at minimum they looked at it. So offer the maintenance entry
+            # directly, carrying over the station, device and date rather than
+            # making the user re-select all three from the top of the menu.
+            cat("\nLog routine maintenance for this visit?\n")
+            cat("  Inspection, cleaning, battery, relaunch - same station,\n")
+            cat("  device and date, no need to re-select.\n")
+            add_maint <- ui_yes_no("Log it now?", allow_quit = FALSE)
+            
+            if (add_maint == "Y") {
+              ui_log_maintenance(
+                prefill_station    = result$station_id,
+                prefill_device     = result$device_serial,
+                prefill_visit_date = result$field_visit_date,
+                prefill_logged_by  = result$logged_by
+              )
+            }
+            
+            cat("\nAnything else at this station on this visit?\n")
+            cat("  Sensor swap, device replaced, station moved -> its own workflow\n")
             cat("Response (Y/N): ")
             more_work <- toupper(trimws(readline()))
             if (more_work != "Y" && more_work != "1") {
@@ -5572,8 +5751,7 @@ metadata_manager <- function() {
     cat("\nDo something else? This would return you to main menu. (Y/N): ")
     continue_response <- toupper(trimws(readline()))
     if (continue_response != "Y" && continue_response != "1") {
-      cat("\n✓ Exiting Metadata Manager\n")
-      return(invisible(TRUE))
+      return(ui_exit_metadata_manager(entries_at_start))
     }
     
   }  # End main loop
@@ -5960,12 +6138,21 @@ blank_or_value <- function(value) {
 #'
 #' @param device_row One row of device metadata
 #' @return Character
-device_label <- function(device_row) {
+device_label <- function(device_row, with_role = FALSE) {
   nm <- device_row$device_name
-  if (is.null(nm) || length(nm) == 0 || is.na(nm) || !nzchar(trimws(nm))) {
-    return(as.character(device_row$device_serial))
+  rl <- if (with_role) device_row$device_role else NA
+
+  parts <- character(0)
+  if (!is.null(nm) && length(nm) > 0 && !is.na(nm) && nzchar(trimws(nm))) {
+    parts <- c(parts, trimws(nm))
   }
-  paste0(nm, " (", device_row$device_serial, ")")
+  if (!is.null(rl) && length(rl) > 0 && !is.na(rl) && nzchar(trimws(rl))) {
+    parts <- c(parts, trimws(rl))
+  }
+
+  if (length(parts) == 0) return(as.character(device_row$device_serial))
+
+  paste0(device_row$device_serial, " (", paste(parts, collapse = ", "), ")")
 }
 
 
@@ -6055,4 +6242,74 @@ ui_resume_pending_ingest <- function() {
     logged_by        = row$logged_by,
     resume_stage     = row$stage
   )
+}
+
+
+#' Everything that should happen on the way out of the metadata manager
+#'
+#' There are two exits - 'q' from the main menu, and declining "do something
+#' else" - and anything worth saying on the way out has to be said at both.
+#' Putting it in one place is why the station photo reminder was missing from
+#' one of them for a week.
+#'
+#' @param entries_at_start Integer. Maintenance log row count when the session
+#'   began, used to report what this session wrote
+#' @return Invisible TRUE
+ui_exit_metadata_manager <- function(entries_at_start = NA) {
+
+  #### What did this session actually write? ####
+  # A last look before walking away. Everything here is already saved - this
+  # is a chance to notice a wrong date or a misfiled station while it is still
+  # fresh, not an opportunity to undo anything.
+  if (!is.na(entries_at_start)) {
+    mlog <- tryCatch(load_maintenance_log(), error = function(e) NULL)
+
+    if (!is.null(mlog) && nrow(mlog) > entries_at_start) {
+      new_rows <- mlog[(entries_at_start + 1):nrow(mlog), , drop = FALSE]
+
+      cat("\n--- LOGGED THIS SESSION ---\n\n")
+      for (i in seq_len(nrow(new_rows))) {
+        cat("  ", format(as.character(new_rows$field_visit_date[i]), width = 12),
+            format(new_rows$station_id[i], width = 14),
+            format(new_rows$action_type[i], width = 20), "\n", sep = "")
+        det <- new_rows$details[i]
+        if (!is.na(det) && nzchar(trimws(det))) {
+          cat("      ", det, "\n", sep = "")
+        }
+      }
+      cat("\n  ", nrow(new_rows), " entr",
+          ifelse(nrow(new_rows) == 1, "y", "ies"), " written.\n", sep = "")
+    }
+  }
+
+  #### Station photos ####
+  # Filed by hand, and nothing else in the system asks for them, so they are
+  # quietly forgotten.
+  photo_dir <- file.path(wds("meta_internal"), "station_photos")
+  cat("\nIf you took station photos on this visit, file them here:\n\n")
+  cat("     ", photo_dir, "\n\n", sep = "")
+  cat("  Named station_id_YYYY-MM-DD, e.g. sr1_hydro_2026-03-02.jpeg\n")
+
+  cat("\n\u2713 Exiting Metadata Manager\n")
+  invisible(TRUE)
+}
+
+
+#' Orders devices at a station by role
+#'
+#' Two loggers at a gauge mean nothing in metadata order; primary then
+#' secondary is how they are thought about in the field, so it is how they
+#' should be listed. Anything with an unrecognised or missing role sorts last
+#' rather than being hidden or dropped.
+#'
+#' @param devices Data frame of device rows
+#' @return The same rows, reordered
+order_devices_by_role <- function(devices) {
+  if (nrow(devices) < 2) return(devices)
+
+  known <- c("primary", "secondary", "tertiary")
+  rank <- match(tolower(trimws(as.character(devices$device_role))), known)
+  rank[is.na(rank)] <- length(known) + 1
+
+  devices[order(rank, devices$device_serial), , drop = FALSE]
 }

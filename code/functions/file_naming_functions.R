@@ -111,12 +111,13 @@ coerce_datetime_flexible <- function(x, tz = NULL) {
 #' Build a raw data filename from a station and a date range
 #'
 #' The dates are a plain truncation of the actual first and last records in the
-#' file. Consecutive files for the same station MAY share a boundary date -
-#' this is expected and correct. A HOBO logger downloaded and redeployed on the
-#' same day will always produce files that touch on that date. The filename
-#' describes the file's contents honestly; genuine duplicate records are
-#' resolved at the merge/processing step by deduplicating on timestamp, not by
-#' distorting the filename.
+#' file. Consecutive files for the same station WILL share a boundary date -
+#' a logger keeps recording after an offload, so the next file starts on the
+#' day the last one ended. That is expected, and it is why overlap is checked
+#' against the exact timestamps in download_log rather than these truncated
+#' dates. The filename describes the file's contents honestly; genuine
+#' duplicate records are resolved at processing by deduplicating on timestamp,
+#' not by distorting the filename.
 #'
 #' A device_serial may be supplied, and must be for anything manually ingested.
 #' A paired stream gauge has two loggers at ONE station, so a station-level name
@@ -254,6 +255,7 @@ list_raw_files <- function(station, dir = NULL) {
   }
 
   empty <- data.frame(filename = character(0),
+                      device_serial = character(0),
                       start = as.Date(character(0)),
                       end = as.Date(character(0)),
                       stringsAsFactors = FALSE)
@@ -266,7 +268,8 @@ list_raw_files <- function(station, dir = NULL) {
   rows <- lapply(files, function(f) {
     p <- parse_raw_filename(f)
     if (is.null(p) || p$station != station) return(NULL)
-    data.frame(filename = f, start = p$start, end = p$end,
+    data.frame(filename = f, device_serial = p$device_serial,
+               start = p$start, end = p$end,
                stringsAsFactors = FALSE)
   })
   rows <- rows[!vapply(rows, is.null, logical(1))]
@@ -291,57 +294,79 @@ list_raw_files <- function(station, dir = NULL) {
 #' @param end POSIXct or Date. Proposed end
 #' @param dir Character. Directory to scan (default: derived from station_type)
 #' @param verbose Logical. Print messages (default TRUE)
-#' @return List with overlap (logical), boundary_only (logical), and files
+#' @param device_serial Character. Restrict the comparison to this device's own
+#'   files, so a paired gauge's two loggers do not appear to overlap each other
+#' @return List with overlap (logical) and files
 #'   (data frame of overlapping files)
-check_raw_overlap <- function(station, start, end, dir = NULL, verbose = TRUE) {
+check_raw_overlap <- function(station, start, end, dir = NULL, verbose = TRUE,
+                              device_serial = NULL) {
 
-  start <- as.Date(coerce_datetime_flexible(start))
-  end   <- as.Date(coerce_datetime_flexible(end))
+  start_dt <- coerce_datetime_flexible(start)
+  end_dt   <- coerce_datetime_flexible(end)
 
   existing <- list_raw_files(station, dir)
 
-  result <- list(overlap = FALSE, boundary_only = FALSE,
-                 files = existing[0, , drop = FALSE])
+  # At a paired gauge both loggers cover the same period by design, so files
+  # from the OTHER logger are not an overlap - they are the point. Compare
+  # only against this device's own archive. Files with no serial in the name
+  # predate that convention and could be from either, so they still count.
+  if (!is.null(device_serial) && nrow(existing) > 0) {
+    existing <- existing[is.na(existing$device_serial) |
+                         existing$device_serial == device_serial, ,
+                         drop = FALSE]
+  }
+
+  result <- list(overlap = FALSE, files = existing[0, , drop = FALSE])
 
   if (nrow(existing) == 0) return(result)
 
-  # Overlapping = any file whose range intersects [start, end]
-  hits <- existing[existing$start <= end & existing$end >= start, , drop = FALSE]
+  # Filename dates are truncated to the day, so consecutive downloads from one
+  # logger ALWAYS appear to touch: the logger keeps recording after an
+  # offload, so the new file starts on the day the last one ended. Comparing
+  # dates would therefore warn on every download forever, which is noise.
+  #
+  # download_log holds the exact first and last record timestamps, so use
+  # those where available. Then a real overlap - the same records archived
+  # twice - is caught precisely, and the ordinary case says nothing at all.
+  exact <- tryCatch(load_download_log(), error = function(e) NULL)
+
+  hits <- existing[0, , drop = FALSE]
+
+  for (i in seq_len(nrow(existing))) {
+    f <- existing$filename[i]
+
+    file_start <- as.POSIXct(existing$start[i])
+    file_end   <- as.POSIXct(existing$end[i]) + 86399  # end of that day
+
+    if (!is.null(exact) && nrow(exact) > 0) {
+      match_row <- which(basename(as.character(exact$filepath)) == f)
+      if (length(match_row) > 0) {
+        file_start <- as.POSIXct(exact$start_date[match_row[1]])
+        file_end   <- as.POSIXct(exact$end_date[match_row[1]])
+      }
+    }
+
+    if (file_start <= end_dt && file_end >= start_dt) {
+      hits <- rbind(hits, existing[i, , drop = FALSE])
+    }
+  }
+
   if (nrow(hits) == 0) return(result)
 
   result$overlap <- TRUE
   result$files <- hits
 
-  # Boundary-only = every hit touches on exactly one day at an edge
-  boundary_only <- all(
-    (hits$end == start & hits$start < start) |
-    (hits$start == end & hits$end > end)
-  )
-  result$boundary_only <- boundary_only
-
   if (verbose) {
-    if (boundary_only) {
-      cat("\n")
-      cat("NOTE: This range touches an existing file on its boundary date.\n")
-      cat("      This is normal for a logger downloaded and redeployed the\n")
-      cat("      same day. Duplicate records are resolved at processing.\n")
-      for (i in seq_len(nrow(hits))) {
-        cat("      -", hits$filename[i], "\n")
-      }
-      cat("\n")
-    } else {
-      cat("\n")
-      cat("WARNING: This date range overlaps existing archived data for\n")
-      cat("         station '", station, "' by more than a boundary day:\n", sep = "")
-      for (i in seq_len(nrow(hits))) {
-        cat("         - ", hits$filename[i],
-            "  (", format(hits$start[i], "%Y-%m-%d"),
-            " to ", format(hits$end[i], "%Y-%m-%d"), ")\n", sep = "")
-      }
-      cat("         Proposed: ", format(start, "%Y-%m-%d"),
-          " to ", format(end, "%Y-%m-%d"), "\n", sep = "")
-      cat("         Check this is intended before proceeding.\n\n")
+    cat("\n")
+    cat("WARNING: This date range overlaps data already archived for\n")
+    cat("         station '", station, "':\n", sep = "")
+    for (i in seq_len(nrow(hits))) {
+      cat("         - ", hits$filename[i], "\n", sep = "")
     }
+    cat("         Proposed: ", format(start_dt, "%Y-%m-%d %H:%M"),
+        " to ", format(end_dt, "%Y-%m-%d %H:%M"), "\n", sep = "")
+    cat("         The same records may be archived twice. Check this is\n")
+    cat("         intended before proceeding.\n\n")
   }
 
   return(result)
