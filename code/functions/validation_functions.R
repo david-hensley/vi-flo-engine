@@ -19,7 +19,7 @@
 #'   7. Every download log filepath resolves to a file that exists
 #'
 #' PORT CONFIGURATIONS:
-#'   7. Only one active config per device+port (end_datetime = NA)
+#'   7. Only one active config per device+port (valid_to = NA)
 #'   8. Port numbers must be 1-6
 #'   9. device_serial must exist in device_metadata
 #'
@@ -281,17 +281,25 @@ validate_metadata <- function(verbose = TRUE, stop_on_error = FALSE) {
     if (verbose) cat("\nChecking port configurations...\n")
     
     # CHECK 7: Only one active config per device+port
-    # Active = end_datetime is NA
-    active_ports <- ports[is.na(ports$end_datetime), ]
+    # Active = valid_to is NA.
+    #
+    # This check previously read ports$end_datetime, ports$device_serial and
+    # ports$start_datetime - none of which are columns in zentra_ports.csv,
+    # where they are called valid_to, sn and valid_from. Referencing a missing
+    # column returns NULL, is.na(NULL) is logical(0), and the subset came back
+    # empty - so the check reported "no active configs" and passed without
+    # ever examining anything.
+    active_ports <- ports[is.na(ports$valid_to) &
+                          !is.na(ports$sensor) & ports$sensor != "none", ]
     
     if (nrow(active_ports) > 0) {
-      active_ports$device_port <- paste(active_ports$device_serial, active_ports$port, sep = "_")
+      active_ports$device_port <- paste(active_ports$sn, active_ports$port, sep = "_")
       port_counts <- table(active_ports$device_port)
       multi_active <- names(port_counts[port_counts > 1])
       
       if (length(multi_active) > 0) {
         problem_rows <- active_ports[active_ports$device_port %in% multi_active, 
-                                     c("device_serial", "port", "sensor", "start_datetime")]
+                                     c("sn", "port", "sensor", "valid_from")]
         record_violation(
           "MULTIPLE_ACTIVE_PORT_CONFIGS",
           paste(length(multi_active), "device+port combination(s) have multiple active configs"),
@@ -320,13 +328,13 @@ validate_metadata <- function(verbose = TRUE, stop_on_error = FALSE) {
     }
     
     # CHECK 9: Port device_serial exists in metadata
-    port_serials <- unique(ports$device_serial)
+    port_serials <- unique(ports$sn)
     meta_serials <- unique(metadata$device_serial)
     orphan_serials <- setdiff(port_serials, meta_serials)
     
     if (length(orphan_serials) > 0) {
-      problem_rows <- ports[ports$device_serial %in% orphan_serials, 
-                            c("device_serial", "port", "sensor")]
+      problem_rows <- ports[ports$sn %in% orphan_serials, 
+                            c("sn", "port", "sensor")]
       record_violation(
         "ORPHAN_PORT_SERIAL",
         paste(length(orphan_serials), "device_serial(s) in ports not found in metadata"),
@@ -337,20 +345,34 @@ validate_metadata <- function(verbose = TRUE, stop_on_error = FALSE) {
     }
     
     # CHECK 12: Terminal devices should not have active port configs
+    #
+    # Ports are keyed by SERIAL, while device rows are keyed by unique_id - so
+    # one serial can have several rows. A relocated device keeps its serial and
+    # its sensors: the old row goes terminal, a new row opens, and the port
+    # configuration is still correct throughout. Flagging on "any row terminal"
+    # would report that as a violation.
+    #
+    # A serial is only genuinely out of service when EVERY row for it is
+    # terminal.
     terminal_statuses <- c("removed", "replaced", "relocated", "decommissioned")
-    terminal_serials <- unique(metadata$device_serial[metadata$status %in% terminal_statuses])
+    
+    serial_status <- split(metadata$status, metadata$device_serial)
+    terminal_serials <- names(serial_status)[
+      vapply(serial_status, function(s) all(s %in% terminal_statuses), logical(1))
+    ]
     
     # Check for active configs on terminal devices
-    active_ports <- ports[is.na(ports$end_datetime), ]
-    terminal_with_active <- active_ports[active_ports$device_serial %in% terminal_serials, ]
+    active_ports <- ports[is.na(ports$valid_to) &
+                          !is.na(ports$sensor) & ports$sensor != "none", ]
+    terminal_with_active <- active_ports[active_ports$sn %in% terminal_serials, ]
     
     if (nrow(terminal_with_active) > 0) {
       # Get the status for context
-      terminal_with_active$status <- sapply(terminal_with_active$device_serial, function(s) {
+      terminal_with_active$device_status <- sapply(terminal_with_active$sn, function(s) {
         paste(unique(metadata$status[metadata$device_serial == s & 
                                       metadata$status %in% terminal_statuses]), collapse = ",")
       })
-      problem_rows <- terminal_with_active[, c("device_serial", "port", "sensor", "status")]
+      problem_rows <- terminal_with_active[, c("sn", "port", "sensor", "device_status")]
       record_violation(
         "TERMINAL_DEVICE_ACTIVE_PORTS",
         paste(nrow(terminal_with_active), "active port config(s) on terminal-status devices"),

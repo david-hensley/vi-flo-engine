@@ -205,21 +205,36 @@ format_datetime_safe <- function(dt_col) {
 #' @param tz Character. Timezone name e.g. "America/Puerto_Rico"
 #' @return POSIXct vector. Datetime objects
 parse_datetime_flexible <- function(datetime_vector, tz) {
+
+  # Already a datetime? Nothing to parse. Callers reach this function with
+  # values straight out of load_zentra_metadata(), which has parsed them
+  # already - and the emptiness test below would then try to coerce "" into a
+  # datetime to compare against, which errors with "character string is not in
+  # a standard unambiguous format".
+  if (inherits(datetime_vector, "POSIXct")) return(datetime_vector)
+  if (inherits(datetime_vector, "POSIXlt")) return(as.POSIXct(datetime_vector))
+  if (inherits(datetime_vector, "Date")) {
+    return(as.POSIXct(format(datetime_vector), tz = tz))
+  }
+
+  # A column that is entirely NA comes back from read.csv typed as logical
+  as_text <- as.character(datetime_vector)
+
   # Handle mixed formats: try each format on elements that haven't parsed yet
-  result <- as.POSIXct(datetime_vector, format = "%Y-%m-%d %H:%M:%S", tz = tz)
-  
+  result <- as.POSIXct(as_text, format = "%Y-%m-%d %H:%M:%S", tz = tz)
+
   # For any that failed, try Excel format with AM/PM (M/D/YYYY H:MM:SS AM/PM)
-  still_na <- is.na(result) & !is.na(datetime_vector) & datetime_vector != ""
+  still_na <- is.na(result) & !is.na(as_text) & nzchar(as_text)
   if (any(still_na)) {
-    result[still_na] <- as.POSIXct(datetime_vector[still_na], format = "%m/%d/%Y %I:%M %p", tz = tz)
+    result[still_na] <- as.POSIXct(as_text[still_na], format = "%m/%d/%Y %I:%M %p", tz = tz)
   }
-  
+
   # For any still failed, try Excel 24-hour format (M/D/YYYY HH:MM)
-  still_na <- is.na(result) & !is.na(datetime_vector) & datetime_vector != ""
+  still_na <- is.na(result) & !is.na(as_text) & nzchar(as_text)
   if (any(still_na)) {
-    result[still_na] <- as.POSIXct(datetime_vector[still_na], format = "%m/%d/%Y %H:%M", tz = tz)
+    result[still_na] <- as.POSIXct(as_text[still_na], format = "%m/%d/%Y %H:%M", tz = tz)
   }
-  
+
   return(result)
 }
 
@@ -228,14 +243,25 @@ parse_datetime_flexible <- function(datetime_vector, tz) {
 #' @param date_vector Character vector. Date strings in either YYYY-MM-DD or M/D/YYYY format
 #' @return Date vector. Date objects
 parse_date_flexible <- function(date_vector) {
-  # Handle mixed formats: try ISO first, then Excel for any that failed
-  result <- as.Date(date_vector, format = "%Y-%m-%d")
-  
-  # For any that failed (NA), try Excel's format (M/D/YYYY)
-  still_na <- is.na(result) & !is.na(date_vector) & date_vector != ""
-  if (any(still_na)) {
-    result[still_na] <- as.Date(date_vector[still_na], format = "%m/%d/%Y")
+
+  # Same guard as parse_datetime_flexible: an already-parsed value needs no
+  # parsing, and the emptiness test below would otherwise try to coerce ""
+  # into a date to compare against.
+  if (inherits(date_vector, "Date")) return(date_vector)
+  if (inherits(date_vector, "POSIXct") || inherits(date_vector, "POSIXlt")) {
+    return(as.Date(date_vector))
   }
-  
+
+  as_text <- as.character(date_vector)
+
+  # Handle mixed formats: try ISO first, then Excel for any that failed
+  result <- as.Date(as_text, format = "%Y-%m-%d")
+
+  # For any that failed (NA), try Excel's format (M/D/YYYY)
+  still_na <- is.na(result) & !is.na(as_text) & nzchar(as_text)
+  if (any(still_na)) {
+    result[still_na] <- as.Date(as_text[still_na], format = "%m/%d/%Y")
+  }
+
   return(result)
 }

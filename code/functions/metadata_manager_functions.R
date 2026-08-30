@@ -406,6 +406,17 @@ update_station_status <- function(station_id, new_status) {
         # Normal case: mark all active devices as decommissioned
         metadata$status[metadata$station_id == station_id & 
                           metadata$status %in% active_statuses] <- new_status
+        
+        # A decommissioned station's sensors are no longer deployed, so their
+        # port configurations stop being true and must be closed. Serials
+        # still active elsewhere - one ZL6 serving two stations - are left
+        # alone, since those ports remain real.
+        decom_serials <- unique(active_devices$device_serial)
+        for (s in decom_serials) {
+          still_active <- any(metadata$device_serial == s &
+                              metadata$status %in% active_statuses)
+          if (!still_active) close_device_ports(s, Sys.time())
+        }
       } else {
         # No active devices - check for removed devices
         removed_devices <- station_devices[station_devices$status == "removed", ]
@@ -847,11 +858,21 @@ add_new_device <- function(device_data) {
     if (nrow(existing) > 0) {
       terminal_statuses <- c("removed", "decommissioned", "replaced", "relocated")
       
-      if (!all(existing$status %in% terminal_statuses)) {
-        return(paste0("Device serial '", device_data$device_serial, 
-                      "' already exists with active status: ", existing$status[1]))
+      # A serial active at a DIFFERENT station type is legitimate: one ZL6
+      # serves both a weather station and a vwc station, which is what
+      # validate_metadata() permits - one active row per serial per station
+      # type. Only the same serial at the same station type is a duplicate.
+      active <- existing[!existing$status %in% terminal_statuses, , drop = FALSE]
+      same_type <- active[tolower(active$station_type) ==
+                          tolower(device_data$station_type), , drop = FALSE]
+      
+      if (nrow(same_type) > 0) {
+        return(paste0("Device serial '", device_data$device_serial,
+                      "' is already active as a ", device_data$station_type,
+                      " device at ", same_type$station_id[1]))
       }
-      # Otherwise allow reuse (all entries are terminal)
+      # Otherwise allow: either every prior entry is terminal, or this is the
+      # same logger serving a second station type
     }
     
     
@@ -2576,12 +2597,31 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL, suppr
     # Offered as a list, not free text. A new station at an existing site is
     # the common case, and a typo here ("Salt River 1 " vs "Salt River 1")
     # silently fragments a site into two across the metadata.
+    # Only sites in the watershed just chosen. A site belongs to exactly one
+    # watershed, so offering all of them makes the list long and invites
+    # picking one from the wrong catchment.
+    all_meta <- load_zentra_metadata()
+    existing_sites <- unique(all_meta$site_full[all_meta$watershed == watershed])
+    existing_sites <- sort(existing_sites[!is.na(existing_sites)])
+
     cat("\nSite name - lower numbers are further upstream.\n")
-    existing_sites <- get_metadata_unique_values("site_full")
-    site_full <- ui_select_or_specify("Select site:", existing_sites)
-    if (is.null(site_full)) {
-      cat("❌ Cancelled\n")
-      return(NULL)
+
+    if (length(existing_sites) == 0) {
+      # New watershed, so nothing to choose from
+      cat("No sites recorded in ", watershed, " yet.\n", sep = "")
+      cat("Enter site full name (e.g. 'Salt River 1'): ")
+      site_full <- trimws(readline())
+      if (site_full == "") {
+        cat("❌ Site name cannot be empty\n")
+        return(NULL)
+      }
+    } else {
+      site_full <- ui_select_or_specify(
+        paste0("Select site in ", watershed, ":"), existing_sites)
+      if (is.null(site_full)) {
+        cat("❌ Cancelled\n")
+        return(NULL)
+      }
     }
     cat("✓ Site:", site_full, "\n")
     
@@ -2589,7 +2629,7 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL, suppr
     # site_full and site are a pair. If the site already exists, its
     # abbreviation is already established - deriving it removes any chance of
     # the two disagreeing.
-    metadata_all <- load_zentra_metadata()
+    metadata_all <- all_meta
     matching <- metadata_all$site[metadata_all$site_full == site_full]
     matching <- unique(matching[!is.na(matching)])
     
@@ -2759,6 +2799,10 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL, suppr
       return(NULL)
     }
     
+    # Set when this serial is already active at another station type, so the
+    # device details below can be inherited instead of re-entered
+    shared_row <- NULL
+
     # Check if serial already exists and is still active
     metadata <- load_zentra_metadata()
     existing <- metadata[metadata$device_serial == device_serial, ]
@@ -2773,14 +2817,109 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL, suppr
             existing$status[1], ")\n", sep = "")
         cat("   Reusing serial for new deployment\n\n")
       } else {
-        # At least one entry is still active
-        cat("❌ Device serial '", device_serial, "' already exists in metadata\n", sep = "")
-        cat("   Existing status: ", existing$status[1], "\n", sep = "")
-        return(NULL)
+        # At least one entry is still active.
+        #
+        # That is not automatically wrong. One ZL6 commonly serves two
+        # stations - an ATMOS on one port for weather, TEROS sensors on the
+        # others for soil moisture - registered as two stations sharing a
+        # serial. validate_metadata() permits exactly this: one active row per
+        # serial PER STATION TYPE. So reject only a genuine duplicate, which
+        # is the same serial at the same station type.
+        active <- existing[!existing$status %in% terminal_statuses, , drop = FALSE]
+        same_type <- active[tolower(active$station_type) == tolower(station_type), ,
+                            drop = FALSE]
+
+        if (nrow(same_type) > 0) {
+          cat("❌ Device serial '", device_serial, "' is already active as a ",
+              station_type, " device\n", sep = "")
+          cat("   Station: ", same_type$station_id[1],
+              "   Status: ", same_type$status[1], "\n", sep = "")
+          cat("\n   A device can serve two stations only if they are different\n")
+          cat("   station types, e.g. one ZL6 running both weather and vwc.\n")
+          return(NULL)
+        }
+
+        cat("\n\u2139\ufe0f  Serial '", device_serial, "' is already in use at:\n", sep = "")
+        for (i in seq_len(nrow(active))) {
+          cat("     ", active$station_id[i], " (", active$station_type[i], ")\n",
+              sep = "")
+        }
+        cat("\n   One logger can serve several stations - a ZL6 with an ATMOS\n")
+        cat("   and TEROS sensors is a weather station and a vwc station at\n")
+        cat("   once. Its ports are configured once, on the device.\n\n")
+
+        if (ui_yes_no("Add this device to a new station as well?",
+                      allow_quit = FALSE) == "N") {
+          cat("\u274c Cancelled\n")
+          return(NULL)
+        }
+
+        # It is the same physical box, so everything that describes the DEVICE
+        # rather than the station is already on record. Re-typing it is not
+        # just tedious - it is how one logger ends up with two spellings of
+        # its name and coordinates a few metres apart.
+        shared_row <- active[1, ]
       }
     }
     cat("✓ Device serial:", device_serial, "\n")
     
+    ## Everything below describes the DEVICE, not the station. When the serial
+    ## is already on record, take it from there rather than asking again.
+    if (!is.null(shared_row)) {
+
+      mfger           <- shared_row$mfger
+      model           <- shared_row$model
+      device_name     <- shared_row$device_name
+      lat             <- shared_row$lat
+      lon             <- shared_row$lon
+      elev            <- shared_row$elev
+      interval        <- shared_row$interval_min
+      timezone        <- shared_row$timezone
+      deploy_datetime <- shared_row$deploy_datetime
+      status          <- shared_row$status
+      expiry_date     <- shared_row$expiry_date
+
+      cat("\n--- DEVICE DETAILS (inherited) ---\n\n")
+      cat("  Manufacturer: ", mfger, "\n", sep = "")
+      cat("  Model:        ", blank_or_value(model), "\n", sep = "")
+      cat("  Name:         ", blank_or_value(device_name), "\n", sep = "")
+      cat("  Location:     ", lat, ", ", lon, "\n", sep = "")
+      cat("  Interval:     ", interval, " minutes\n", sep = "")
+      cat("  Deployed:     ", blank_or_value(deploy_datetime), "\n", sep = "")
+      cat("  Status:       ", status, "\n\n", sep = "")
+      cat("  Taken from ", shared_row$station_id,
+          " - it is the same physical logger.\n", sep = "")
+      cat("  Correct any of it later with 'Correct device details'.\n")
+
+      ## Device role is the one thing that is per-station, not per-device
+      specify_role <- ui_yes_no("\nSpecify a device role (recommended)?",
+                                allow_quit = FALSE)
+      if (specify_role == "N") {
+        device_role <- NA
+        cat("\u2713 No device role recorded\n")
+      } else {
+        existing_roles <- get_metadata_unique_values("device_role")
+        device_role <- ui_select_or_specify("Select device role:", existing_roles)
+        if (is.null(device_role)) {
+          cat("\u274c Cancelled\n")
+          return(NULL)
+        }
+        cat("\u2713 Device role:", device_role, "\n")
+      }
+
+      ## Download approval is per-station, so it is still asked
+      if (tolower(status) == "manual") {
+        download_approved <- FALSE
+        cat("\n\u2713 Status is 'manual' - automatic download disabled\n")
+      } else {
+        approve <- ui_yes_no("\nApprove this device for automatic download?",
+                             allow_quit = FALSE)
+        download_approved <- (approve == "Y")
+        cat("\u2713 Download approved:", download_approved, "\n")
+      }
+
+    } else {
+
     ## Manufacturer
     existing_mfgers <- get_metadata_unique_values("mfger")
     mfger <- ui_select_or_specify("Select manufacturer:", existing_mfgers)
@@ -3018,6 +3157,8 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL, suppr
       }
     }
     
+    }
+
     ################################################################################
     #### SECTION F: CONFIRMATION ####
     ################################################################################
@@ -3219,6 +3360,15 @@ ui_replace_device <- function() {
   ################################################################################
   
   result <- update_device_status(old_device_serial, "replaced")
+  
+  # The replaced device's sensors are no longer on it. Closing them at the new
+  # device's deployment is the honest boundary: that is the moment the old
+  # configuration stopped describing reality.
+  closed <- close_device_ports(old_device_serial, Sys.time())
+  if (is.numeric(closed) && closed > 0) {
+    cat("\u2713 Closed ", closed, " port configuration(s) on ",
+        old_device_serial, "\n", sep = "")
+  }
   if (!isTRUE(result)) {
     cat("⚠️  Warning: New device added but could not mark old device as replaced\n")
     cat("   Error:", result, "\n")
@@ -3862,6 +4012,38 @@ ui_reactivate_station <- function() {
 #' @param device_serial Character. Device to configure (must start with 'z')
 #' @return TRUE if successful, NULL if quit or error
 ui_initialize_ports <- function(device_serial) {
+
+  #### Already configured? ####
+  # Ports belong to the device, not the station. A ZL6 shared between a
+  # weather station and a vwc station has ONE set of six ports, configured
+  # once - reconfiguring from the second station would create a duplicate
+  # active set.
+  existing_ports <- get_active_ports(device_serial)
+
+  if (nrow(existing_ports) > 0) {
+    cat("\n============================================\n")
+    cat("  Ports Already Configured\n")
+    cat("============================================\n\n")
+    cat("Device ", device_serial, " already has an active port configuration:\n\n",
+        sep = "")
+
+    for (i in order(existing_ports$port)) {
+      depth <- if (!is.na(existing_ports$depth_cm[i])) {
+        paste0(" @ ", existing_ports$depth_cm[i], "cm")
+      } else ""
+      cat("  Port ", existing_ports$port[i], ": ", existing_ports$sensor[i],
+          " (", existing_ports$type[i], ")", depth, "\n", sep = "")
+    }
+
+    cat("\nPorts belong to the DEVICE, not the station. Where one ZL6 serves\n")
+    cat("two stations - an ATMOS for weather and TEROS sensors for soil\n")
+    cat("moisture - both stations share this one configuration.\n\n")
+    cat("To change a sensor, use 'Port configuration change' under existing\n")
+    cat("station work, which closes the old entry and opens a new one.\n\n")
+
+    return(invisible(NULL))
+  }
+
   cat("\n============================================\n")
   cat("  Initialize Port Configuration\n")
   cat("============================================\n\n")
@@ -5663,14 +5845,21 @@ metadata_manager <- function() {
             }
             
           } else {
-            # Zentra device - ask about ports
-            cat("\nInitialize port configuration now? (Y/N): ")
-            init_ports <- toupper(trimws(readline()))
-            
-            if (init_ports == "Y" || init_ports == "1") {
-              ui_initialize_ports(result$device_serial)
+            # Zentra device - ask about ports, unless this serial already has
+            # them. A ZL6 shared between a weather and a vwc station is
+            # configured once, by whichever station was set up first.
+            if (nrow(get_active_ports(result$device_serial)) > 0) {
+              cat("\n✓ Ports already configured on ", result$device_serial,
+                  " - shared with its other station\n", sep = "")
             } else {
-              cat("⚠️  Remember to initialize ports later!\n")
+              cat("\nInitialize port configuration now? (Y/N): ")
+              init_ports <- toupper(trimws(readline()))
+              
+              if (init_ports == "Y" || init_ports == "1") {
+                ui_initialize_ports(result$device_serial)
+              } else {
+                cat("⚠️  Remember to initialize ports later!\n")
+              }
             }
           }
         }
@@ -5689,14 +5878,21 @@ metadata_manager <- function() {
           if (is_hobo_device(device_row$mfger)) {
             cat("✓ HOBO device - no port configuration needed\n")
           } else {
-            # Zentra device - ask about ports
-            cat("\nInitialize port configuration now? (Y/N): ")
-            init_ports <- toupper(trimws(readline()))
-            
-            if (init_ports == "Y" || init_ports == "1") {
-              ui_initialize_ports(result$device_serial)
+            # Zentra device - ask about ports, unless this serial already has
+            # them. A ZL6 shared between a weather and a vwc station is
+            # configured once, by whichever station was set up first.
+            if (nrow(get_active_ports(result$device_serial)) > 0) {
+              cat("\n✓ Ports already configured on ", result$device_serial,
+                  " - shared with its other station\n", sep = "")
             } else {
-              cat("⚠️  Remember to initialize ports later!\n")
+              cat("\nInitialize port configuration now? (Y/N): ")
+              init_ports <- toupper(trimws(readline()))
+              
+              if (init_ports == "Y" || init_ports == "1") {
+                ui_initialize_ports(result$device_serial)
+              } else {
+                cat("⚠️  Remember to initialize ports later!\n")
+              }
             }
           }
         }
@@ -6027,7 +6223,16 @@ suggest_station_id <- function(site, station_type) {
   pattern <- paste0("^", base, "([0-9]+)?$")
   hits <- existing[grepl(pattern, existing)]
 
-  if (length(hits) == 0) return(base)
+  if (length(hits) == 0) {
+    # No precedent at THIS site, so take the convention from the station type
+    # across every site. vwc stations are always numbered because a site has
+    # several; weather stations are not because a site has one. Without this,
+    # the first vwc station at a new site would be suggested as "lg3_vwc".
+    type_pattern <- paste0("_", tolower(station_type), "[0-9]+$")
+    numbered_elsewhere <- any(grepl(type_pattern, existing))
+    if (numbered_elsewhere) return(paste0(base, "1"))
+    return(base)
+  }
 
   # Pull the numeric suffixes that are present
   suffixes <- sub(paste0("^", base), "", hits)
@@ -6312,4 +6517,73 @@ order_devices_by_role <- function(devices) {
   rank[is.na(rank)] <- length(known) + 1
 
   devices[order(rank, devices$device_serial), , drop = FALSE]
+}
+
+
+#' Does this device already have an active port configuration?
+#'
+#' One ZL6 commonly serves two stations - an ATMOS on one port and TEROS
+#' sensors on the others, registered as a weather station and a vwc station
+#' sharing a serial. The ports belong to the DEVICE, not the station, so the
+#' second station must not configure them again: that would create a second
+#' active set and fail validation.
+#'
+#' @param device_serial Character
+#' @return Data frame of active port rows, zero rows if none
+get_active_ports <- function(device_serial) {
+  ports <- tryCatch(load_zentra_ports_data(), error = function(e) NULL)
+
+  empty <- data.frame()
+  if (is.null(ports) || nrow(ports) == 0) return(empty)
+
+  active <- ports[ports$sn == device_serial & is.na(ports$valid_to), , drop = FALSE]
+  active <- active[!is.na(active$sensor) & active$sensor != "none", , drop = FALSE]
+
+  active
+}
+
+
+#' Closes a device's active port configurations
+#'
+#' A port configuration says "this sensor is on this port from this time".
+#' When a device leaves service that statement stops being true, so valid_to
+#' has to be set - otherwise the record claims sensors are live on a device
+#' that is in a drawer.
+#'
+#' NOT called on relocation: a relocated device keeps its serial and its
+#' sensors, and ports are keyed by serial. Closing them there would be wrong.
+#'
+#' @param device_serial Character. Device leaving service
+#' @param close_datetime POSIXct or Date. When it stopped being true
+#' @return Number of port rows closed, or an error message string
+close_device_ports <- function(device_serial, close_datetime) {
+  tryCatch({
+    if (is_hobo_device_serial(device_serial)) return(0)
+
+    ports <- load_zentra_ports_data()
+
+    open_rows <- which(ports$sn == device_serial & is.na(ports$valid_to) &
+                       !is.na(ports$sensor) & ports$sensor != "none")
+
+    if (length(open_rows) == 0) return(0)
+
+    ports$valid_to[open_rows] <- as.POSIXct(close_datetime)
+
+    ports$valid_from <- format_datetime_safe(ports$valid_from)
+    ports$valid_to   <- format_datetime_safe(ports$valid_to)
+    write.csv(ports, file.path(wds("meta_internal"), "zentra_ports.csv"),
+              row.names = FALSE)
+
+    return(length(open_rows))
+  }, error = function(e) {
+    return(paste0("Failed to close ports: ", e$message))
+  })
+}
+
+
+#' Is this serial a HOBO logger? (serial-shaped test, for use without metadata)
+#' @param device_serial Character
+#' @return Logical
+is_hobo_device_serial <- function(device_serial) {
+  !grepl("^z", device_serial, ignore.case = TRUE)
 }
