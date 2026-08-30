@@ -390,7 +390,8 @@ update_device_status <- function(device_serial, new_status) {
 #' @param station_id Character. Station to update
 #' @param new_status Character. New status to apply
 #' @return TRUE if successful, error message if failed
-update_station_status <- function(station_id, new_status) {
+update_station_status <- function(station_id, new_status,
+                                 close_port_serials = NULL) {
   tryCatch({
     metadata <- load_zentra_metadata()
     
@@ -408,15 +409,22 @@ update_station_status <- function(station_id, new_status) {
                           metadata$status %in% active_statuses] <- new_status
         
         # A decommissioned station's sensors are no longer deployed, so their
-        # port configurations stop being true and must be closed. Serials
-        # still active elsewhere - one ZL6 serving two stations - are left
-        # alone, since those ports remain real.
-        decom_serials <- unique(active_devices$device_serial)
-        for (s in decom_serials) {
-          still_active <- any(metadata$device_serial == s &
-                              metadata$status %in% active_statuses)
-          if (!still_active) close_device_ports(s, Sys.time())
+        # port configurations stop being true and must be closed.
+        #
+        # close_port_serials is what the caller established actually came out
+        # of the field. A ZL6 still running another station keeps its ports,
+        # because they are keyed by serial and still describe reality. Given
+        # no list, fall back to closing every serial with nothing active left.
+        decom_serials <- if (!is.null(close_port_serials)) {
+          close_port_serials
+        } else {
+          s_all <- unique(active_devices$device_serial)
+          s_all[!vapply(s_all, function(s) {
+            any(metadata$device_serial == s & metadata$status %in% active_statuses)
+          }, logical(1))]
         }
+        
+        for (s in decom_serials) close_device_ports(s, Sys.time())
       } else {
         # No active devices - check for removed devices
         removed_devices <- station_devices[station_devices$status == "removed", ]
@@ -3754,10 +3762,57 @@ ui_decommission_station <- function() {
   }
   
   ################################################################################
+  #### WHICH DEVICES ACTUALLY CAME OUT? ####
+  ################################################################################
+  # Decommissioning a station retires its devices - but one ZL6 can serve two
+  # stations, an ATMOS for weather and TEROS sensors for soil moisture. Ending
+  # one of those stations does not necessarily mean the box left the ground.
+  #
+  # Ports are keyed by SERIAL, so closing them for a device still running the
+  # other station would be wrong. Where that is possible, ask rather than
+  # decide.
+  all_meta <- load_zentra_metadata()
+  active_statuses_chk <- c("online", "local", "manual", "nonresponsive", "defunct")
+  
+  shared_serials <- character(0)
+  for (s in unique(decommissionable$device_serial)) {
+    elsewhere <- all_meta[all_meta$device_serial == s &
+                          all_meta$station_id != station_id &
+                          all_meta$status %in% active_statuses_chk, ]
+    if (nrow(elsewhere) > 0) shared_serials <- c(shared_serials, s)
+  }
+  
+  removed_serials <- setdiff(unique(decommissionable$device_serial), shared_serials)
+  
+  if (length(shared_serials) > 0) {
+    cat("\n--- SHARED DEVICES ---\n\n")
+    cat("Some devices at this station also serve another station:\n\n")
+    
+    for (s in shared_serials) {
+      others <- all_meta[all_meta$device_serial == s &
+                         all_meta$station_id != station_id &
+                         all_meta$status %in% active_statuses_chk, ]
+      cat("  ", s, " - also ", paste(unique(others$station_id), collapse = ", "),
+          "\n", sep = "")
+    }
+    
+    cat("\nIts sensors stay in the ground if the device is still running the\n")
+    cat("other station, so its port configuration stays open.\n\n")
+    
+    for (s in shared_serials) {
+      if (ui_yes_no(paste0("Did ", s, " physically come out of the field?"),
+                    allow_quit = FALSE) == "Y") {
+        removed_serials <- c(removed_serials, s)
+      }
+    }
+  }
+  
+  ################################################################################
   #### CALL LOGIC FUNCTION ####
   ################################################################################
   
-  result <- update_station_status(station_id, "decommissioned")
+  result <- update_station_status(station_id, "decommissioned",
+                                  close_port_serials = removed_serials)
   
   if (!isTRUE(result)) {
     cat("❌ Error:", result, "\n")
@@ -5976,9 +6031,11 @@ ui_correct_device_details <- function() {
   cat("For fixing details recorded wrongly or left blank:\n")
   cat("  - model, device name, device role, logging interval\n")
   cat("  - deploy datetime, latitude, longitude\n\n")
-  cat("NOT for things that happened in the field. A device swap, a station\n")
-  cat("move, or a status change belong in their own workflows, so that they\n")
-  cat("leave a maintenance log entry behind.\n\n")
+  cat("NOT for things that happened in the field. A device swap or a station\n")
+  cat("move belong in their own workflows, so that they leave a maintenance\n")
+  cat("log entry behind.\n\n")
+  cat("Devices already out of service are listed too - their rows are the\n")
+  cat("historical record, and a wrong value on one still needs correcting.\n\n")
 
   #### Select station and device ####
   station_list <- get_station_list()
@@ -6000,37 +6057,53 @@ ui_correct_device_details <- function() {
   # parenthesised site name back off it.
   station_id <- sub(" \\(.*\\)$", "", selected)
 
-  devices <- get_active_station_devices(station_id)
+  # Terminal devices are included, not filtered out. Their rows are the
+  # historical record, and a value recorded wrongly on one - a mis-entered
+  # coordinate, or the wrong terminal status - has no other route to being
+  # fixed. Listing only active devices made that unreachable.
+  all_meta <- load_zentra_metadata()
+  devices <- all_meta[all_meta$station_id == station_id, , drop = FALSE]
+  devices <- order_devices_by_role(devices)
+
   if (nrow(devices) == 0) {
-    cat("No active devices at this station.\n")
+    cat("No devices at this station.\n")
     return(invisible(NULL))
   }
 
+  terminal_statuses <- c("removed", "replaced", "relocated", "decommissioned")
+
+  device_options <- vapply(seq_len(nrow(devices)), function(i) {
+    label <- device_label(devices[i, ], with_role = TRUE)
+    if (tolower(devices$status[i]) %in% terminal_statuses) {
+      paste0(label, "  [", devices$status[i], "]")
+    } else {
+      label
+    }
+  }, character(1))
+
   if (nrow(devices) == 1) {
-    device_serial <- devices$device_serial[1]
-    cat("\nDevice: ", device_serial, "\n", sep = "")
+    row_i <- 1
+    cat("\nDevice: ", device_options[1], "\n", sep = "")
   } else {
-    device_options <- paste0(devices$device_serial,
-                             ifelse(is.na(devices$device_role), "",
-                                    paste0(" (", devices$device_role, ")")))
     dsel <- ui_select_from_menu("Select device:", device_options)
     if (is.null(dsel)) {
       cat("Cancelled\n")
       return(invisible(NULL))
     }
-    # Also a string - the serial is the part before any role in parentheses
-    device_serial <- trimws(sub(" \\(.*\\)$", "", dsel))
+    row_i <- match(dsel, device_options)
   }
+
+  device_serial <- devices$device_serial[row_i]
+  device_status <- devices$status[row_i]
 
   #### Show current values ####
   metadata <- load_zentra_metadata()
   idx <- which(metadata$device_serial == device_serial &
                metadata$station_id == station_id &
-               !metadata$status %in% c("removed", "replaced", "relocated",
-                                       "decommissioned"))
+               metadata$status == device_status)
 
   if (length(idx) == 0) {
-    cat("Could not find an active row for that device.\n")
+    cat("Could not find that device row.\n")
     return(invisible(NULL))
   }
   idx <- idx[1]
@@ -6042,6 +6115,13 @@ ui_correct_device_details <- function() {
   editable <- c("model", "device_name", "device_role", "interval_min",
                 "deploy_datetime", "lat", "lon")
   editable <- editable[editable %in% names(metadata)]
+
+  # A device already in a terminal state can have that state CORRECTED here -
+  # but only where a workflow recorded the wrong one. Terminal statuses are
+  # otherwise set by the workflows that log the event, and this must not
+  # become the easy way to bypass them.
+  is_terminal <- tolower(metadata$status[idx]) %in% terminal_statuses
+  if (is_terminal) editable <- c(editable, "status")
 
   repeat {
     cat("\n--- CURRENT VALUES ---\n\n")
@@ -6085,6 +6165,33 @@ ui_correct_device_details <- function() {
       new_value <- suppressWarnings(as.numeric(input))
       if (is.na(new_value) || new_value <= 0) {
         cat("Invalid interval - must be a positive number\n")
+        next
+      }
+
+    } else if (field == "status") {
+      # Only terminal-to-terminal. Bringing a device back into service is a
+      # reactivation - a real event with its own workflow and its own log
+      # entry - not a correction.
+      cat("\nThis device is recorded as '", current, "'.\n", sep = "")
+      cat("Correct it only if the wrong terminal status was recorded, e.g. a\n")
+      cat("device swap logged as 'decommissioned' when it was 'replaced'.\n\n")
+      cat("  removed         device taken out, station continues\n")
+      cat("  replaced        swapped for another device at this station\n")
+      cat("  relocated       the station moved - see the newer row\n")
+      cat("  decommissioned  the station itself was shut down\n\n")
+      cat("To bring a device back into service, use 'Reactivate\n")
+      cat("decommissioned station' instead - that is an event, not a\n")
+      cat("correction.\n\n")
+
+      new_value <- ui_select_or_specify("Select the correct status:",
+                                        terminal_statuses)
+      if (is.null(new_value)) next
+
+      if (!tolower(new_value) %in% terminal_statuses) {
+        cat("\n\u274c '", new_value, "' is not a terminal status. This workflow\n",
+            sep = "")
+        cat("   corrects one terminal value for another; it cannot return a\n")
+        cat("   device to service.\n")
         next
       }
 
@@ -6172,6 +6279,22 @@ ui_correct_device_details <- function() {
     # It explains why an old shuttle readout's filenames no longer match the
     # names in metadata. Without a log entry, someone looking at a folder of
     # files called "Backup.hobo" has nothing to tell them it is now "sr1".
+    if (field == "status") {
+      log_result <- create_maintenance_entry(
+        field_visit_date = Sys.Date(),
+        station_id       = station_id,
+        station_type     = metadata$station_type[idx],
+        device_serial    = device_serial,
+        action_type      = "metadata_correction",
+        details          = paste0("Terminal status corrected from '",
+                                  blank_or_value(current), "' to '",
+                                  blank_or_value(new_value), "'"),
+        ports_updated    = FALSE,
+        logged_by        = ui_ask_whois_logging()
+      )
+      if (isTRUE(log_result)) cat("Logged correction to maintenance\n")
+    }
+
     if (field == "device_name") {
       log_result <- create_maintenance_entry(
         field_visit_date = Sys.Date(),

@@ -3,6 +3,71 @@ All notable changes to the VI-FLO Engine project are documented here.
 
 ---
 
+## [v0.6.1] (unreleased)
+
+### Added
+- `close_device_ports()`
+  - Closes a device's port configurations when it leaves service, called on
+    replacement and on decommissioning. Only device REMOVAL did this before,
+    which is how a device replaced in January 2024 kept five sensors recorded
+    as live for two years
+  - Deliberately NOT called on relocation: a relocated device keeps its serial
+    and its sensors, and ports are keyed by serial
+- Decommissioning a station asks, device by device, whether a shared ZL6
+  physically came out of the field. One logger can serve two stations, and
+  ending one of them does not necessarily mean the box left the ground
+- `ui_correct_device_details()`
+  - Lists out-of-service devices too, tagged with their status. Their rows are
+    the historical record, and a value recorded wrongly on one had no route to
+    being fixed
+  - Offers terminal-status correction for those devices, restricted to
+    terminal-to-terminal and logged as `metadata_correction`. Returning a
+    device to service is a reactivation - an event with its own workflow - not
+    a correction
+- `get_active_ports()` and a guard in `ui_initialize_ports()`. Ports belong to
+  the DEVICE, not the station, so a ZL6 serving both a weather station and a
+  vwc station is configured once. The second station is told so rather than
+  creating a duplicate active set
+- Adding a device whose serial is already active at a DIFFERENT station type
+  inherits its manufacturer, model, name, coordinates, elevation, interval,
+  timezone, deploy datetime, status and expiry from the existing row. It is
+  the same physical box; re-typing its coordinates is how one logger ends up
+  recorded at two slightly different locations
+- Site list is filtered to the watershed just chosen
+- `tools/migrations/migrate_lg3_to_lg1.R` - the La Grange gauge sits upstream
+  of the weather station, so under the numbering convention it should carry
+  the lower number. A split rather than a rename: `lg3` remains in use by the
+  weather station
+- `tools/migrations/migrate_fix_sr2_vwc1_replacement.R` - corrects a device
+  swap recorded as `decommissioned`, and closes the port configurations that
+  were left open
+
+### Changed
+- The duplicate-serial check now matches `validate_metadata()`: one active row
+  per serial PER STATION TYPE. A serial active at a different station type is
+  legitimate and is confirmed rather than rejected. Corrected in both the UI
+  and `add_new_device()`, which each held their own copy of the rule
+- `suggest_station_id()` falls back to the numbering convention of the station
+  TYPE where a site has no precedent, so the first vwc station at a site is
+  suggested as `_vwc1` rather than a bare `_vwc`
+
+### Fixed
+- Three port validation checks referenced `end_datetime`, `device_serial` and
+  `start_datetime` - none of which are columns in `zentra_ports.csv`, where
+  they are `valid_to`, `sn` and `valid_from`. A missing column returns NULL,
+  `is.na(NULL)` is `logical(0)`, and the subsets came back empty, so all three
+  reported success without examining anything. The first thing they found once
+  repaired was a real two-year-old gap
+- The terminal-device port check flagged any serial with a terminal row. A
+  relocated device keeps its serial and its sensors, so a serial counts as out
+  of service only when EVERY row for it is terminal
+- `parse_datetime_flexible()` and `parse_date_flexible()` assumed character
+  input. Given an already-parsed value they compared it to `""`, which coerces
+  the empty string into a datetime and errors with "character string is not in
+  a standard unambiguous format". This made port initialisation through the
+  metadata manager fail every time
+
+---
 ## [v0.6.0] 2026-08-29
 
 ### Added
