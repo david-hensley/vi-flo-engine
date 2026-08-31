@@ -924,7 +924,11 @@ add_new_device <- function(device_data) {
       status = device_data$status,
       last_update = NA,
       battery = NA,
-      last_visit = NA,
+      # Establishing a station on a date means somebody stood at it on that
+      # date. The deploy datetime IS a field visit, so recording it as one is
+      # not an inference - it is the same fact stated in the field that asks
+      # "when was this last visited?"
+      last_visit = as.Date(device_data$deploy_datetime),
       expiry_date = device_data$expiry_date,
       last_download_date = NA,
       last_record_date = NA,
