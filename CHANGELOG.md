@@ -42,6 +42,31 @@ All notable changes to the VI-FLO Engine project are documented here.
   swap recorded as `decommissioned`, and closes the port configurations that
   were left open
 
+- `close_specific_ports()` retires named ports, where `close_device_ports()`
+  retires everything on a device
+- Decommissioning asks about the sensors belonging to the retired station, not
+  just the device. A shared ZL6 stays on site for its other station, but an
+  ATMOS that exists for the weather station usually comes off with it - asking
+  only whether the logger came out was the wrong granularity
+- Relocation sets the old row's `last_visit`. Moving a station is a visit, and
+  `update_last_visit()` deliberately skips relocated rows - correct for a
+  routine visit, wrong for the visit that did the relocating
+- `last_visit` is set when a device is created. Establishing a station on a
+  date means somebody stood at it on that date
+- `tools/migrations/migrate_backfill_last_visit.R` - fills blank `last_visit`
+  from the maintenance log rather than from `deploy_datetime`, which for
+  pre-VI-FLO rows may be the earliest archived record rather than a visit
+- `close_specific_ports()` retires named ports, where `close_device_ports()`
+  retires everything on a device
+- Decommissioning asks about the sensors belonging to the retired station, not
+  just the device. A shared ZL6 stays on site for its other station, but an
+  ATMOS that exists for the weather station usually comes off with it
+- Reactivating a station whose sensor was removed detects that the logger has
+  active ports but none of that station's type, and offers to record the
+  sensor there. Full initialisation would overwrite the other station's
+  configuration, so it routes to the per-port workflow instead
+- `ui_update_ports()` accepts a device, so a workflow that already knows which
+  logger it is acting on does not ask again
 ### Changed
 - The duplicate-serial check now matches `validate_metadata()`: one active row
   per serial PER STATION TYPE. A serial active at a different station type is
@@ -51,7 +76,50 @@ All notable changes to the VI-FLO Engine project are documented here.
   TYPE where a site has no precedent, so the first vwc station at a site is
   suggested as `_vwc1` rather than a bare `_vwc`
 
+- `update_device_status()` matches on serial AND active status, optionally
+  narrowed by station. A serial does not identify a row: one can carry a
+  relocated row plus its successor, or two active rows where a single ZL6
+  serves both a weather and a vwc station. Matching on serial alone would
+  restatus all of them, overwriting closed history or dragging a second
+  station along
+- Terminal statuses clear `download_approved` in the same write, covering
+  every transition at once rather than leaving each workflow to remember
+- All five download-approval prompts replaced by one shared function that
+  explains what the question means. It had drifted into five wordings, and the
+  cloud-upload branch was setting the flag from whether data had reached the
+  cloud - a different question entirely. `apply = FALSE` for callers building
+  a row that does not exist yet
+- `get_active_ports()` takes a station type. "Does this device have active
+  ports?" is the wrong question for a shared logger: a weather station
+  reactivated on a box whose vwc ports are open but whose ATMOS came off would
+  be told its ports were fine
+- Relocation uses the declared status list, so `local` can be recorded for a
+  station moved out of cellular range
+- `remove_device()` takes the first ACTIVE row for a serial rather than the
+  first row, which may be closed history
+- `update_ports()` versions each port separately. It previously detected that
+  ANY port had changed and rewrote all six, which wrote a configuration-change
+  event for the other station's sensors on a shared ZL6 - a discontinuity that
+  never physically happened
+- `get_current_port_config()` builds its result by PORT NUMBER rather than by
+  position. With one port closed there are five active rows, and returning
+  them sorted shifted every later port up by one: port 2's sensor displayed as
+  port 1's, and callers indexing 1:6 ran off the end
+- `update_station_status()` clears `download_approved` on terminal statuses.
+  This was added to `update_device_status()` only, so station-level
+  transitions - decommissioning - were missed
+- The device list in `ui_update_ports()` shows one entry per SERIAL, excluding
+  terminal rows. Ports belong to the device, and a shared ZL6 was appearing
+  three times: its decommissioned row, its other station, and its reactivated
+  row
 ### Fixed
+- `ui_update_ports()` referenced `metadata` after it had been moved inside a
+  conditional branch
+- Relocation wrote `download_approved` before the move was confirmed, and onto
+  the row about to go terminal
+- The prompt after routine maintenance conflated "I also did something else"
+  with "I picked the wrong workflow", and offered to delete the entry for
+  both. Doing maintenance and a port change on one visit is normal
 - Three port validation checks referenced `end_datetime`, `device_serial` and
   `start_datetime` - none of which are columns in `zentra_ports.csv`, where
   they are `valid_to`, `sn` and `valid_from`. A missing column returns NULL,

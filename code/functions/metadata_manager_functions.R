@@ -158,22 +158,36 @@ get_current_port_config <- function(device_serial) {
     stop("No active port configuration found for device: ", device_serial)
   }
   
-  # If more than 6 rows, take the LAST 6 (most recent sextuplet)
+  # A ZL6 has six ports, but not six ACTIVE rows: closing one - a sensor
+  # removed when a shared station was retired - leaves five.
+  #
+  # The result must therefore be built by PORT NUMBER, not by position.
+  # Returning whatever rows happen to be active, sorted, shifted every
+  # subsequent port up by one: port 2's sensor was displayed as port 1's, and
+  # callers indexing 1:6 ran off the end.
   if (nrow(active_ports) > 6) {
-    # Get row indices and take last 6
     active_ports <- tail(active_ports, 6)
   }
   
-  # Should now have exactly 6 rows
-  if (nrow(active_ports) != 6) {
-    warning("Device ", device_serial, " has ", nrow(active_ports), 
-            " active ports instead of 6")
+  result <- data.frame(
+    port     = 1:6,
+    type     = "none",
+    sensor   = "none",
+    depth_cm = NA,
+    status   = NA,
+    stringsAsFactors = FALSE
+  )
+  
+  for (i in seq_len(nrow(active_ports))) {
+    p <- suppressWarnings(as.numeric(active_ports$port[i]))
+    if (is.na(p) || p < 1 || p > 6) next
+    result$type[p]     <- active_ports$type[i]
+    result$sensor[p]   <- active_ports$sensor[i]
+    result$depth_cm[p] <- active_ports$depth_cm[i]
+    result$status[p]   <- active_ports$status[i]
   }
   
-  # Ensure sorted by port number
-  active_ports <- active_ports[order(active_ports$port), ]
-  
-  return(active_ports[, c("port", "type", "sensor", "depth_cm", "status")])
+  return(result)
 }
 
 #' Get unique values for a metadata field (for dropdown menus)
@@ -484,6 +498,16 @@ update_station_status <- function(station_id, new_status,
       metadata$status[metadata$station_id == station_id] <- new_status
     }
     
+    # A station out of service cannot be downloaded. update_device_status()
+    # clears this for device-level transitions; station-level ones come
+    # through here and were being missed.
+    station_terminal <- c("removed", "replaced", "relocated", "decommissioned")
+    if (tolower(new_status) %in% station_terminal &&
+        "download_approved" %in% names(metadata)) {
+      metadata$download_approved[metadata$station_id == station_id &
+                                 tolower(metadata$status) %in% station_terminal] <- FALSE
+    }
+    
     # Save
     setwd(wds("meta_internal"))
     metadata$deploy_datetime <- format_datetime_safe(metadata$deploy_datetime)
@@ -748,94 +772,65 @@ update_ports <- function(device_serial, port_config, change_datetime) {
     # Get OLD port rows with full timestamp info
     old_port_rows <- ports[ports$sn == device_serial & is.na(ports$valid_to), ]
     
-    # Determine if ANY port changed
-    any_port_changed <- FALSE
-    
+    # Which ports actually changed?
+    #
+    # This previously asked only whether ANY port changed and then rewrote all
+    # six. That is defensible when a logger serves one station, but a ZL6 can
+    # serve two - and rewriting all six writes a configuration-change event for
+    # the other station's sensors, which nobody touched. The record then shows
+    # a discontinuity that never physically happened.
+    #
+    # Versioning each port separately is more honest, and the full state at any
+    # moment is still recoverable: for each port, take the row valid then.
+    changed <- logical(6)
+
     for (i in 1:6) {
       current_port <- current_config[current_config$port == i, ]
       new_port <- port_config[port_config$port == i, ]
-      
-      # Check if sensor changed
-      if (current_port$sensor[1] != new_port$sensor) {
-        any_port_changed <- TRUE
-        break
-      }
-      # Check if type changed
-      if (current_port$type[1] != new_port$type) {
-        any_port_changed <- TRUE
-        break
-      }
-      # Check if depth changed (handle class differences and NAs)
-      if (!isTRUE(all.equal(as.numeric(current_port$depth_cm[1]), 
-                            as.numeric(new_port$depth_cm), 
-                            tolerance = 0.01))) {
-        any_port_changed <- TRUE
-        break
-      }
-      # Check if status changed (handle class differences and NAs)
-      if (!isTRUE(all.equal(as.character(current_port$status[1]), 
-                            as.character(new_port$status)))) {
-        any_port_changed <- TRUE
-        break
-      }
+
+      sensor_changed <- !identical(as.character(current_port$sensor[1]),
+                                   as.character(new_port$sensor))
+      type_changed   <- !identical(as.character(current_port$type[1]),
+                                   as.character(new_port$type))
+      depth_changed  <- !isTRUE(all.equal(as.numeric(current_port$depth_cm[1]),
+                                          as.numeric(new_port$depth_cm),
+                                          tolerance = 0.01))
+      status_changed <- !isTRUE(all.equal(as.character(current_port$status[1]),
+                                          as.character(new_port$status)))
+
+      changed[i] <- sensor_changed || type_changed || depth_changed || status_changed
     }
-    
-    # If nothing changed, don't update
-    if (!any_port_changed) {
+
+    if (!any(changed)) {
       return(TRUE)  # Success - no changes needed
     }
-    
-    # Something changed - handle each port
-    
-    # Process each port: close old (unless NA/NA empty), create new
-    for (port_num in 1:6) {
+
+    # Close and recreate ONLY the ports that changed
+    new_rows_list <- list()
+
+    for (port_num in which(changed)) {
       new_port <- port_config[port_config$port == port_num, ]
       old_port <- old_port_rows[old_port_rows$port == port_num, ]
-      
-      # Check if this is an empty-staying-empty with NA/NA
-      is_empty_na_na <- (old_port$sensor[1] == "none" && 
-                           is.na(old_port$valid_from[1]) && 
-                           is.na(old_port$valid_to[1]) &&
-                           new_port$sensor == "none")
-      
-      if (!is_empty_na_na) {
-        # Normal case: close the old row
-        ports$valid_to[ports$sn == device_serial & 
-                         ports$port == port_num & 
+
+      # An empty port that was never configured has no row to close
+      has_old_row <- nrow(old_port) > 0
+
+      is_empty_na_na <- has_old_row &&
+                        old_port$sensor[1] == "none" &&
+                        is.na(old_port$valid_from[1]) &&
+                        is.na(old_port$valid_to[1]) &&
+                        new_port$sensor == "none"
+
+      if (has_old_row && !is_empty_na_na) {
+        ports$valid_to[ports$sn == device_serial &
+                         ports$port == port_num &
                          is.na(ports$valid_to)] <- change_datetime
       }
-      # If is_empty_na_na, don't close the old row (leave it NA/NA)
-    }
-    
-    # Create 6 new rows
-    new_rows_list <- list()
-    
-    for (port_num in 1:6) {
-      new_port <- port_config[port_config$port == port_num, ]
-      old_port <- old_port_rows[old_port_rows$port == port_num, ]
-      
-      # Check if this is an empty-staying-empty with NA/NA
-      is_empty_na_na <- (old_port$sensor[1] == "none" && 
-                           is.na(old_port$valid_from[1]) && 
-                           is.na(old_port$valid_to[1]) &&
-                           new_port$sensor == "none")
-      
-      if (is_empty_na_na) {
-        # Empty staying empty - keep NA/NA
-        new_rows_list[[port_num]] <- data.frame(
-          sn = as.character(device_serial),
-          port = as.integer(port_num),
-          type = "none",
-          sensor = "none",
-          depth_cm = NA_integer_,
-          status = NA_character_,
-          valid_from = as.POSIXct(NA),
-          valid_to = as.POSIXct(NA),
-          stringsAsFactors = FALSE
-        )
-      } else if (new_port$sensor == "none") {
-        # Becoming empty or was occupied-empty - use timestamp
-        new_rows_list[[port_num]] <- data.frame(
+
+      if (is_empty_na_na) next  # nothing to record
+
+      if (new_port$sensor == "none") {
+        new_rows_list[[as.character(port_num)]] <- data.frame(
           sn = as.character(device_serial),
           port = as.integer(port_num),
           type = "none",
@@ -847,26 +842,23 @@ update_ports <- function(device_serial, port_config, change_datetime) {
           stringsAsFactors = FALSE
         )
       } else {
-        # Occupied port - use timestamp
-        new_rows_list[[port_num]] <- data.frame(
+        new_rows_list[[as.character(port_num)]] <- data.frame(
           sn = as.character(device_serial),
           port = as.integer(port_num),
           type = as.character(new_port$type),
           sensor = as.character(new_port$sensor),
           depth_cm = as.integer(new_port$depth_cm),
-          status = if(is.na(new_port$status)) NA_character_ else as.character(new_port$status),
+          status = if (is.na(new_port$status)) NA_character_ else as.character(new_port$status),
           valid_from = change_datetime,
           valid_to = as.POSIXct(NA),
           stringsAsFactors = FALSE
         )
       }
     }
-    
-    # Combine all 6 new rows into one data frame
-    new_rows <- do.call(rbind, new_rows_list)
-    
-    # Add all 6 rows at once
-    ports <- rbind(ports, new_rows)
+
+    if (length(new_rows_list) > 0) {
+      ports <- rbind(ports, do.call(rbind, new_rows_list))
+    }
     
     # Save
     setwd(wds("meta_internal"))
@@ -4134,8 +4126,11 @@ ui_reactivate_station <- function() {
     cat("✓ Reactivation logged to maintenance\n")
   }
   
-  # Return device_serial for potential port initialization
-  return(list(device_serial = new_device_serial))
+  # Station and type too - the caller needs them to decide about ports, which
+  # belong to the device but only mean something per station type
+  return(list(device_serial = new_device_serial,
+              station_id    = station_id,
+              station_type  = old_device$station_type))
 }
 
 # --- PORT CONFIGURATION ---
@@ -4375,7 +4370,7 @@ ui_initialize_ports <- function(device_serial) {
 #' Updates port configuration for an existing Zentra ZL6 device
 #' Shows current config and prompts for changes
 #' @return TRUE if successful, NULL if quit or error
-ui_update_ports <- function() {
+ui_update_ports <- function(preset_device_serial = NULL) {
   cat("\n============================================\n")
   cat("  Update Port Configuration\n")
   cat("============================================\n\n")
@@ -4384,29 +4379,48 @@ ui_update_ports <- function() {
   #### DEVICE SELECTION ####
   ################################################################################
   
-  # Get all devices and filter to Zentra only
+  # Loaded unconditionally - later steps in this function use it regardless of
+  # how the device was chosen
   metadata <- load_zentra_metadata()
-  zentra_devices <- metadata[grepl("^z", metadata$device_serial, ignore.case = TRUE), ]
   
-  if (nrow(zentra_devices) == 0) {
-    cat("❌ No Zentra devices found in metadata\n")
-    return(NULL)
+  # Called from a workflow that already knows the device? Don't ask again.
+  if (!is.null(preset_device_serial)) {
+    device_serial <- preset_device_serial
+    cat("Device: ", device_serial, "\n\n", sep = "")
+    
+  } else {
+    # Ports belong to the DEVICE, so the list is one entry per SERIAL - not one
+    # per metadata row. A ZL6 serving two stations had three entries here: its
+    # decommissioned row, its other station, and its reactivated row.
+    #
+    # Terminal rows are excluded: a device out of service has no ports to
+    # reconfigure.
+    terminal_statuses <- c("removed", "replaced", "relocated", "decommissioned")
+    zentra_devices <- metadata[grepl("^z", metadata$device_serial, ignore.case = TRUE) &
+                               !tolower(metadata$status) %in% terminal_statuses, ]
+    
+    if (nrow(zentra_devices) == 0) {
+      cat("❌ No active Zentra devices found in metadata\n")
+      return(NULL)
+    }
+    
+    serials <- sort(unique(zentra_devices$device_serial))
+    
+    # Where a serial serves several stations, name them all
+    device_options <- vapply(serials, function(s) {
+      stations <- unique(zentra_devices$station_id[zentra_devices$device_serial == s])
+      paste0(s, " (", paste(stations, collapse = ", "), ")")
+    }, character(1))
+    
+    selected <- ui_select_from_menu("Select device:", device_options)
+    if (is.null(selected)) {
+      cat("❌ Cancelled\n")
+      return(NULL)
+    }
+    
+    device_serial <- serials[match(selected, device_options)]
+    cat("✓ Device:", device_serial, "\n\n")
   }
-  
-  # Build device options
-  device_options <- paste0(zentra_devices$device_serial, 
-                           " (", zentra_devices$station_id, " - ", 
-                           zentra_devices$site_full, ")")
-  
-  selected <- ui_select_from_menu("Select device:", device_options)
-  if (is.null(selected)) {
-    cat("❌ Cancelled\n")
-    return(NULL)
-  }
-  
-  # Extract device_serial
-  device_serial <- sub(" \\(.*\\)$", "", selected)
-  cat("✓ Device:", device_serial, "\n\n")
   
   ################################################################################
   #### GET CURRENT CONFIGURATION ####
@@ -5988,7 +6002,15 @@ metadata_manager <- function() {
             # Zentra device - ask about ports, unless this serial already has
             # them. A ZL6 shared between a weather and a vwc station is
             # configured once, by whichever station was set up first.
+            # A NULL here would silently disable the type filter, which is
+            # exactly the bug this check exists to prevent - so fall back to
+            # metadata rather than trusting the caller.
             device_station_type <- result$station_type
+            if (is.null(device_station_type) || is.na(device_station_type)) {
+              meta_lu <- load_zentra_metadata()
+              hit <- meta_lu$station_type[meta_lu$device_serial == result$device_serial]
+              device_station_type <- if (length(hit) > 0) hit[1] else NULL
+            }
             
             if (nrow(get_active_ports(result$device_serial,
                                       device_station_type)) > 0) {
@@ -6002,10 +6024,20 @@ metadata_manager <- function() {
                   sep = "")
               cat("   of type '", device_station_type, "'. Its sensor was\n", sep = "")
               cat("   removed when this station was last retired.\n\n")
-              cat("   Use 'Port configuration change' (existing station work,\n")
-              cat("   option 3) to record the sensor now on that port. Full port\n")
-              cat("   initialisation would overwrite the other station's\n")
-              cat("   configuration.\n")
+              cat("   Full port initialisation would overwrite the other\n")
+              cat("   station's configuration, so the sensor is recorded one\n")
+              cat("   port at a time instead.\n\n")
+              
+              # Offer it here rather than naming a menu item. A pointer to
+              # somewhere else is a step someone has to remember to take.
+              if (ui_yes_no(paste0("Set up the ", device_station_type,
+                                   " sensor for this station now?"),
+                            allow_quit = FALSE) == "Y") {
+                ui_update_ports(preset_device_serial = result$device_serial)
+              } else {
+                cat("\u2713 Record it later with 'Port configuration change'\n")
+                cat("  (existing station work, option 3)\n")
+              }
               
             } else {
               cat("\nInitialize port configuration now? (Y/N): ")
@@ -6037,7 +6069,15 @@ metadata_manager <- function() {
             # Zentra device - ask about ports, unless this serial already has
             # them. A ZL6 shared between a weather and a vwc station is
             # configured once, by whichever station was set up first.
+            # A NULL here would silently disable the type filter, which is
+            # exactly the bug this check exists to prevent - so fall back to
+            # metadata rather than trusting the caller.
             device_station_type <- result$station_type
+            if (is.null(device_station_type) || is.na(device_station_type)) {
+              meta_lu <- load_zentra_metadata()
+              hit <- meta_lu$station_type[meta_lu$device_serial == result$device_serial]
+              device_station_type <- if (length(hit) > 0) hit[1] else NULL
+            }
             
             if (nrow(get_active_ports(result$device_serial,
                                       device_station_type)) > 0) {
@@ -6051,10 +6091,20 @@ metadata_manager <- function() {
                   sep = "")
               cat("   of type '", device_station_type, "'. Its sensor was\n", sep = "")
               cat("   removed when this station was last retired.\n\n")
-              cat("   Use 'Port configuration change' (existing station work,\n")
-              cat("   option 3) to record the sensor now on that port. Full port\n")
-              cat("   initialisation would overwrite the other station's\n")
-              cat("   configuration.\n")
+              cat("   Full port initialisation would overwrite the other\n")
+              cat("   station's configuration, so the sensor is recorded one\n")
+              cat("   port at a time instead.\n\n")
+              
+              # Offer it here rather than naming a menu item. A pointer to
+              # somewhere else is a step someone has to remember to take.
+              if (ui_yes_no(paste0("Set up the ", device_station_type,
+                                   " sensor for this station now?"),
+                            allow_quit = FALSE) == "Y") {
+                ui_update_ports(preset_device_serial = result$device_serial)
+              } else {
+                cat("\u2713 Record it later with 'Port configuration change'\n")
+                cat("  (existing station work, option 3)\n")
+              }
               
             } else {
               cat("\nInitialize port configuration now? (Y/N): ")
