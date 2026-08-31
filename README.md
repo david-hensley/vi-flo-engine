@@ -2,14 +2,42 @@
 
 Backend data and code engine for the Virgin Islands Freshwater and Landscapes Observatory (VI-FLO).
 
-**Status:** Active development - v0.5.0
+**Status:** v1.0.0
 
 ---
 
 ## Overview
 
-VI-FLO Engine is the core data and code backend for the VI-FLO project.
-It is designed to handle data processing, analysis, and preparation for downstream applications.
+VI-FLO Engine is the core data and code backend for the VI-FLO project. It
+manages the metadata and raw data archive for a network of environmental
+monitoring stations across the US Virgin Islands.
+
+### What it does
+
+**Metadata management.** An interactive manager records every station, device,
+field visit, and data download. Establishing a station, swapping a device,
+relocating or decommissioning one, reconfiguring sensor ports, surveying
+elevations - each has a workflow that writes both the current state and a
+maintenance log entry explaining it.
+
+**Data download and archiving.** Zentra loggers are pulled from ZentraCloud
+through its API. HOBO loggers are offloaded by hand in the field, and a guided
+workflow walks the user through exporting and archiving them - verifying the
+logger's serial against the file, detecting the recording interval, and warning
+when a record ends before the visit that collected it.
+
+**Validation.** A single command checks the metadata for internal consistency:
+duplicate identifiers, orphaned references, port configurations on retired
+devices, download log entries pointing at files that no longer exist.
+
+### What it does not do yet
+
+**Multi-user editing.** `device_metadata.csv` is a file, not a database, and
+nothing prevents two people editing it between syncs. Until that is addressed,
+one person at a time should be writing metadata. See CHANGELOG for the plan.
+
+**Processing.** Water level to discharge, quality control tiers, and the
+published archive are not part of this release.
 
 ---
 
@@ -101,10 +129,26 @@ and goes straight to the menu.
 ## Repository Structure
 
 ```
-├── code/         # Main R scripts
-├── data/         # Input and example data
+├── code/
+│   ├── start.R              # One-line session setup
+│   └── functions/
+│       ├── setup_functions.R        # Paths, datamap, date parsing
+│       ├── metadata_functions.R     # Loaders and metadata operations
+│       ├── ui_prompt_functions.R    # Shared interactive prompts
+│       ├── metadata_manager_functions.R  # Workflows and the menu
+│       ├── api_functions.R          # ZentraCloud downloads
+│       ├── local_ingest_functions.R # HOBO and cable offload archiving
+│       ├── file_naming_functions.R  # Raw file naming, shared by both paths
+│       ├── pending_ingest_functions.R    # Unfinished field tasks
+│       ├── validation_functions.R   # Metadata consistency checks
+│       └── backup_restore_functions.R
+├── data/         # Data dictionary and sample metadata
 ├── docs/         # Additional documentation and notes
-├── tools/        # Helper files, such as Python scripts for setup_win.exe
+├── tools/
+│   ├── launcher/     # Double-click entry to the metadata manager
+│   ├── migrations/   # One-off schema and data migrations, with a README
+│   ├── setup_win.py  # Setup routine, built to setup_win.exe
+│   └── datamapper.py
 ├── .gitignore    # Ignores api_tokens.csv for security, do not delete!
 ├── CHANGELOG.md  # Notes on major changes and versions
 ├── LICENSE.md    # Licensing and copyright information
@@ -126,9 +170,11 @@ and goes straight to the menu.
 
 ## Notes
 
-* Features are incomplete and under active development.
 * `setup_win.exe` is included for convenience; the main code lives in `/code/`.
 * Use git tags to track major versions and changes.
+* `device_metadata.csv` should not be opened outside the metadata manager.
+  Editing it in Excel silently rewrites datetime formats, and there is no
+  workflow that cannot do what a hand edit would.
 
 ---
 

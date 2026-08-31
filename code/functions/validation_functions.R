@@ -17,6 +17,7 @@
 #'   5. Status must be from known set
 #'   6. download_approved must be FALSE for manual stations
 #'   7. Every download log filepath resolves to a file that exists
+#'   8. Pending data tasks reference stations and devices that still exist
 #'
 #' PORT CONFIGURATIONS:
 #'   7. Only one active config per device+port (valid_to = NA)
@@ -108,6 +109,13 @@ validate_metadata <- function(verbose = TRUE, stop_on_error = FALSE) {
     return(NULL)
   })
   
+  pending <- tryCatch({
+    if (exists("load_pending_ingest")) load_pending_ingest() else NULL
+  }, error = function(e) {
+    record_violation("LOAD_PENDING", paste("Failed to load pending_ingest.csv:", e$message))
+    return(NULL)
+  })
+  
   if (is.null(metadata)) {
     return(list(
       valid = FALSE,
@@ -126,6 +134,9 @@ validate_metadata <- function(verbose = TRUE, stop_on_error = FALSE) {
   
   if (!is.null(dlog)) {
     if (verbose) cat("  Loaded", nrow(dlog), "download records\n")
+  }
+  if (!is.null(pending) && nrow(pending) > 0) {
+    if (verbose) cat("  Loaded", nrow(pending), "pending data tasks\n")
   }
   
   # ==========================================================================
@@ -504,6 +515,55 @@ validate_metadata <- function(verbose = TRUE, stop_on_error = FALSE) {
         )
       } else {
         record_pass("download log station_ids exist")
+      }
+    }
+  }
+  
+  # ==========================================================================
+  # PENDING INGEST CHECKS
+  # ==========================================================================
+  
+  if (!is.null(pending) && nrow(pending) > 0) {
+    if (verbose) cat("\nChecking pending data tasks...\n")
+    
+    # A pending row names a station that must still exist. If it does not, the
+    # task cannot be resumed by any path - it just surfaces in check_pending()
+    # forever.
+    if (!is.null(metadata)) {
+      unknown_station <- !pending$station_id %in% metadata$station_id
+      
+      if (any(unknown_station)) {
+        record_violation(
+          "PENDING_UNKNOWN_STATION",
+          paste("Pending task(s) reference station(s) not in metadata:",
+                paste(unique(pending$station_id[unknown_station]), collapse = ", ")),
+          pending[unknown_station, c("station_id", "device_serial",
+                                     "field_visit_date", "stage")]
+        )
+      } else {
+        record_pass("pending task station_ids exist")
+      }
+      
+      # Deliberately NOT checked: whether the device is still active. A
+      # station can be decommissioned while data offloaded from it has yet to
+      # be archived - the pending row is then doing exactly its job, and
+      # flagging it would push someone to delete the reminder for data that
+      # has not been saved.
+    }
+    
+    # A stage outside the known set cannot be resumed - the workflow would not
+    # know where to pick up
+    if (exists("PENDING_STAGES")) {
+      bad_stage <- !pending$stage %in% PENDING_STAGES
+      if (any(bad_stage)) {
+        record_violation(
+          "PENDING_UNKNOWN_STAGE",
+          paste("Unknown stage(s):",
+                paste(unique(pending$stage[bad_stage]), collapse = ", ")),
+          pending[bad_stage, c("station_id", "device_serial", "stage")]
+        )
+      } else {
+        record_pass("pending task stages known")
       }
     }
   }

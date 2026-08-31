@@ -202,14 +202,7 @@ safe_download_zentra_station <- function(station, start = NULL, end = NULL, all 
       metadata$last_download_date[metadata$unique_id == device$unique_id] <- datetime_at_station
     }
   }
-  # Save updated metadata
-  setwd(wds("meta_internal"))
-  # Format datetimes back to strings before saving (handles NAs properly)
-  metadata$deploy_datetime <- format_datetime_safe(metadata$deploy_datetime)
-  metadata$last_update <- format_datetime_safe(metadata$last_update)
-  metadata$last_download_date <- format_datetime_safe(metadata$last_download_date)
-  
-  write.csv(metadata, "device_metadata.csv", row.names = FALSE)
+  save_device_metadata(metadata)
   message("✓ Updated metadata with download timestamp")
   
   # ========== RETURN ==========

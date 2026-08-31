@@ -17,1369 +17,11 @@
 # These check if data exists and is valid
 # Return: TRUE if valid, error message string if invalid
 
-#' Check if a device exists in metadata
-#' @param device_serial Character. Device serial to check
-#' @return TRUE if exists, character error message if not
-validate_device_exists <- function(device_serial) {
-  metadata <- load_zentra_metadata()
-  
-  if (!device_serial %in% metadata$device_serial) {
-    return(paste0("Device '", device_serial, "' not found in metadata"))
-  }
-  
-  return(TRUE)
-}
-
-#' Check if a station exists in metadata
-#' @param station_id Character. Station ID to check
-#' @return TRUE if exists, character error message if not
-validate_station_exists <- function(station_id) {
-  metadata <- load_zentra_metadata()
-  
-  if (!station_id %in% metadata$station_id) {
-    return(paste0("Station '", station_id, "' not found in metadata"))
-  }
-  
-  return(TRUE)
-}
-
-#' Check for duplicate port assignments in a configuration
-#' @param port_config Data frame with 'port' column
-#' @return TRUE if valid, character error message if duplicates found
-validate_no_duplicate_ports <- function(port_config) {
-  if (any(duplicated(port_config$port))) {
-    dup_ports <- port_config$port[duplicated(port_config$port)]
-    return(paste0("Duplicate port(s) assigned: ", paste(dup_ports, collapse = ", ")))
-  }
-  
-  return(TRUE)
-}
 
 ################################################################################
-#### QUERY FUNCTIONS ####
+
+#  INTERACTIVE WORKFLOWS
 ################################################################################
-# These retrieve data from metadata files
-# Return: Data structures (lists, data frames, vectors)
-
-#' Get list of all stations
-#' @return Character vector of station IDs with site names
-get_station_list <- function() {
-  metadata <- load_zentra_metadata()
-  stations <- sort(unique(metadata$station_id))
-  
-  # Build list with site names for display
-  station_list <- list()
-  for (station in stations) {
-    site_full <- metadata$site_full[metadata$station_id == station][1]
-    station_list[[station]] <- list(
-      station_id = station,
-      site_full = site_full
-    )
-  }
-  
-  return(station_list)
-}
-
-#' Get devices at a specific station
-#' @param station_id Character. Station to query
-#' @return Data frame of devices at that station
-get_station_devices <- function(station_id) {
-  metadata <- load_zentra_metadata()
-  station_devices <- metadata[metadata$station_id == station_id, ]
-  return(station_devices)
-}
-
-#' Get active devices at a station (excludes terminal statuses)
-#' @param station_id Character. Station to query
-#' @return Data frame of active devices (excludes removed, replaced, decommissioned)
-get_active_station_devices <- function(station_id) {
-  all_devices <- get_station_devices(station_id)
-  terminal_statuses <- c("removed", "replaced", "decommissioned", "relocated")
-  active_devices <- all_devices[!all_devices$status %in% terminal_statuses, ]
-  return(active_devices)
-}
-
-#' Get active devices with UI feedback if empty
-#' @param station_id Character. Station to query
-#' @param workflow_name Character. Name of workflow for error message
-#' @return Data frame of active devices, or NULL if none found (with message)
-get_active_devices_or_notify <- function(station_id, workflow_name = "this workflow") {
-  active_devices <- get_active_station_devices(station_id)
-  
-  if (nrow(active_devices) == 0) {
-    cat("❌ No active devices at station '", station_id, "'\n", sep = "")
-    cat("   All devices are removed, replaced, or decommissioned.\n")
-    cat("   Cannot proceed with ", workflow_name, ".\n", sep = "")
-    return(NULL)
-  }
-  
-  return(active_devices)
-}
-
-#' Prompt for logger initials with DAH as default
-#' @return Character. Three-letter initials
-ui_ask_whois_logging <- function() {
-  cat("\nWho is logging this?\n")
-  cat("  1. DAH\n")
-  cat("  2. Enter custom initials (3 letters)\n")
-  cat("\nEnter selection: ")
-  logged_by_input <- trimws(readline())
-  
-  if (logged_by_input == "1" || logged_by_input == "") {
-    return("DAH")
-  } else if (logged_by_input == "2") {
-    repeat {
-      cat("Enter 3-letter initials: ")
-      custom_initials <- toupper(trimws(readline()))
-      if (nchar(custom_initials) == 3) {
-        return(custom_initials)
-      } else {
-        cat("⚠️  Please enter exactly 3 letters\n")
-      }
-    }
-  } else {
-    return("DAH")  # Default for any other input
-  }
-}
-
-#' Get current port configuration for a device
-#' @param device_serial Character. Device to query (maps to 'sn' column)
-#' @return Data frame with port, type, sensor, depth_cm, status for active configs
-#'         Empty ports have sensor="none"
-get_current_port_config <- function(device_serial) {
-  ports <- load_zentra_ports_data()
-  
-  device_ports <- ports[ports$sn == device_serial, ]
-  
-  # Get all ports with valid_to = NA (potentially multiple sextuplets)
-  active_ports <- device_ports[is.na(device_ports$valid_to), ]
-  
-  if (nrow(active_ports) == 0) {
-    stop("No active port configuration found for device: ", device_serial)
-  }
-  
-  # A ZL6 has six ports, but not six ACTIVE rows: closing one - a sensor
-  # removed when a shared station was retired - leaves five.
-  #
-  # The result must therefore be built by PORT NUMBER, not by position.
-  # Returning whatever rows happen to be active, sorted, shifted every
-  # subsequent port up by one: port 2's sensor was displayed as port 1's, and
-  # callers indexing 1:6 ran off the end.
-  if (nrow(active_ports) > 6) {
-    active_ports <- tail(active_ports, 6)
-  }
-  
-  result <- data.frame(
-    port     = 1:6,
-    type     = "none",
-    sensor   = "none",
-    depth_cm = NA,
-    status   = NA,
-    stringsAsFactors = FALSE
-  )
-  
-  for (i in seq_len(nrow(active_ports))) {
-    p <- suppressWarnings(as.numeric(active_ports$port[i]))
-    if (is.na(p) || p < 1 || p > 6) next
-    result$type[p]     <- active_ports$type[i]
-    result$sensor[p]   <- active_ports$sensor[i]
-    result$depth_cm[p] <- active_ports$depth_cm[i]
-    result$status[p]   <- active_ports$status[i]
-  }
-  
-  return(result)
-}
-
-#' Get unique values for a metadata field (for dropdown menus)
-#' @param field Character. Field name to query
-#' @return Character vector of unique values (sorted, NAs removed)
-get_metadata_unique_values <- function(field) {
-  metadata <- load_zentra_metadata()
-  
-  if (!field %in% names(metadata)) {
-    return(character())
-  }
-  
-  values <- unique(metadata[[field]])
-  values <- values[!is.na(values)]
-  return(sort(values))
-}
-
-#' Get unique sensor types from ports data (excluding 'none')
-#' @return Character vector of sensor types
-get_unique_sensor_types <- function() {
-  ports <- load_zentra_ports_data()
-  sensor_types <- unique(ports$sensor)
-  sensor_types <- sensor_types[!is.na(sensor_types) & sensor_types != "none"]
-  return(sort(sensor_types))
-}
-
-#' Determine sensor type category from sensor name
-#' @param sensor Character. Sensor name (e.g., "TEROS 10", "ATMOS 41")
-#' @return Character. Type category: "vwc", "weather", or "none"
-determine_sensor_type <- function(sensor) {
-  if (is.na(sensor) || sensor == "none") {
-    return("none")
-  }
-  
-  # VWC sensors
-  if (grepl("TEROS", sensor, ignore.case = TRUE)) {
-    return("vwc")
-  }
-  
-  # Weather sensors
-  if (grepl("ATMOS", sensor, ignore.case = TRUE)) {
-    return("weather")
-  }
-  
-  # Default to vwc for unknown sensors
-  # (can be manually corrected if needed)
-  return("vwc")
-}
-
-#' Get unique action types from maintenance log
-#' @return Character vector of action types
-get_unique_action_types <- function() {
-  maint_log <- load_maintenance_log()
-  
-  if (is.null(maint_log) || nrow(maint_log) == 0) {
-    return(character())
-  }
-  
-  action_types <- unique(maint_log$action_type)
-  return(sort(action_types))
-}
-
-################################################################################
-#### METADATA MODIFICATION FUNCTIONS ####
-################################################################################
-# These modify metadata files
-# Return: TRUE if successful, character error message if failed
-# IMPORTANT: These functions WRITE to files
-
-#' Create a new maintenance log entry
-#' @param field_visit_date Character or Date. Date of field visit
-#' @param station_id Character. Station visited
-#' @param station_type Character. Type of station
-#' @param device_serial Character. Device worked on
-#' @param action_type Character. What was done
-#' @param details Character. Description
-#' @param ports_updated Logical. Whether ports were updated
-#' @param logged_by Character. Who logged this (initials)
-#' @return TRUE if successful, error message if failed
-create_maintenance_entry <- function(field_visit_date, station_id, station_type,
-                                    device_serial, action_type, details,
-                                    ports_updated, logged_by) {
-  tryCatch({
-    # Use the existing write_maintenance_entry function
-    # (from metadata_functions.R)
-    write_maintenance_entry(
-      field_visit_date = field_visit_date,
-      station_id = station_id,
-      station_type = station_type,
-      device_serial = device_serial,
-      action_type = action_type,
-      details = details,
-      ports_updated = ports_updated,
-      logged_by = logged_by
-    )
-    return(TRUE)
-  }, error = function(e) {
-    return(paste0("Failed to create maintenance entry: ", e$message))
-  })
-}
-
-#' Delete the most recent maintenance log entry for a device
-#' Used when user realizes they selected wrong workflow
-#' @param device_serial Character. Device whose last entry should be deleted
-#' @return TRUE if successful, error message if failed
-delete_last_maintenance_entry <- function(device_serial) {
-  tryCatch({
-    maint_log <- load_maintenance_log()
-    
-    # Find the most recent entry for this device
-    device_entries <- maint_log[maint_log$device_serial == device_serial, ]
-    
-    if (nrow(device_entries) == 0) {
-      return("No maintenance entries found for this device")
-    }
-    
-    # Get the last entry (most recent row)
-    last_entry_index <- which(maint_log$device_serial == device_serial)
-    last_entry_index <- last_entry_index[length(last_entry_index)]
-    
-    # Remove that row
-    maint_log <- maint_log[-last_entry_index, ]
-    
-    # Save
-    setwd(wds("meta_internal"))
-    
-    # Format datetime columns before saving
-    if ("field_visit_date" %in% names(maint_log)) {
-      maint_log$field_visit_date <- as.character(maint_log$field_visit_date)
-    }
-    if ("timestamp" %in% names(maint_log)) {
-      maint_log$timestamp <- format_datetime_safe(maint_log$timestamp)
-    }
-    
-    write.csv(maint_log, "maintenance_log.csv", row.names = FALSE)
-    
-    return(TRUE)
-  }, error = function(e) {
-    return(paste0("Failed to delete entry: ", e$message))
-  })
-}
-
-#' Update last_visit date for active devices at a station
-#' @param station_id Character. Station to update
-#' @param visit_date Date or character. Date of visit
-#' @return TRUE if successful, error message if failed
-update_last_visit <- function(station_id, visit_date) {
-  tryCatch({
-    metadata <- load_zentra_metadata()
-    station_devices <- metadata[metadata$station_id == station_id, ]
-    
-    # Find active devices (not decommissioned or relocated)
-    active_mask <- !(station_devices$status %in% c("decommissioned", "relocated"))
-    active_unique_ids <- station_devices$unique_id[active_mask]
-    
-    if (length(active_unique_ids) == 0) {
-      return("No active devices found at this station")
-    }
-    
-    # Update last_visit
-    metadata$last_visit[metadata$unique_id %in% active_unique_ids] <- as.Date(visit_date)
-    
-    # Save
-    setwd(wds("meta_internal"))
-    metadata$deploy_datetime <- format_datetime_safe(metadata$deploy_datetime)
-    metadata$last_update <- format_datetime_safe(metadata$last_update)
-    metadata$last_download_date <- format_datetime_safe(metadata$last_download_date)
-    metadata$last_record_date <- format_datetime_safe(metadata$last_record_date)
-    metadata$last_visit <- as.character(metadata$last_visit)
-    
-    write.csv(metadata, "device_metadata.csv", row.names = FALSE)
-    
-    return(TRUE)
-  }, error = function(e) {
-    return(paste0("Failed to update last_visit: ", e$message))
-  })
-}
-
-#' Update status for a specific device
-#' @param device_serial Character. Device to update
-#' @param new_status Character. New status value
-#' @return TRUE if successful, error message if failed
-update_device_status <- function(device_serial, new_status, station_id = NULL) {
-  tryCatch({
-    metadata <- load_zentra_metadata()
-    
-    # Check device exists
-    if (!device_serial %in% metadata$device_serial) {
-      return(paste0("Device '", device_serial, "' not found"))
-    }
-    
-    # A serial does NOT identify a row. One serial can have several:
-    #   - a relocated row plus the row that succeeded it, same station
-    #   - two active rows, where one ZL6 serves a weather and a vwc station
-    #
-    # Matching on serial alone would restatus all of them - overwriting a
-    # closed historical row, or dragging a second station along for the ride.
-    #
-    # Terminal rows are excluded because they are closed history. Where the
-    # caller knows which station it is acting on, that narrows it further.
-    terminal_statuses <- c("removed", "replaced", "relocated", "decommissioned")
-    
-    rows <- metadata$device_serial == device_serial &
-            !tolower(metadata$status) %in% terminal_statuses
-    
-    if (!is.null(station_id)) {
-      rows <- rows & metadata$station_id == station_id
-    }
-    
-    if (!any(rows)) {
-      return(paste0("No active row found for device '", device_serial, "'",
-                    if (!is.null(station_id)) paste0(" at ", station_id) else ""))
-    }
-    
-    metadata$status[rows] <- new_status
-    
-    # A device out of service cannot be downloaded, so approval stops meaning
-    # anything. Clearing it here covers every terminal transition at once -
-    # replacement, removal, relocation, decommissioning - rather than leaving
-    # each workflow to remember.
-    terminal_statuses <- c("removed", "replaced", "relocated", "decommissioned")
-    if (tolower(new_status) %in% terminal_statuses &&
-        "download_approved" %in% names(metadata)) {
-      metadata$download_approved[rows] <- FALSE
-    }
-    
-    # Save
-    setwd(wds("meta_internal"))
-    metadata$deploy_datetime <- format_datetime_safe(metadata$deploy_datetime)
-    metadata$last_update <- format_datetime_safe(metadata$last_update)
-    metadata$last_download_date <- format_datetime_safe(metadata$last_download_date)
-    metadata$last_record_date <- format_datetime_safe(metadata$last_record_date)
-    metadata$last_visit <- as.character(metadata$last_visit)
-    metadata$expiry_date <- as.character(metadata$expiry_date)
-    
-    write.csv(metadata, "device_metadata.csv", row.names = FALSE)
-    
-    return(TRUE)
-  }, error = function(e) {
-    return(paste0("Failed to update device status: ", e$message))
-  })
-}
-
-#' Update status for all devices at a station
-#' Handles special logic for decommissioning (preserves historical statuses)
-#' @param station_id Character. Station to update
-#' @param new_status Character. New status to apply
-#' @return TRUE if successful, error message if failed
-update_station_status <- function(station_id, new_status,
-                                 close_port_serials = NULL) {
-  tryCatch({
-    metadata <- load_zentra_metadata()
-    
-    if (new_status == "decommissioned") {
-      # Get devices at this station
-      station_devices <- metadata[metadata$station_id == station_id, ]
-      
-      # Check if any active devices exist
-      active_statuses <- c("online", "local", "manual", "nonresponsive", "defunct")
-      active_devices <- station_devices[station_devices$status %in% active_statuses, ]
-      
-      if (nrow(active_devices) > 0) {
-        # Normal case: mark all active devices as decommissioned
-        metadata$status[metadata$station_id == station_id & 
-                          metadata$status %in% active_statuses] <- new_status
-        
-        # A decommissioned station's sensors are no longer deployed, so their
-        # port configurations stop being true and must be closed.
-        #
-        # close_port_serials is what the caller established actually came out
-        # of the field. A ZL6 still running another station keeps its ports,
-        # because they are keyed by serial and still describe reality. Given
-        # no list, fall back to closing every serial with nothing active left.
-        decom_serials <- if (!is.null(close_port_serials)) {
-          close_port_serials
-        } else {
-          s_all <- unique(active_devices$device_serial)
-          s_all[!vapply(s_all, function(s) {
-            any(metadata$device_serial == s & metadata$status %in% active_statuses)
-          }, logical(1))]
-        }
-        
-        for (s in decom_serials) close_device_ports(s, Sys.time())
-      } else {
-        # No active devices - check for removed devices
-        removed_devices <- station_devices[station_devices$status == "removed", ]
-        
-        if (nrow(removed_devices) > 0) {
-          # Find most recently removed device (by last_visit date)
-          removed_devices$last_visit_date <- as.Date(removed_devices$last_visit)
-          most_recent_idx <- which.max(removed_devices$last_visit_date)
-          most_recent_serial <- removed_devices$device_serial[most_recent_idx]
-          
-          # Mark only the most recent removal as decommissioned
-          metadata$status[metadata$station_id == station_id & 
-                            metadata$device_serial == most_recent_serial & 
-                            metadata$status == "removed"] <- new_status
-        }
-        # If no removed devices either, nothing to mark (all replaced/relocated)
-      }
-      
-    } else if (new_status == "relocated") {
-      # For relocation, update all devices
-      metadata$status[metadata$station_id == station_id] <- new_status
-      
-    } else {
-      # Default: update all
-      metadata$status[metadata$station_id == station_id] <- new_status
-    }
-    
-    # A station out of service cannot be downloaded. update_device_status()
-    # clears this for device-level transitions; station-level ones come
-    # through here and were being missed.
-    station_terminal <- c("removed", "replaced", "relocated", "decommissioned")
-    if (tolower(new_status) %in% station_terminal &&
-        "download_approved" %in% names(metadata)) {
-      metadata$download_approved[metadata$station_id == station_id &
-                                 tolower(metadata$status) %in% station_terminal] <- FALSE
-    }
-    
-    # Save
-    setwd(wds("meta_internal"))
-    metadata$deploy_datetime <- format_datetime_safe(metadata$deploy_datetime)
-    metadata$last_update <- format_datetime_safe(metadata$last_update)
-    metadata$last_download_date <- format_datetime_safe(metadata$last_download_date)
-    metadata$last_record_date <- format_datetime_safe(metadata$last_record_date)
-    metadata$last_visit <- as.character(metadata$last_visit)
-    metadata$expiry_date <- as.character(metadata$expiry_date)
-    
-    write.csv(metadata, "device_metadata.csv", row.names = FALSE)
-    
-    return(TRUE)
-  }, error = function(e) {
-    return(paste0("Failed to update station status: ", e$message))
-  })
-}
-
-#' Update download approval flag for a station
-#' @param station_id Character. Station to update
-#' @param approved Logical. Approval status
-#' @return TRUE if successful, error message if failed
-update_download_approval <- function(station_id, approved) {
-  tryCatch({
-    # Use existing set_download_approved function
-    set_download_approved(station_id = station_id, value = approved)
-    return(TRUE)
-  }, error = function(e) {
-    return(paste0("Failed to update download approval: ", e$message))
-  })
-}
-
-#' Update device location coordinates
-#' @param device_serial Character. Device to update
-#' @param lat Numeric. New latitude
-#' @param lon Numeric. New longitude  
-#' @param elev Numeric or NA. New elevation
-#' @return TRUE if successful, error message if failed
-update_device_location <- function(device_serial, lat, lon, elev) {
-  tryCatch({
-    metadata <- load_zentra_metadata()
-    device_index <- which(metadata$device_serial == device_serial)
-    
-    if (length(device_index) == 0) {
-      return("Device not found in metadata")
-    }
-    
-    metadata$lat[device_index] <- lat
-    metadata$lon[device_index] <- lon
-    metadata$elev[device_index] <- elev
-    
-    # Save
-    setwd(wds("meta_internal"))
-    metadata$deploy_datetime <- format_datetime_safe(metadata$deploy_datetime)
-    metadata$last_update <- format_datetime_safe(metadata$last_update)
-    metadata$last_download_date <- format_datetime_safe(metadata$last_download_date)
-    metadata$last_record_date <- format_datetime_safe(metadata$last_record_date)
-    metadata$last_visit <- as.character(metadata$last_visit)
-    metadata$expiry_date <- as.character(metadata$expiry_date)
-    
-    write.csv(metadata, "device_metadata.csv", row.names = FALSE)
-    
-    return(TRUE)
-  }, error = function(e) {
-    return(paste0("Failed to update location: ", e$message))
-  })
-}
-
-#' Update last_download_date for a device
-#' @param device_serial Character. Device to update
-#' @param download_date Date or character. Date of download
-#' @return TRUE if successful, error message if failed
-update_last_download_date <- function(device_serial, download_date) {
-  tryCatch({
-    metadata <- load_zentra_metadata()
-    device_index <- which(metadata$device_serial == device_serial)
-    
-    if (length(device_index) == 0) {
-      return("Device not found in metadata")
-    }
-    # Get device timezone
-    device_tz <- metadata$timezone[device_index]
-    # Convert date to datetime at noon (realistic for field visits)
-    download_datetime <- as.POSIXct(paste(download_date, "12:00:00"), 
-                                    tz = device_tz)
-    # Update last_download_date
-    metadata$last_download_date[device_index] <- download_datetime
-    # Save
-    setwd(wds("meta_internal"))
-    metadata$deploy_datetime <- format_datetime_safe(metadata$deploy_datetime)
-    metadata$last_update <- format_datetime_safe(metadata$last_update)
-    metadata$last_download_date <- format_datetime_safe(metadata$last_download_date)
-    metadata$last_record_date <- format_datetime_safe(metadata$last_record_date)
-    metadata$last_visit <- as.character(metadata$last_visit)
-    # Only format expiry_date if it exists
-    if ("expiry_date" %in% names(metadata)) {
-      metadata$expiry_date <- as.character(metadata$expiry_date)
-    }
-    write.csv(metadata, "device_metadata.csv", row.names = FALSE)
-    return(TRUE)
-  }, error = function(e) {
-    return(paste0("Failed to update last_download_date: ", e$message))
-  })
-}
-
-#' Update elevation with a surveyed elevation for a single device
-#' @param device_serial Character. Device to update
-#' @param elevation Numeric. Surveyed elevation in meters
-#' @return TRUE if successful, error message if failed
-survey_device_elevation <- function(device_serial, elevation) {
-  tryCatch({
-    metadata <- load_zentra_metadata()
-    
-    # Update device elevation
-    metadata$elev[metadata$device_serial == device_serial] <- elevation
-    
-    # Save
-    setwd(wds("meta_internal"))
-    metadata$deploy_datetime <- format_datetime_safe(metadata$deploy_datetime)
-    metadata$last_update <- format_datetime_safe(metadata$last_update)
-    metadata$last_download_date <- format_datetime_safe(metadata$last_download_date)
-    metadata$last_record_date <- format_datetime_safe(metadata$last_record_date)
-    metadata$last_visit <- as.character(metadata$last_visit)
-    metadata$expiry_date <- as.character(metadata$expiry_date)
-    
-    write.csv(metadata, "device_metadata.csv", row.names = FALSE)
-    
-    return(TRUE)
-  }, error = function(e) {
-    return(paste0("Failed to update elevation: ", e$message))
-  })
-}
-
-#' Survey stream gauge elevations for primary/secondary logger setup
-#' @param station_id Character. Station being surveyed
-#' @param primary_serial Character. Primary logger device serial
-#' @param secondary_serial Character. Secondary logger device serial
-#' @param primary_elev Numeric. Surveyed elevation of primary logger (meters)
-#' @param elevation_diff Numeric. Elevation difference: secondary - primary (meters)
-#' @return TRUE if successful, error message if failed
-survey_dual_logger_elevations <- function(station_id, primary_serial, secondary_serial,
-                                          primary_elev, elevation_diff) {
-  tryCatch({
-    metadata <- load_zentra_metadata()
-    
-    # Calculate secondary elevation
-    secondary_elev <- primary_elev + elevation_diff
-    
-    # Update primary device elevation
-    metadata$elev[metadata$device_serial == primary_serial] <- primary_elev
-    
-    # Update secondary device elevation
-    metadata$elev[metadata$device_serial == secondary_serial] <- secondary_elev
-    
-    # Save
-    setwd(wds("meta_internal"))
-    metadata$deploy_datetime <- format_datetime_safe(metadata$deploy_datetime)
-    metadata$last_update <- format_datetime_safe(metadata$last_update)
-    metadata$last_download_date <- format_datetime_safe(metadata$last_download_date)
-    metadata$last_record_date <- format_datetime_safe(metadata$last_record_date)
-    metadata$last_visit <- as.character(metadata$last_visit)
-    metadata$expiry_date <- as.character(metadata$expiry_date)
-    
-    write.csv(metadata, "device_metadata.csv", row.names = FALSE)
-    
-    return(TRUE)
-  }, error = function(e) {
-    return(paste0("Failed to update elevations: ", e$message))
-  })
-}
-
-################################################################################
-#### PORT CONFIGURATION FUNCTIONS ####
-################################################################################
-
-#' Initialize port configuration for a new device
-#' @param device_serial Character. Device to configure
-#' @param port_config Data frame with columns: port, type, sensor, depth_cm, status
-#'                    Must include all 6 ports (use sensor="none" for empty)
-#' @return TRUE if successful, error message if failed
-initialize_ports <- function(device_serial, port_config) {
-  tryCatch({
-    # Validate - must have exactly 6 ports
-    if (nrow(port_config) != 6 || !all(1:6 %in% port_config$port)) {
-      return("Port configuration must include all 6 ports")
-    }
-    
-    # Validate no duplicates
-    valid <- validate_no_duplicate_ports(port_config)
-    if (!isTRUE(valid)) return(valid)
-    
-    metadata <- load_zentra_metadata()
-    ports <- load_zentra_ports_data()
-    
-    # Get device deployment datetime
-    device_row <- metadata[metadata$device_serial == device_serial, ][1, ]
-    deploy_datetime <- parse_datetime_flexible(device_row$deploy_datetime, device_row$timezone)
-    
-    # Add all 6 port rows
-    for (i in 1:nrow(port_config)) {
-      # For empty ports, set valid_from and valid_to to NA
-      if (port_config$sensor[i] == "none") {
-        new_row <- data.frame(
-          sn = device_serial,
-          port = port_config$port[i],
-          type = "none",
-          sensor = "none",
-          depth_cm = NA,
-          status = NA,
-          valid_from = NA,
-          valid_to = NA,
-          stringsAsFactors = FALSE
-        )
-      } else {
-        new_row <- data.frame(
-          sn = device_serial,
-          port = port_config$port[i],
-          type = port_config$type[i],
-          sensor = port_config$sensor[i],
-          depth_cm = port_config$depth_cm[i],
-          status = port_config$status[i],
-          valid_from = deploy_datetime,
-          valid_to = NA,
-          stringsAsFactors = FALSE
-        )
-      }
-      ports <- rbind(ports, new_row)
-    }
-    
-    # Save
-    setwd(wds("meta_internal"))
-    ports$valid_from <- format_datetime_safe(ports$valid_from)
-    ports$valid_to <- format_datetime_safe(ports$valid_to)
-    
-    write.csv(ports, "zentra_ports.csv", row.names = FALSE)
-    
-    return(TRUE)
-  }, error = function(e) {
-    return(paste0("Failed to initialize ports: ", e$message))
-  })
-}
-
-#' Update port configuration for an existing device
-#' @param device_serial Character. Device to update
-#' @param port_config Data frame with columns: port, type, sensor, depth_cm, status
-#'                    Must include all 6 ports (use sensor="none" for empty)
-#' @param change_datetime POSIXct. When the change occurred
-#' @return TRUE if successful, error message if failed
-update_ports <- function(device_serial, port_config, change_datetime) {
-  tryCatch({
-    # Validate - must have exactly 6 ports
-    if (nrow(port_config) != 6 || !all(1:6 %in% port_config$port)) {
-      return("Port configuration must include all 6 ports")
-    }
-    
-    # Validate no duplicates
-    valid <- validate_no_duplicate_ports(port_config)
-    if (!isTRUE(valid)) return(valid)
-    
-    ports <- load_zentra_ports_data()
-    current_config <- get_current_port_config(device_serial)
-    
-    # Get OLD port rows with full timestamp info
-    old_port_rows <- ports[ports$sn == device_serial & is.na(ports$valid_to), ]
-    
-    # Which ports actually changed?
-    #
-    # This previously asked only whether ANY port changed and then rewrote all
-    # six. That is defensible when a logger serves one station, but a ZL6 can
-    # serve two - and rewriting all six writes a configuration-change event for
-    # the other station's sensors, which nobody touched. The record then shows
-    # a discontinuity that never physically happened.
-    #
-    # Versioning each port separately is more honest, and the full state at any
-    # moment is still recoverable: for each port, take the row valid then.
-    changed <- logical(6)
-
-    for (i in 1:6) {
-      current_port <- current_config[current_config$port == i, ]
-      new_port <- port_config[port_config$port == i, ]
-
-      sensor_changed <- !identical(as.character(current_port$sensor[1]),
-                                   as.character(new_port$sensor))
-      type_changed   <- !identical(as.character(current_port$type[1]),
-                                   as.character(new_port$type))
-      depth_changed  <- !isTRUE(all.equal(as.numeric(current_port$depth_cm[1]),
-                                          as.numeric(new_port$depth_cm),
-                                          tolerance = 0.01))
-      status_changed <- !isTRUE(all.equal(as.character(current_port$status[1]),
-                                          as.character(new_port$status)))
-
-      changed[i] <- sensor_changed || type_changed || depth_changed || status_changed
-    }
-
-    if (!any(changed)) {
-      return(TRUE)  # Success - no changes needed
-    }
-
-    # Close and recreate ONLY the ports that changed
-    new_rows_list <- list()
-
-    for (port_num in which(changed)) {
-      new_port <- port_config[port_config$port == port_num, ]
-      old_port <- old_port_rows[old_port_rows$port == port_num, ]
-
-      # An empty port that was never configured has no row to close
-      has_old_row <- nrow(old_port) > 0
-
-      is_empty_na_na <- has_old_row &&
-                        old_port$sensor[1] == "none" &&
-                        is.na(old_port$valid_from[1]) &&
-                        is.na(old_port$valid_to[1]) &&
-                        new_port$sensor == "none"
-
-      if (has_old_row && !is_empty_na_na) {
-        ports$valid_to[ports$sn == device_serial &
-                         ports$port == port_num &
-                         is.na(ports$valid_to)] <- change_datetime
-      }
-
-      if (is_empty_na_na) next  # nothing to record
-
-      if (new_port$sensor == "none") {
-        new_rows_list[[as.character(port_num)]] <- data.frame(
-          sn = as.character(device_serial),
-          port = as.integer(port_num),
-          type = "none",
-          sensor = "none",
-          depth_cm = NA_integer_,
-          status = NA_character_,
-          valid_from = change_datetime,
-          valid_to = as.POSIXct(NA),
-          stringsAsFactors = FALSE
-        )
-      } else {
-        new_rows_list[[as.character(port_num)]] <- data.frame(
-          sn = as.character(device_serial),
-          port = as.integer(port_num),
-          type = as.character(new_port$type),
-          sensor = as.character(new_port$sensor),
-          depth_cm = as.integer(new_port$depth_cm),
-          status = if (is.na(new_port$status)) NA_character_ else as.character(new_port$status),
-          valid_from = change_datetime,
-          valid_to = as.POSIXct(NA),
-          stringsAsFactors = FALSE
-        )
-      }
-    }
-
-    if (length(new_rows_list) > 0) {
-      ports <- rbind(ports, do.call(rbind, new_rows_list))
-    }
-    
-    # Save
-    setwd(wds("meta_internal"))
-    ports$valid_from <- format_datetime_safe(ports$valid_from)
-    ports$valid_to <- format_datetime_safe(ports$valid_to)
-    
-    write.csv(ports, "zentra_ports.csv", row.names = FALSE)
-    
-    return(TRUE)
-  }, error = function(e) {
-    return(paste0("Failed to update ports: ", e$message))
-  })
-}
-
-################################################################################
-#### DEVICE MANAGEMENT FUNCTIONS ####
-################################################################################
-
-#' Add a new device to metadata
-#' @param device_data List containing all device fields
-#' @return TRUE if successful, error message string if failed
-add_new_device <- function(device_data) {
-  tryCatch({
-    metadata <- load_zentra_metadata()
-    
-    # Check if device_serial already exists and is still active
-    existing <- metadata[metadata$device_serial == device_data$device_serial, ]
-    
-    if (nrow(existing) > 0) {
-      terminal_statuses <- c("removed", "decommissioned", "replaced", "relocated")
-      
-      # A serial active at a DIFFERENT station type is legitimate: one ZL6
-      # serves both a weather station and a vwc station, which is what
-      # validate_metadata() permits - one active row per serial per station
-      # type. Only the same serial at the same station type is a duplicate.
-      active <- existing[!existing$status %in% terminal_statuses, , drop = FALSE]
-      same_type <- active[tolower(active$station_type) ==
-                          tolower(device_data$station_type), , drop = FALSE]
-      
-      if (nrow(same_type) > 0) {
-        return(paste0("Device serial '", device_data$device_serial,
-                      "' is already active as a ", device_data$station_type,
-                      " device at ", same_type$station_id[1]))
-      }
-      # Otherwise allow: either every prior entry is terminal, or this is the
-      # same logger serving a second station type
-    }
-    
-    
-    
-    # Generate unique_id based on manufacturer
-    if (tolower(device_data$mfger) == "meter") {
-      prefix <- "z"
-    } else if (is_hobo_device(device_data$mfger)) {
-      prefix <- "h"
-    } else {
-      return("Unknown manufacturer, cannot determine unique_id prefix")
-    }
-    
-    # Get next available number
-    all_unique_ids <- metadata$unique_id
-    matching_prefix <- all_unique_ids[grepl(paste0("^", prefix, "-"), all_unique_ids)]
-    existing_numbers <- as.numeric(sub(paste0("^", prefix, "-"), "", matching_prefix))
-    next_number <- ifelse(length(existing_numbers) == 0, 1, max(existing_numbers, na.rm = TRUE) + 1)
-    unique_id <- sprintf("%s-%04d", prefix, next_number)
-    
-    # Create new row
-    new_row <- data.frame(
-      unique_id = unique_id,
-      watershed = device_data$watershed,
-      area = device_data$area,
-      site_full = device_data$site_full,
-      site = device_data$site,
-      station_type = device_data$station_type,
-      station_id = device_data$station_id,
-      device_serial = device_data$device_serial,
-      device_role = device_data$device_role,
-      device_name = device_data$device_name,
-      mfger = device_data$mfger,
-      model = device_data$model,
-      lat = device_data$lat,
-      lon = device_data$lon,
-      elev = device_data$elev,
-      interval_min = device_data$interval_min,
-      timezone = device_data$timezone,
-      deploy_datetime = device_data$deploy_datetime,
-      status = device_data$status,
-      last_update = NA,
-      battery = NA,
-      # Establishing a station on a date means somebody stood at it on that
-      # date. The deploy datetime IS a field visit, so recording it as one is
-      # not an inference - it is the same fact stated in the field that asks
-      # "when was this last visited?"
-      last_visit = as.Date(device_data$deploy_datetime),
-      expiry_date = device_data$expiry_date,
-      last_download_date = NA,
-      last_record_date = NA,
-      download_approved = device_data$download_approved,
-      stringsAsFactors = FALSE
-    )
-    
-    # Add to metadata
-    metadata <- rbind(metadata, new_row)
-    
-    # Save
-    setwd(wds("meta_internal"))
-    metadata$deploy_datetime <- format_datetime_safe(metadata$deploy_datetime)
-    metadata$last_update <- format_datetime_safe(metadata$last_update)
-    metadata$last_download_date <- format_datetime_safe(metadata$last_download_date)
-    metadata$last_record_date <- format_datetime_safe(metadata$last_record_date)
-    metadata$last_visit <- as.character(metadata$last_visit)
-    metadata$expiry_date <- as.character(metadata$expiry_date)
-    
-    write.csv(metadata, "device_metadata.csv", row.names = FALSE)
-    
-    return(TRUE)
-  }, error = function(e) {
-    return(paste0("Failed to add device: ", e$message))
-  })
-}
-
-#' Relocate a station to a new location
-#' @param station_id Character. Station being relocated
-#' @param new_lat Numeric. New latitude
-#' @param new_lon Numeric. New longitude  
-#' @param deploy_datetime POSIXct. When relocation occurred
-#' @param new_status Character. Status at new location
-#' @param download_approved Logical. Approval for download
-#' @return List with success status and new unique_ids
-relocate_station <- function(station_id, new_lat, new_lon, deploy_datetime,
-                            new_status, download_approved) {
-  tryCatch({
-    metadata <- load_zentra_metadata()
-    
-    # Get all devices at this station
-    station_devices <- metadata[metadata$station_id == station_id, ]
-    
-    # Filter to active devices only
-    active_mask <- !(station_devices$status %in% c("decommissioned", "relocated"))
-    active_devices <- station_devices[active_mask, ]
-    
-    if (nrow(active_devices) == 0) {
-      return(list(success = FALSE, error = "No active devices at this station"))
-    }
-    
-    # Mark old devices as relocated
-    metadata$status[metadata$unique_id %in% active_devices$unique_id] <- "relocated"
-    
-    # Create new rows for each device at new location
-    new_unique_ids <- character()
-    for (i in 1:nrow(active_devices)) {
-      old_device <- active_devices[i, ]
-      
-      # Generate new unique_id
-      prefix <- substr(old_device$unique_id, 1, 1)
-      all_unique_ids <- metadata$unique_id
-      matching_prefix <- all_unique_ids[grepl(paste0("^", prefix, "-"), all_unique_ids)]
-      existing_numbers <- as.numeric(sub(paste0("^", prefix, "-"), "", matching_prefix))
-      next_number <- max(existing_numbers, na.rm = TRUE) + 1
-      new_unique_id <- sprintf("%s-%04d", prefix, next_number)
-      
-      # Create new row (copy most fields, update location/status)
-      new_row <- old_device
-      new_row$unique_id <- new_unique_id
-      new_row$lat <- new_lat
-      new_row$lon <- new_lon
-      new_row$deploy_datetime <- deploy_datetime
-      new_row$status <- new_status
-      new_row$last_update <- old_device$last_update  # Copy from old
-      new_row$last_visit <- as.Date(deploy_datetime)
-      new_row$download_approved <- download_approved
-      
-      metadata <- rbind(metadata, new_row)
-      new_unique_ids <- c(new_unique_ids, new_unique_id)
-    }
-    
-    # Save
-    setwd(wds("meta_internal"))
-    metadata$deploy_datetime <- format_datetime_safe(metadata$deploy_datetime)
-    metadata$last_update <- format_datetime_safe(metadata$last_update)
-    metadata$last_download_date <- format_datetime_safe(metadata$last_download_date)
-    metadata$last_record_date <- format_datetime_safe(metadata$last_record_date)
-    metadata$last_visit <- as.character(metadata$last_visit)
-    
-    write.csv(metadata, "device_metadata.csv", row.names = FALSE)
-    
-    return(list(success = TRUE, new_unique_ids = new_unique_ids))
-  }, error = function(e) {
-    return(list(success = FALSE, error = paste0("Failed to relocate station: ", e$message)))
-  })
-}
-
-#' Remove a device from service
-#' @param device_serial Character. Device to remove
-#' @param removal_datetime POSIXct. When device was removed
-#' @return TRUE if successful, error message if failed
-remove_device <- function(device_serial, removal_datetime) {
-  tryCatch({
-    metadata <- load_zentra_metadata()
-    # The FIRST row matching a serial may be a closed historical one. Take the
-    # first ACTIVE row instead - that is the deployment being removed.
-    terminal_statuses <- c("removed", "replaced", "relocated", "decommissioned")
-    candidates <- metadata[metadata$device_serial == device_serial &
-                           !tolower(metadata$status) %in% terminal_statuses, ]
-    
-    if (nrow(candidates) == 0) {
-      return(paste0("No active deployment found for device '", device_serial, "'"))
-    }
-    device_row <- candidates[1, ]
-    
-    # 1. Update status to removed
-    result <- update_device_status(device_serial, "removed",
-                                   station_id = device_row$station_id)
-    if (!isTRUE(result)) return(result)
-    
-    # 2. Disable downloads
-    result <- update_download_approval(device_row$station_id, FALSE)
-    if (!isTRUE(result)) {
-      # Non-fatal - continue
-    }
-    
-    # 3. Close port configs if Zentra
-    if (grepl("^z", device_serial, ignore.case = TRUE)) {
-      ports <- load_zentra_ports_data()
-      ports$valid_to[ports$sn == device_serial & is.na(ports$valid_to)] <- removal_datetime
-      
-      setwd(wds("meta_internal"))
-      ports$valid_from <- format_datetime_safe(ports$valid_from)
-      ports$valid_to <- format_datetime_safe(ports$valid_to)
-      write.csv(ports, "zentra_ports.csv", row.names = FALSE)
-    }
-    
-    # 4. Update last_visit
-    result <- update_last_visit(device_row$station_id, as.Date(removal_datetime))
-    if (!isTRUE(result)) {
-      # Non-fatal - continue
-    }
-    
-    return(TRUE)
-  }, error = function(e) {
-    return(paste0("Failed to remove device: ", e$message))
-  })
-}
-
-################################################################################
-# End of UI-independent metadata_manager_functions.R
-################################################################################
-
-################################################################################
-#### CONSOLE UI HELPER FUNCTIONS ####
-################################################################################
-# Reusable UI components for console interaction
-# These handle common patterns like Y/N prompts, menus, etc.
-
-#' Prompt user for Y/N response
-#' @param prompt Character. Question to ask
-#' @param allow_quit Logical. Allow 'q' to quit (default TRUE)
-#' @return "Y", "N", or "Q" (if allow_quit=TRUE and user quits)
-ui_yes_no <- function(prompt, allow_quit = TRUE) {
-  repeat {
-    if (allow_quit) {
-      cat(prompt, "(Y/N or 'q' to quit): ")
-    } else {
-      cat(prompt, "(Y/N): ")
-    }
-    
-    response <- toupper(trimws(readline()))
-    
-    # Accept 1 for Y, 2 for N
-    if (response == "1") response <- "Y"
-    if (response == "2") response <- "N"
-    
-    if (allow_quit && tolower(response) == "q") {
-      return("Q")
-    }
-    
-    if (response %in% c("Y", "N")) {
-      return(response)
-    }
-    
-    cat("⚠️  Please enter Y or N\n")
-  }
-}
-
-#' Prompt user to select from a numbered menu
-#' @param prompt Character. Question to ask
-#' @param options Character vector. Menu options
-#' @param allow_quit Logical. Allow 'q' to quit (default TRUE)
-#' @return Selected option string, or NULL if user quit
-ui_select_from_menu <- function(prompt, options, allow_quit = TRUE) {
-
-  # Station lists run to nearly thirty entries and every station at a site
-  # shares a prefix, so they read as one undifferentiated block. Grouping them
-  # by site makes the list scannable.
-  #
-  # Detected from the shape of the options rather than switched on by each of
-  # the nine callers that build these lists: a station option looks like
-  # "sr1_hydro (Salt River 1)". A device option - "21652379 (Adventure)" -
-  # starts with digits and has no underscore, so it is left alone.
-  is_station_list <- length(options) > 3 &&
-    all(grepl("^[a-z][a-z0-9]*_[a-z0-9]+ \\(.+\\)$", options))
-
-  groups <- if (is_station_list) sub("^.*\\((.+)\\)$", "\\1", options) else NULL
-
-  repeat {
-    cat(prompt, "\n", sep = "")
-    for (i in seq_along(options)) {
-      if (!is.null(groups) && i > 1 && groups[i] != groups[i - 1]) cat("\n")
-      cat("  ", i, ". ", options[i], "\n", sep = "")
-    }
-    
-    if (allow_quit) {
-      cat("\nEnter selection (or 'q' to quit): ")
-    } else {
-      cat("\nEnter selection: ")
-    }
-    
-    selection <- trimws(readline())
-    
-    if (allow_quit && tolower(selection) == "q") {
-      return(NULL)
-    }
-    
-    if (grepl("^[0-9]+$", selection)) {
-      selection_num <- as.numeric(selection)
-      if (selection_num >= 1 && selection_num <= length(options)) {
-        return(options[selection_num])
-      } else {
-        cat("⚠️  Invalid number. Please enter 1-", length(options), "\n", sep = "")
-      }
-    } else {
-      cat("⚠️  Please enter a number\n")
-    }
-  }
-}
-
-#' Prompt user to select from menu with "other (specify)" option
-#' @param prompt Character. Question to ask
-#' @param existing_options Character vector. Existing options to show
-#' @param allow_quit Logical. Allow 'q' to quit (default TRUE)
-#' @return Selected/entered value, or NULL if user quit
-ui_select_or_specify <- function(prompt, existing_options, allow_quit = TRUE) {
-  repeat {
-    cat(prompt, "\n", sep = "")
-    for (i in seq_along(existing_options)) {
-      cat("  ", i, ". ", existing_options[i], "\n", sep = "")
-    }
-    cat("  ", length(existing_options) + 1, ". other (specify)\n", sep = "")
-    
-    if (allow_quit) {
-      cat("\nEnter selection (or 'q' to quit): ")
-    } else {
-      cat("\nEnter selection: ")
-    }
-    
-    selection <- trimws(readline())
-    
-    if (allow_quit && tolower(selection) == "q") {
-      return(NULL)
-    }
-    
-    if (grepl("^[0-9]+$", selection)) {
-      selection_num <- as.numeric(selection)
-      
-      if (selection_num >= 1 && selection_num <= length(existing_options)) {
-        return(existing_options[selection_num])
-      } else if (selection_num == length(existing_options) + 1) {
-        # Other - specify custom value
-        cat("Enter value: ")
-        custom_value <- trimws(readline())
-        if (custom_value != "") {
-          return(custom_value)
-        } else {
-          cat("⚠️  Value cannot be empty\n")
-        }
-      } else {
-        cat("⚠️  Invalid number\n")
-      }
-    } else {
-      cat("⚠️  Please enter a number\n")
-    }
-  }
-}
-
-#' Prompt user for a date
-#' @param prompt Character. Question to ask
-#' @param allow_today Logical. Allow pressing Enter for today (default TRUE)
-#' @param allow_quit Logical. Allow 'q' to quit (default TRUE)
-#' @return Date string (YYYY-MM-DD) or NULL if quit
-ui_prompt_date <- function(prompt, allow_today = TRUE, allow_quit = TRUE) {
-  repeat {
-    if (allow_today) {
-      cat(prompt, " (YYYY-MM-DD)\n")
-      cat("Or press Enter for today: ")
-    } else {
-      cat(prompt, " (YYYY-MM-DD): ")
-    }
-    
-    date_input <- trimws(readline())
-    
-    if (allow_quit && tolower(date_input) == "q") {
-      return(NULL)
-    }
-    
-    if (allow_today && date_input == "") {
-      return(as.character(Sys.Date()))
-    }
-    
-    # Try to parse date
-    parsed_date <- tryCatch({
-      as.Date(date_input)
-    }, error = function(e) {
-      NULL
-    })
-    
-    if (!is.null(parsed_date)) {
-      return(as.character(parsed_date))
-    }
-    
-    cat("⚠️  Invalid date format. Please use YYYY-MM-DD\n")
-  }
-}
-
-#' Prompt user for a datetime
-#' @param prompt Character. Question to ask
-#' @param allow_now Logical. Allow pressing Enter for now (default TRUE)
-#' @param allow_quit Logical. Allow 'q' to quit (default TRUE)
-#' @param timezone Character. Timezone to use (default "America/Puerto_Rico")
-#' @return POSIXct datetime or NULL if quit
-ui_prompt_datetime <- function(prompt, allow_now = TRUE, allow_quit = TRUE, 
-                               timezone = "America/Puerto_Rico") {
-  repeat {
-    if (allow_now) {
-      cat(prompt, " (YYYY-MM-DD HH:MM:SS)\n")
-      cat("Or press Enter for now: ")
-    } else {
-      cat(prompt, " (YYYY-MM-DD HH:MM:SS): ")
-    }
-    
-    datetime_input <- trimws(readline())
-    
-    if (allow_quit && tolower(datetime_input) == "q") {
-      return(NULL)
-    }
-    
-    if (allow_now && datetime_input == "") {
-      return(as.POSIXct(Sys.time(), tz = timezone))
-    }
-    
-    # Try to parse datetime
-    parsed_datetime <- tryCatch({
-      as.POSIXct(datetime_input, format = "%Y-%m-%d %H:%M:%S", tz = timezone)
-    }, error = function(e) {
-      NULL
-    })
-    
-    if (!is.null(parsed_datetime) && !is.na(parsed_datetime)) {
-      return(parsed_datetime)
-    }
-    
-    cat("⚠️  Invalid datetime format. Please use YYYY-MM-DD HH:MM:SS\n")
-  }
-}
-
-#' Display status reference and prompt for status change
-#' @param current_status Character. Current status value
-#' @param allow_quit Logical. Allow 'q' to quit (default TRUE)
-#' @return New status string, or NULL if user quit, or current_status if no change
-ui_prompt_status_change <- function(current_status, allow_quit = TRUE, restrict_to_device_level = FALSE) {
-  cat("\nCurrent status: ", current_status, "\n", sep = "")
-  cat("\nStatus options:\n")
-  cat("  online           = working, reports to the cloud over a cellular\n")
-  cat("                     connection\n")
-  cat("  local            = working, but out of cellular service - data\n")
-  cat("                     reaches the cloud only when offloaded on site\n")
-  cat("                     (e.g. Bluetooth) and uploaded\n")
-  cat("  manual           = working, no cloud at all - data comes off by\n")
-  cat("                     shuttle or cable and is archived by hand\n")
-  cat("  defunct          = broken but still deployed\n")
-  cat("  nonresponsive    = should be communicating with the cloud but is\n")
-  cat("                     not, for an unknown reason\n")
-  
-  if (!restrict_to_device_level) {
-    # Show all statuses
-    cat("  replaced         = swapped for new device\n")
-    cat("  relocated        = station moved\n")
-    cat("  decommissioned   = station shut down\n")
-  } else {
-    cat("\n  Note: For replacement/relocation/decommissioning, use those workflows\n")
-  }
-  
-  cat("\n")
-  
-  change_response <- ui_yes_no("Change status?", allow_quit = allow_quit)
-  
-  if (is.null(change_response) || change_response == "Q") {
-    return(NULL)
-  }
-  
-  if (change_response == "N") {
-    return(current_status)
-  }
-  
-  # Build allowed status list
-  if (restrict_to_device_level) {
-    allowed_statuses <- c("online", "local", "manual", "defunct", "nonresponsive")
-  } else {
-    allowed_statuses <- get_metadata_unique_values("status")
-  }
-  
-  new_status <- ui_select_or_specify("Select new status:", allowed_statuses, 
-                                     allow_quit = allow_quit)
-  
-  return(new_status)
-}
-
-################################################################################
-#### CONSOLE UI MAIN FUNCTIONS ####
-################################################################################
-# These are the main interactive functions that users call
-# Each handles a specific workflow
 
 # --- MAINTENANCE & LOGGING ---
 #' Interactive maintenance logging - SIMPLIFIED for routine maintenance only
@@ -1695,16 +337,7 @@ ui_log_maintenance <- function(prefill_station = NULL, prefill_device = NULL,
       }
       
       if (changed) {
-        meta_now$deploy_datetime    <- format_datetime_safe(meta_now$deploy_datetime)
-        meta_now$last_update        <- format_datetime_safe(meta_now$last_update)
-        meta_now$last_download_date <- format_datetime_safe(meta_now$last_download_date)
-        meta_now$last_record_date   <- format_datetime_safe(meta_now$last_record_date)
-        meta_now$last_visit         <- as.character(meta_now$last_visit)
-        if ("expiry_date" %in% names(meta_now)) {
-          meta_now$expiry_date <- as.character(meta_now$expiry_date)
-        }
-        write.csv(meta_now, file.path(wds("meta_internal"), "device_metadata.csv"),
-                  row.names = FALSE)
+        save_device_metadata(meta_now)
         cat("\u2713 Metadata updated\n")
       }
     }
@@ -1886,12 +519,10 @@ ui_log_download <- function() {
   device_row <- station_devices[station_devices$device_serial == device_serial, ][1, ]
   device_status <- tolower(device_row$status)
   
-  if (device_status == "manual") {
-    # Manual stations have no cloud pathway at all - approval is meaningless.
-    # The data is archived directly in step 11 below.
-    cat("\n✓ Status is 'manual' - skipping download approval (data is offloaded by hand)\n")
-    
-  } else if (device_status == "local") {
+  # 'manual' needs nothing here - ui_prompt_download_approval() below skips it,
+  # and the data is archived directly in step 11. Saying so twice was just the
+  # branch and the shared function both announcing it.
+  if (device_status == "local") {
     # Local stations reach ZentraCloud, but only because someone offloads on
     # site and uploads afterwards. Until that upload happens the data exists
     # nowhere but the field device, and there is no point approving a download
@@ -2126,16 +757,7 @@ ui_survey_elevations <- function() {
       metadata$device_role[p_idx[1]] <- "primary"
       metadata$device_role[s_idx[1]] <- "secondary"
       
-      metadata$deploy_datetime    <- format_datetime_safe(metadata$deploy_datetime)
-      metadata$last_update        <- format_datetime_safe(metadata$last_update)
-      metadata$last_download_date <- format_datetime_safe(metadata$last_download_date)
-      metadata$last_record_date   <- format_datetime_safe(metadata$last_record_date)
-      metadata$last_visit         <- as.character(metadata$last_visit)
-      if ("expiry_date" %in% names(metadata)) {
-        metadata$expiry_date <- as.character(metadata$expiry_date)
-      }
-      write.csv(metadata, file.path(wds("meta_internal"), "device_metadata.csv"),
-                row.names = FALSE)
+      save_device_metadata(metadata)
       cat("✓ Roles assigned\n")
       
       #### Then the elevations, through the existing logic function ####
@@ -2263,16 +885,7 @@ ui_survey_elevations <- function() {
         metadata$device_role[p_idx[1]] <- "secondary"
         metadata$device_role[s_idx[1]] <- "primary"
 
-        metadata$deploy_datetime    <- format_datetime_safe(metadata$deploy_datetime)
-        metadata$last_update        <- format_datetime_safe(metadata$last_update)
-        metadata$last_download_date <- format_datetime_safe(metadata$last_download_date)
-        metadata$last_record_date   <- format_datetime_safe(metadata$last_record_date)
-        metadata$last_visit         <- as.character(metadata$last_visit)
-        if ("expiry_date" %in% names(metadata)) {
-          metadata$expiry_date <- as.character(metadata$expiry_date)
-        }
-        write.csv(metadata, file.path(wds("meta_internal"), "device_metadata.csv"),
-                  row.names = FALSE)
+        save_device_metadata(metadata)
         cat("\n✓ Roles switched\n")
 
         # Swap locally so the save below writes the right elevations to the
@@ -2381,7 +994,10 @@ ui_survey_elevations <- function() {
     }
     
     # Update last_visit
-    update_last_visit(station_id, survey_date)
+    visit_result <- update_last_visit(station_id, survey_date)
+    if (!isTRUE(visit_result)) {
+      cat("⚠️  Warning: could not update last_visit: ", visit_result, "\n", sep = "")
+    }
     
     cat("\n✓ Dual-logger elevation survey complete!\n")
     
@@ -2539,7 +1155,10 @@ ui_survey_elevations <- function() {
     }
     
     # Update last_visit
-    update_last_visit(station_id, survey_date)
+    visit_result <- update_last_visit(station_id, survey_date)
+    if (!isTRUE(visit_result)) {
+      cat("⚠️  Warning: could not update last_visit: ", visit_result, "\n", sep = "")
+    }
     
     cat("\n✓ Single device elevation survey complete!\n")
     
@@ -3668,15 +2287,7 @@ ui_relocate_station <- function() {
     lv[old_idx[1]] <- format(relocation_date, "%Y-%m-%d")
     meta_after$last_visit <- lv
     
-    meta_after$deploy_datetime    <- format_datetime_safe(meta_after$deploy_datetime)
-    meta_after$last_update        <- format_datetime_safe(meta_after$last_update)
-    meta_after$last_download_date <- format_datetime_safe(meta_after$last_download_date)
-    meta_after$last_record_date   <- format_datetime_safe(meta_after$last_record_date)
-    if ("expiry_date" %in% names(meta_after)) {
-      meta_after$expiry_date <- as.character(meta_after$expiry_date)
-    }
-    write.csv(meta_after, file.path(wds("meta_internal"), "device_metadata.csv"),
-              row.names = FALSE)
+    save_device_metadata(meta_after)
     cat("  Old row's last_visit set to ", format(relocation_date, "%Y-%m-%d"),
         "\n", sep = "")
   }
@@ -4474,7 +3085,11 @@ ui_update_ports <- function(preset_device_serial = NULL) {
   ################################################################################
   
   # Get device timezone for datetime prompt
-  device_row <- metadata[metadata$device_serial == device_serial, ][1, ]
+  device_row <- get_device_row(device_serial, metadata = metadata)
+  if (is.null(device_row)) {
+    cat("❌ Device '", device_serial, "' not found in metadata\n", sep = "")
+    return(NULL)
+  }
   device_timezone <- device_row$timezone
   
   cat("When did this port configuration change occur?\n")
@@ -5563,17 +4178,7 @@ ui_delete_metadata_row <- function() {
   
   # Remove row
   metadata <- metadata[metadata$unique_id != unique_id, ]
-  
-  # Save
-  setwd(wds("meta_internal"))
-  metadata$deploy_datetime <- format_datetime_safe(metadata$deploy_datetime)
-  metadata$last_update <- format_datetime_safe(metadata$last_update)
-  metadata$last_download_date <- format_datetime_safe(metadata$last_download_date)
-  metadata$last_record_date <- format_datetime_safe(metadata$last_record_date)
-  metadata$last_visit <- as.character(metadata$last_visit)
-  metadata$expiry_date <- as.character(metadata$expiry_date)
-  
-  write.csv(metadata, "device_metadata.csv", row.names = FALSE)
+  save_device_metadata(metadata)
   
   cat("✓ Row deleted from device_metadata.csv\n")
   
@@ -5641,541 +4246,6 @@ ui_delete_metadata_row <- function() {
 ################################################################################
 #### METADATA MANAGER MASTER FUNCTION ####
 ################################################################################
-
-#' Main metadata manager - orchestrates all metadata workflows
-#' Interactive decision tree that routes to appropriate UI functions
-metadata_manager <- function() {
-  
-  # Row count at the start, so the exit summary can report what this session
-  # added rather than the whole log
-  entries_at_start <- tryCatch(nrow(load_maintenance_log()),
-                               error = function(e) NA_integer_)
-  
-  repeat {  # Main loop - allows multiple operations
-    
-    cat("\n============================================\n")
-    cat("  VI-FLO Engine - Metadata Manager\n")
-    cat("============================================\n")
-    
-    #### Unfinished business first
-    # Data left on a logger, a shuttle, or a phone is data at risk. Raising it
-    # here every single time is the point: the system remembers, not the person.
-    n_pending <- 0
-    if (exists("check_pending")) {
-      pending_now <- check_pending()
-      n_pending <- nrow(pending_now)
-    }
-    
-    #### TOP LEVEL - What happened?
-    cat("What happened?\n")
-    cat("  1. Worked on existing station/device\n")
-    cat("  2. Established new station/device or reactivated old station\n")
-    cat("  3. View/check metadata\n")
-    if (n_pending > 0) {
-      cat("  r. Resume an unfinished data task\n")
-    }
-    cat("  q. Quit\n")
-    cat("\nEnter selection: ")
-    
-    top_choice <- trimws(readline())
-    
-    if (tolower(top_choice) == "q") {
-      return(ui_exit_metadata_manager(entries_at_start))
-    }
-    
-    #### Resume an unfinished data task ####
-    if (tolower(top_choice) == "r" && n_pending > 0) {
-      ui_resume_pending_ingest()
-      next
-    }
-    
-    # Hidden admin function - delete metadata row
-    if (tolower(top_choice) == "deletion") {
-      ui_delete_metadata_row()
-      next  # Return to main menu after deletion
-    }
-    
-    ################################################################################
-    #### BRANCH 1: WORKED ON EXISTING STATION ####
-    ################################################################################
-    
-    if (top_choice == "1") {
-      
-      repeat {  # Sub-loop for multiple actions at same station
-        
-        cat("\n--- EXISTING STATION WORK ---\n")
-        cat("What type of work?\n")
-        cat("  1. Routine maintenance ONLY (cleaning, battery, inspection, notes)\n")
-        cat("  2. Downloaded data manually (HOBO or local Zentra)\n")
-        cat("  3. Port configuration change (sensor swap, depth change)\n")
-        cat("  4. Device replacement (old device out, new device in)\n")
-        cat("  5. Device removal (taking device out of service)\n")
-        cat("  6. Station relocated (moved to new location)\n")
-        cat("  7. Station decommissioned (entire station shut down)\n")
-        cat("  8. Field surveyed elevation of station or loggers\n")
-        cat("  9. Correct device details (model, name, role, interval, coords)\n")
-        cat("  q. Back to main menu\n")
-        
-        work_choice <- trimws(readline())
-        
-        if (tolower(work_choice) == "q") {
-          break  # Back to main menu
-        }
-        
-        ### Option 1: Routine maintenance
-        if (work_choice == "1") {
-          result <- ui_log_maintenance()
-          
-          if (!is.null(result)) {
-            # Ask if they also did more significant work
-            # Two different situations, previously asked as one question and
-            # answered as the other. Doing maintenance AND a port change on
-            # one visit is normal - both happened, both belong in the log.
-            # Picking the wrong workflow is a miscategorisation, and only that
-            # warrants removing the entry just written.
-            cat("\nAnything else at this station on this visit?\n")
-            cat("  1. Yes - I also did something else (port change, device\n")
-            cat("     replacement, relocation, decommissioning)\n")
-            cat("  2. No - that was the whole visit\n")
-            cat("  3. I picked the wrong workflow - this was not routine\n")
-            cat("     maintenance\n\n")
-            cat("Response: ")
-            major_work <- trimws(readline())
-            
-            if (major_work == "1") {
-              cat("\n\u2713 Maintenance entry kept - select the next workflow\n")
-              next
-              
-            } else if (major_work == "3") {
-              cat("\nThe routine maintenance entry just logged will be removed,\n")
-              cat("and you can select the workflow you meant.\n\n")
-              
-              if (ui_yes_no("Remove it?", allow_quit = FALSE) == "Y") {
-                delete_result <- delete_last_maintenance_entry(result$device_serial)
-                if (isTRUE(delete_result)) {
-                  cat("\u2713 Entry removed - select the correct workflow\n")
-                } else {
-                  cat("\u26a0\ufe0f  Could not remove the entry - edit maintenance_log.csv by hand\n")
-                }
-              } else {
-                cat("\u2713 Entry kept\n")
-              }
-              next
-              
-            } else {
-              break
-            }
-          } else {
-            # User quit - back to work type menu
-            next
-          }
-        }
-        
-        ### Option 2: Downloaded data
-        else if (work_choice == "2") {
-          result <- ui_log_download()
-          
-          if (!is.null(result)) {
-            # Nobody visits a station, downloads it, and does nothing else -
-            # at minimum they looked at it. So offer the maintenance entry
-            # directly, carrying over the station, device and date rather than
-            # making the user re-select all three from the top of the menu.
-            cat("\nLog routine maintenance for this visit?\n")
-            cat("  Inspection, cleaning, battery, relaunch - same station,\n")
-            cat("  device and date, no need to re-select.\n")
-            add_maint <- ui_yes_no("Log it now?", allow_quit = FALSE)
-            
-            if (add_maint == "Y") {
-              ui_log_maintenance(
-                prefill_station    = result$station_id,
-                prefill_device     = result$device_serial,
-                prefill_visit_date = result$field_visit_date,
-                prefill_logged_by  = result$logged_by
-              )
-            }
-            
-            cat("\nAnything else at this station on this visit?\n")
-            cat("  Sensor swap, device replaced, station moved -> its own workflow\n")
-            cat("Response (Y/N): ")
-            more_work <- toupper(trimws(readline()))
-            if (more_work != "Y" && more_work != "1") {
-              break
-            }
-          } else {
-            next
-          }
-        }
-        
-        ### Option 3: Port configuration change
-        else if (work_choice == "3") {
-          result <- ui_update_ports()
-          
-          if (!is.null(result)) {
-            cat("\nDid you do anything else at this station? (Y/N)\n")
-            cat("  If you also replaced/relocated/decommissioned, select that workflow next.\n")
-            cat("  Response: ")
-            more_work <- toupper(trimws(readline()))
-            if (more_work != "Y" && more_work != "1") {
-              break
-            }
-          } else {
-            next
-          }
-        }
-        
-        ### Option 4: Device replaced
-        else if (work_choice == "4") {
-          result <- ui_replace_device()
-          
-          if (!is.null(result)) {
-            # ui_replace_device() handles both:
-            # 1. Marking old device as "replaced"
-            # 2. Adding new replacement device
-            # Returns: list(old_device_serial, new_device_serial)
-            
-            # Check if new device is HOBO (no ports needed)
-            metadata <- load_zentra_metadata()
-            new_device_row <- metadata[metadata$device_serial == result$new_device_serial, ][1, ]
-            
-            if (is_hobo_device(new_device_row$mfger)) {
-              cat("✓ HOBO device - no port configuration needed\n")
-            } else {
-              # Zentra device - ask about ports
-              cat("\nInitialize port configuration for new device? (Y/N): ")
-              init_ports <- toupper(trimws(readline()))
-              if (init_ports == "Y" || init_ports == "1") {
-                ui_initialize_ports(result$new_device_serial)
-              }
-            }
-            
-            cat("\nDid you do anything else at this station? (Y/N)\n")
-            cat("  Note: Device is replaced - further work would be on the NEW device.\n")
-            cat("  Response: ")
-            more_work <- toupper(trimws(readline()))
-            if (more_work != "Y" && more_work != "1") {
-              break
-            }
-          } else {
-            next
-          }
-        }
-        
-        ### Option 5: Device removed
-        else if (work_choice == "5") {
-          result <- ui_remove_device()
-          
-          if (!is.null(result)) {
-            cat("\nDid you do anything else at this station? (Y/N)\n")
-            cat("  Response: ")
-            more_work <- toupper(trimws(readline()))
-            if (more_work != "Y" && more_work != "1") {
-              break
-            }
-          } else {
-            next
-          }
-        }
-        
-        ### Option 6: Station relocated
-        else if (work_choice == "6") {
-          result <- ui_relocate_station()
-          
-          if (!is.null(result)) {
-            # Relocation is terminal - no more work at this location
-            cat("\n✓ Station relocation complete\n")
-            break
-          } else {
-            next
-          }
-        }
-        
-        ### Option 7: Station decommissioned
-        else if (work_choice == "7") {
-          result <- ui_decommission_station()
-          
-          if (!is.null(result)) {
-            # Decommissioning is terminal - station shut down
-            cat("\n✓ Station decommissioned\n")
-            break
-          } else {
-            next
-          }
-        }
-        
-        ### Option 8: Surveyed elevation of station or logger
-        else if (work_choice == "8") {
-          result <- ui_survey_elevations()
-          
-          if (!is.null(result)) {
-            cat("\n✓ Elevation survey complete\n")
-          }
-          # Continue to next iteration (allow more work)
-          next
-        }
-        
-        ### Option 9: Correct device details
-        else if (work_choice == "9") {
-          ui_correct_device_details()
-          next
-        }
-        
-        else {
-          cat("⚠️  Invalid selection\n")
-        }
-        
-      }  # End sub-loop (work on existing station)
-      
-    }
-    
-    ################################################################################
-    #### BRANCH 2: ESTABLISHED NEW STATION OR REACTIVATED ####
-    ################################################################################
-    
-    else if (top_choice == "2") {
-      
-      cat("\n--- NEW/REACTIVATED STATION SETUP ---\n")
-      cat("Station setup type:\n")
-      cat("  1. Establishing brand new station\n")
-      cat("  2. New device at existing active station\n")
-      cat("  3. Reactivate decommissioned station\n")
-      cat("  q. Back to main menu\n")
-      cat("\nEnter selection: ")
-      
-      new_choice <- trimws(readline())
-      
-      if (tolower(new_choice) == "q") {
-        next  # Back to main menu
-      }
-      
-      ### Options 1 & 2: Add new device
-      if (new_choice %in% c("1", "2")) {
-        is_new_station <- (new_choice == "1")
-        
-        # Add device (function handles new vs existing station internally)
-        result <- ui_add_device(is_new_station = is_new_station)
-        
-        if (!is.null(result)) {
-          # Check if device is HOBO (no ports needed)
-          metadata <- load_zentra_metadata()
-          device_row <- metadata[metadata$device_serial == result$device_serial, ][1, ]
-          
-          if (is_hobo_device(device_row$mfger)) {
-            cat("✓ HOBO device added - no port configuration needed\n")
-            
-            #### Surveyed elevation ####
-            # Only once a station HAS a pair. A single water level logger is a
-            # legitimate permanent arrangement - flow can come from a rating
-            # curve built on flow-meter measurements instead of a hydraulic
-            # slope - so a lone logger is not a half-finished gauge and should
-            # not be nagged as one.
-            #
-            # A pair is different: the elevation difference between the two IS
-            # the slope, and until it is surveyed the station produces water
-            # levels that cannot become flow. The survey can only run once both
-            # rows exist, which is exactly now.
-            if (tolower(device_row$station_type) == "hydro") {
-              
-              station_devices <- get_active_station_devices(device_row$station_id)
-              roles <- tolower(station_devices$device_role)
-              has_pair <- sum(!is.na(roles) & roles %in% c("primary", "secondary")) >= 2
-              unsurveyed <- any(is.na(station_devices$elev))
-              
-              if (has_pair && unsurveyed) {
-                cat("\n--- SURVEYED ELEVATION ---\n\n")
-                cat("This station now has a primary and a secondary logger. The\n")
-                cat("elevation difference between them is the hydraulic slope,\n")
-                cat("and until it is surveyed the water levels cannot become flow.\n\n")
-                
-                do_survey <- ui_yes_no("Do you have the elevation survey data to enter now?",
-                                       allow_quit = FALSE)
-                
-                if (do_survey == "Y") {
-                  ui_survey_elevations()
-                } else {
-                  cat("\nNo problem - record it later with 'Field surveyed\n")
-                  cat("elevation' (option 8) under existing station work.\n")
-                }
-              }
-            }
-            
-          } else {
-            # Zentra device - ask about ports, unless this serial already has
-            # them. A ZL6 shared between a weather and a vwc station is
-            # configured once, by whichever station was set up first.
-            # A NULL here would silently disable the type filter, which is
-            # exactly the bug this check exists to prevent - so fall back to
-            # metadata rather than trusting the caller.
-            device_station_type <- result$station_type
-            if (is.null(device_station_type) || is.na(device_station_type)) {
-              meta_lu <- load_zentra_metadata()
-              hit <- meta_lu$station_type[meta_lu$device_serial == result$device_serial]
-              device_station_type <- if (length(hit) > 0) hit[1] else NULL
-            }
-            
-            if (nrow(get_active_ports(result$device_serial,
-                                      device_station_type)) > 0) {
-              cat("\n✓ Ports already configured on ", result$device_serial,
-                  " - shared with its other station\n", sep = "")
-              
-            } else if (nrow(get_active_ports(result$device_serial)) > 0) {
-              # The logger has active ports, but none of this station's type -
-              # its sensor was taken off when the station was last retired.
-              cat("\n⚠️  ", result$device_serial, " has active ports, but none\n",
-                  sep = "")
-              cat("   of type '", device_station_type, "'. Its sensor was\n", sep = "")
-              cat("   removed when this station was last retired.\n\n")
-              cat("   Full port initialisation would overwrite the other\n")
-              cat("   station's configuration, so the sensor is recorded one\n")
-              cat("   port at a time instead.\n\n")
-              
-              # Offer it here rather than naming a menu item. A pointer to
-              # somewhere else is a step someone has to remember to take.
-              if (ui_yes_no(paste0("Set up the ", device_station_type,
-                                   " sensor for this station now?"),
-                            allow_quit = FALSE) == "Y") {
-                ui_update_ports(preset_device_serial = result$device_serial)
-              } else {
-                cat("\u2713 Record it later with 'Port configuration change'\n")
-                cat("  (existing station work, option 3)\n")
-              }
-              
-            } else {
-              cat("\nInitialize port configuration now? (Y/N): ")
-              init_ports <- toupper(trimws(readline()))
-              
-              if (init_ports == "Y" || init_ports == "1") {
-                ui_initialize_ports(result$device_serial)
-              } else {
-                cat("⚠️  Remember to initialize ports later!\n")
-              }
-            }
-          }
-        }
-      }
-      
-      ### Option 3: Reactivate decommissioned station
-      else if (new_choice == "3") {
-        result <- ui_reactivate_station()
-        
-        if (!is.null(result)) {
-          # ui_reactivate_station() adds the new device
-          # Check if device is HOBO (no ports needed)
-          metadata <- load_zentra_metadata()
-          device_row <- metadata[metadata$device_serial == result$device_serial, ][1, ]
-          
-          if (is_hobo_device(device_row$mfger)) {
-            cat("✓ HOBO device - no port configuration needed\n")
-          } else {
-            # Zentra device - ask about ports, unless this serial already has
-            # them. A ZL6 shared between a weather and a vwc station is
-            # configured once, by whichever station was set up first.
-            # A NULL here would silently disable the type filter, which is
-            # exactly the bug this check exists to prevent - so fall back to
-            # metadata rather than trusting the caller.
-            device_station_type <- result$station_type
-            if (is.null(device_station_type) || is.na(device_station_type)) {
-              meta_lu <- load_zentra_metadata()
-              hit <- meta_lu$station_type[meta_lu$device_serial == result$device_serial]
-              device_station_type <- if (length(hit) > 0) hit[1] else NULL
-            }
-            
-            if (nrow(get_active_ports(result$device_serial,
-                                      device_station_type)) > 0) {
-              cat("\n✓ Ports already configured on ", result$device_serial,
-                  " - shared with its other station\n", sep = "")
-              
-            } else if (nrow(get_active_ports(result$device_serial)) > 0) {
-              # The logger has active ports, but none of this station's type -
-              # its sensor was taken off when the station was last retired.
-              cat("\n⚠️  ", result$device_serial, " has active ports, but none\n",
-                  sep = "")
-              cat("   of type '", device_station_type, "'. Its sensor was\n", sep = "")
-              cat("   removed when this station was last retired.\n\n")
-              cat("   Full port initialisation would overwrite the other\n")
-              cat("   station's configuration, so the sensor is recorded one\n")
-              cat("   port at a time instead.\n\n")
-              
-              # Offer it here rather than naming a menu item. A pointer to
-              # somewhere else is a step someone has to remember to take.
-              if (ui_yes_no(paste0("Set up the ", device_station_type,
-                                   " sensor for this station now?"),
-                            allow_quit = FALSE) == "Y") {
-                ui_update_ports(preset_device_serial = result$device_serial)
-              } else {
-                cat("\u2713 Record it later with 'Port configuration change'\n")
-                cat("  (existing station work, option 3)\n")
-              }
-              
-            } else {
-              cat("\nInitialize port configuration now? (Y/N): ")
-              init_ports <- toupper(trimws(readline()))
-              
-              if (init_ports == "Y" || init_ports == "1") {
-                ui_initialize_ports(result$device_serial)
-              } else {
-                cat("⚠️  Remember to initialize ports later!\n")
-              }
-            }
-          }
-        }
-      }
-      
-      else {
-        cat("⚠️  Invalid selection\n")
-      }
-      
-    }
-    
-    ################################################################################
-    #### BRANCH 3: VIEW METADATA ####
-    ################################################################################
-    
-    else if (top_choice == "3") {
-      
-      cat("\n--- VIEW METADATA ---\n")
-      cat("What would you like to view?\n")
-      cat("  1. Device metadata\n")
-      cat("  2. Port configurations\n")
-      cat("  3. Maintenance log\n")
-      cat("  4. Download log\n")
-      cat("  q. Back to main menu\n")
-      cat("\nEnter selection: ")
-      
-      view_choice <- trimws(readline())
-      
-      if (tolower(view_choice) == "q") {
-        next
-      }
-      
-      if (view_choice == "1") {
-        ui_view_metadata()
-      } else if (view_choice == "2") {
-        ui_view_ports()
-      } else if (view_choice == "3") {
-        ui_view_maintenance_log()
-      } else if (view_choice == "4") {
-        ui_view_download_log()
-      } else {
-        cat("⚠️  Invalid selection\n")
-      }
-      
-    }
-    
-    else {
-      cat("⚠️  Invalid selection\n")
-    }
-    
-    # After completing any branch, ask if user wants to do more
-    cat("\nDo something else? This would return you to main menu. (Y/N): ")
-    continue_response <- toupper(trimws(readline()))
-    if (continue_response != "Y" && continue_response != "1") {
-      return(ui_exit_metadata_manager(entries_at_start))
-    }
-    
-  }  # End main loop
-  
-}
-
 
 #' Corrects device details recorded wrongly or left blank
 #'
@@ -6428,18 +4498,7 @@ ui_correct_device_details <- function() {
     backup_metadata()
 
     metadata[[field]][idx] <- new_value
-
-    setwd(wds("meta_internal"))
-    metadata$deploy_datetime    <- format_datetime_safe(metadata$deploy_datetime)
-    metadata$last_update        <- format_datetime_safe(metadata$last_update)
-    metadata$last_download_date <- format_datetime_safe(metadata$last_download_date)
-    metadata$last_record_date   <- format_datetime_safe(metadata$last_record_date)
-    metadata$last_visit         <- as.character(metadata$last_visit)
-    if ("expiry_date" %in% names(metadata)) {
-      metadata$expiry_date <- as.character(metadata$expiry_date)
-    }
-
-    write.csv(metadata, "device_metadata.csv", row.names = FALSE)
+    save_device_metadata(metadata)
     cat("Updated ", field, "\n", sep = "")
 
     #### A rename is an event, not just a correction ####
@@ -6485,171 +4544,6 @@ ui_correct_device_details <- function() {
   cat("\nDone.\n")
   invisible(TRUE)
 }
-
-
-#' Suggests the next station ID for a site and station type
-#'
-#' station_id is site + station_type, sometimes with a counter. Whether the
-#' counter applies is not a property of the type in the abstract - it is
-#' whatever that type does at that site. Weather stations are unnumbered
-#' because there is only ever one; vwc stations are numbered because there are
-#' several. So the rule is read from the existing data rather than hardcoded.
-#'
-#' If numbered stations of this type already exist at this site, the next
-#' number is suggested. If an unnumbered one exists, the site already has the
-#' one it gets, and a counter is started at 2. Otherwise the bare form.
-#'
-#' @param site Character. Site abbreviation, e.g. "sr1"
-#' @param station_type Character. e.g. "hydro", "vwc"
-#' @return Character. Suggested station_id
-suggest_station_id <- function(site, station_type) {
-
-  base <- paste0(tolower(site), "_", tolower(station_type))
-
-  metadata <- load_zentra_metadata()
-  existing <- unique(metadata$station_id[!is.na(metadata$station_id)])
-
-  # Anything at this site of this type, numbered or not
-  pattern <- paste0("^", base, "([0-9]+)?$")
-  hits <- existing[grepl(pattern, existing)]
-
-  if (length(hits) == 0) {
-    # No precedent at THIS site, so take the convention from the station type
-    # across every site. vwc stations are always numbered because a site has
-    # several; weather stations are not because a site has one. Without this,
-    # the first vwc station at a new site would be suggested as "lg3_vwc".
-    type_pattern <- paste0("_", tolower(station_type), "[0-9]+$")
-    numbered_elsewhere <- any(grepl(type_pattern, existing))
-    if (numbered_elsewhere) return(paste0(base, "1"))
-    return(base)
-  }
-
-  # Pull the numeric suffixes that are present
-  suffixes <- sub(paste0("^", base), "", hits)
-  numbers <- suppressWarnings(as.numeric(suffixes[suffixes != ""]))
-  numbers <- numbers[!is.na(numbers)]
-
-  if (length(numbers) > 0) {
-    return(paste0(base, max(numbers) + 1))
-  }
-
-  # Only an unnumbered one exists - this site already has its single station
-  # of this type, so a second needs a counter. Start at 2; the existing
-  # unnumbered station is understood as number 1.
-  paste0(base, "2")
-}
-
-
-#' Prompts for a device status, in a deliberate order, with meanings
-#'
-#' The generic picker sorted whatever statuses happened to exist in the
-#' metadata alphabetically, which put "defunct" first and offered no clue what
-#' any of them meant. Statuses are a fixed vocabulary, so they are listed here
-#' explicitly rather than discovered - a new status should be a considered
-#' addition, not something that appears because someone typed it once.
-#'
-#' Terminal statuses (replaced, relocated, decommissioned) are deliberately
-#' absent: those are set by their own workflows, which log the event.
-#'
-#' @param allow_quit Logical. Allow 'q' to cancel (default TRUE)
-#' @return Status string, or NULL if cancelled
-ui_prompt_device_status <- function(allow_quit = TRUE) {
-
-  statuses <- c("manual", "online", "local", "nonresponsive", "defunct")
-
-  meanings <- c(
-    manual        = "no cloud at all - data comes off by shuttle or cable",
-    online        = "reports to the cloud over a cellular connection",
-    local         = "out of cellular service - reaches the cloud when offloaded on site",
-    nonresponsive = "should be communicating with the cloud but is not",
-    defunct       = "broken or lost, but still deployed"
-  )
-
-  repeat {
-    cat("\nSelect device status:\n")
-    for (i in seq_along(statuses)) {
-      cat("  ", i, ". ", format(statuses[i], width = 14), " ",
-          meanings[statuses[i]], "\n", sep = "")
-    }
-    cat("  ", length(statuses) + 1, ". other (specify)\n", sep = "")
-
-    if (allow_quit) {
-      cat("\nEnter selection (or 'q' to quit): ")
-    } else {
-      cat("\nEnter selection: ")
-    }
-
-    choice <- trimws(readline())
-
-    if (allow_quit && tolower(choice) == "q") return(NULL)
-
-    if (grepl("^[0-9]+$", choice)) {
-      n <- as.numeric(choice)
-
-      if (n >= 1 && n <= length(statuses)) return(statuses[n])
-
-      if (n == length(statuses) + 1) {
-        cat("Enter status: ")
-        custom <- tolower(trimws(readline()))
-        if (custom == "") {
-          cat("⚠️  Status cannot be empty\n")
-          next
-        }
-        # A status outside the vocabulary will fail validate_metadata(), so
-        # say that now rather than letting it surface later.
-        cat("\n⚠️  '", custom, "' is not one of the known statuses. It will be\n",
-            "   reported as a violation by validate_metadata() until it is\n",
-            "   added to the valid list in validation_functions.R.\n", sep = "")
-        if (ui_yes_no("Use it anyway?", allow_quit = FALSE) == "Y") return(custom)
-        next
-      }
-    }
-
-    cat("⚠️  Invalid selection\n")
-  }
-}
-
-
-#' Renders a metadata value for display, or "(blank)" if it is empty
-#'
-#' Comparing a value to "" only works for characters. On a POSIXct it tries to
-#' coerce "" into a datetime and errors; on a numeric it yields NA, which if()
-#' cannot use. Convert to character first, then test.
-#'
-#' @param value A single metadata value of any type
-#' @return Character, either the value or "(blank)"
-blank_or_value <- function(value) {
-  if (length(value) == 0 || is.na(value)) return("(blank)")
-  as_text <- as.character(value)
-  if (!nzchar(trimws(as_text))) return("(blank)")
-  as_text
-}
-
-
-#' Names a device for display: its own name first, serial as the qualifier
-#'
-#' A HOBOware name means something to the person standing at the station; an
-#' eight-digit serial does not. Fall back to the serial alone when unnamed.
-#'
-#' @param device_row One row of device metadata
-#' @return Character
-device_label <- function(device_row, with_role = FALSE) {
-  nm <- device_row$device_name
-  rl <- if (with_role) device_row$device_role else NA
-
-  parts <- character(0)
-  if (!is.null(nm) && length(nm) > 0 && !is.na(nm) && nzchar(trimws(nm))) {
-    parts <- c(parts, trimws(nm))
-  }
-  if (!is.null(rl) && length(rl) > 0 && !is.na(rl) && nzchar(trimws(rl))) {
-    parts <- c(parts, trimws(rl))
-  }
-
-  if (length(parts) == 0) return(as.character(device_row$device_serial))
-
-  paste0(device_row$device_serial, " (", paste(parts, collapse = ", "), ")")
-}
-
 
 #' Resumes an unfinished data ingest
 #'
@@ -6736,7 +4630,6 @@ ui_resume_pending_ingest <- function() {
   )
 }
 
-
 #' Everything that should happen on the way out of the metadata manager
 #'
 #' There are two exits - 'q' from the main menu, and declining "do something
@@ -6787,201 +4680,550 @@ ui_exit_metadata_manager <- function(entries_at_start = NA) {
 }
 
 
-#' Orders devices at a station by role
-#'
-#' Two loggers at a gauge mean nothing in metadata order; primary then
-#' secondary is how they are thought about in the field, so it is how they
-#' should be listed. Anything with an unrecognised or missing role sorts last
-#' rather than being hidden or dropped.
-#'
-#' @param devices Data frame of device rows
-#' @return The same rows, reordered
-order_devices_by_role <- function(devices) {
-  if (nrow(devices) < 2) return(devices)
+################################################################################
+#  MENU
+################################################################################
 
-  known <- c("primary", "secondary", "tertiary")
-  rank <- match(tolower(trimws(as.character(devices$device_role))), known)
-  rank[is.na(rank)] <- length(known) + 1
-
-  devices[order(rank, devices$device_serial), , drop = FALSE]
-}
-
-
-#' Does this device already have an active port configuration?
-#'
-#' One ZL6 commonly serves two stations - an ATMOS on one port and TEROS
-#' sensors on the others, registered as a weather station and a vwc station
-#' sharing a serial. The ports belong to the DEVICE, not the station, so the
-#' second station must not configure them again: that would create a second
-#' active set and fail validation.
-#'
-#' @param device_serial Character
-#' @return Data frame of active port rows, zero rows if none
-get_active_ports <- function(device_serial, station_type = NULL) {
-  ports <- tryCatch(load_zentra_ports_data(), error = function(e) NULL)
-
-  empty <- data.frame()
-  if (is.null(ports) || nrow(ports) == 0) return(empty)
-
-  active <- ports[ports$sn == device_serial & is.na(ports$valid_to), , drop = FALSE]
-  active <- active[!is.na(active$sensor) & active$sensor != "none", , drop = FALSE]
-
-  # A shared logger has ports of more than one type. "Does this device have
-  # active ports?" is the wrong question when a weather station is being set
-  # up on a box whose vwc ports are open but whose ATMOS was taken off - the
-  # answer is yes, and the weather station ends up with no sensor recorded.
-  if (!is.null(station_type) && nrow(active) > 0) {
-    active <- active[tolower(active$type) == tolower(station_type), , drop = FALSE]
-  }
-
-  active
-}
-
-
-#' Closes a device's active port configurations
-#'
-#' A port configuration says "this sensor is on this port from this time".
-#' When a device leaves service that statement stops being true, so valid_to
-#' has to be set - otherwise the record claims sensors are live on a device
-#' that is in a drawer.
-#'
-#' NOT called on relocation: a relocated device keeps its serial and its
-#' sensors, and ports are keyed by serial. Closing them there would be wrong.
-#'
-#' @param device_serial Character. Device leaving service
-#' @param close_datetime POSIXct or Date. When it stopped being true
-#' @return Number of port rows closed, or an error message string
-close_device_ports <- function(device_serial, close_datetime) {
-  tryCatch({
-    if (is_hobo_device_serial(device_serial)) return(0)
-
-    ports <- load_zentra_ports_data()
-
-    open_rows <- which(ports$sn == device_serial & is.na(ports$valid_to) &
-                       !is.na(ports$sensor) & ports$sensor != "none")
-
-    if (length(open_rows) == 0) return(0)
-
-    ports$valid_to[open_rows] <- as.POSIXct(close_datetime)
-
-    ports$valid_from <- format_datetime_safe(ports$valid_from)
-    ports$valid_to   <- format_datetime_safe(ports$valid_to)
-    write.csv(ports, file.path(wds("meta_internal"), "zentra_ports.csv"),
-              row.names = FALSE)
-
-    return(length(open_rows))
-  }, error = function(e) {
-    return(paste0("Failed to close ports: ", e$message))
-  })
-}
-
-
-#' Is this serial a HOBO logger? (serial-shaped test, for use without metadata)
-#' @param device_serial Character
-#' @return Logical
-is_hobo_device_serial <- function(device_serial) {
-  !grepl("^z", device_serial, ignore.case = TRUE)
-}
-
-
-#' Asks whether a station may be downloaded automatically
-#'
-#' download_approved is a safety interlock for the automated download job: it
-#' sits FALSE, a human sets it TRUE to say "the metadata for this station is
-#' current", and the job resets it after running.
-#'
-#' It means ONE thing - that the record is up to date. It does NOT mean "there
-#' is new data worth fetching". Those coincide for a cell-connected station and
-#' come apart for a local one, whose metadata can be perfectly current while
-#' the cloud has nothing new because the upload is still on someone's phone.
-#' Conflating them makes the question unanswerable.
-#'
-#' A redundant download is not harmful - it costs a duplicate file, which
-#' check_raw_overlap() reports - so data availability is not worth gating on.
-#'
-#' Shared by every workflow that asks, because the same rule living in several
-#' places is how one of them ends up out of date.
-#'
-#' @param station_id Character
-#' @param device_row One row of device metadata, for the status check
-#' @param apply Logical. Write the answer immediately (default TRUE). Pass
-#'   FALSE where the row being approved does not exist yet - relocation
-#'   collects values for a row it creates later, and writing here would set
-#'   the flag on the row about to go terminal, before the user has even
-#'   confirmed the move
-#' @return TRUE if approved, FALSE otherwise
-ui_prompt_download_approval <- function(station_id, device_row, apply = TRUE) {
-
-  if (tolower(device_row$status) == "manual") {
-    cat("\n\u2713 Status is 'manual' - skipping download approval",
-        " (data is offloaded by hand)\n", sep = "")
-    return(invisible(FALSE))
-  }
-
-  cat("\n--- DOWNLOAD APPROVAL ---\n\n")
-  cat("Is everything you know about this station now recorded in metadata?\n")
-  cat("Say no if a sensor swap, device change or port reconfiguration is\n")
-  cat("still to be logged - an automated download would file data against\n")
-  cat("a record that is wrong.\n\n")
-  cat("Not about whether new data exists. The flag resets after each run.\n")
-
-  response <- ui_yes_no("\nApprove for download?", allow_quit = FALSE)
-
-  if (response != "Y") {
-    cat("\u2713 Not approved - approve it once the record is complete\n")
-    return(invisible(FALSE))
-  }
-
-  if (!apply) return(invisible(TRUE))
-
-  result <- update_download_approval(station_id, TRUE)
-  if (!isTRUE(result)) {
-    cat("\u26a0\ufe0f  Warning: could not update download approval: ", result, "\n",
-        sep = "")
-    return(invisible(FALSE))
-  }
-
-  cat("\u2713 Station approved for download\n")
-  invisible(TRUE)
-}
-
-
-#' Closes specific port configurations
-#'
-#' Where close_device_ports() retires everything on a device, this retires
-#' named ports - the case where a shared logger stays on site but the
-#' sensors belonging to a retired station come off it.
-#'
-#' @param port_keys Character vector of "serial|port" entries
-#' @param close_datetime POSIXct. When they stopped being deployed
-#' @return Number of rows closed, or an error message string
-close_specific_ports <- function(port_keys, close_datetime) {
-  tryCatch({
-    ports <- load_zentra_ports_data()
-    n <- 0
-
-    for (key in port_keys) {
-      parts <- strsplit(key, "|", fixed = TRUE)[[1]]
-      if (length(parts) != 2) next
-
-      rows <- which(ports$sn == parts[1] &
-                    as.character(ports$port) == parts[2] &
-                    is.na(ports$valid_to))
-      if (length(rows) == 0) next
-
-      ports$valid_to[rows] <- as.POSIXct(close_datetime)
-      n <- n + length(rows)
+#' Main metadata manager - orchestrates all metadata workflows
+#' Interactive decision tree that routes to appropriate UI functions
+metadata_manager <- function() {
+  
+  # Row count at the start, so the exit summary can report what this session
+  # added rather than the whole log
+  entries_at_start <- tryCatch(nrow(load_maintenance_log()),
+                               error = function(e) NA_integer_)
+  
+  repeat {  # Main loop - allows multiple operations
+    
+    cat("\n============================================\n")
+    cat("  VI-FLO Engine - Metadata Manager\n")
+    cat("============================================\n")
+    
+    #### Unfinished business first
+    # Data left on a logger, a shuttle, or a phone is data at risk. Raising it
+    # here every single time is the point: the system remembers, not the person.
+    n_pending <- 0
+    if (exists("check_pending")) {
+      pending_now <- check_pending()
+      n_pending <- nrow(pending_now)
     }
-
-    if (n == 0) return(0)
-
-    ports$valid_from <- format_datetime_safe(ports$valid_from)
-    ports$valid_to   <- format_datetime_safe(ports$valid_to)
-    write.csv(ports, file.path(wds("meta_internal"), "zentra_ports.csv"),
-              row.names = FALSE)
-
-    return(n)
-  }, error = function(e) {
-    return(paste0("Failed to close ports: ", e$message))
-  })
+    
+    #### TOP LEVEL - What happened?
+    cat("What happened?\n")
+    cat("  1. Worked on existing station/device\n")
+    cat("  2. Established new station/device or reactivated old station\n")
+    cat("  3. View/check metadata\n")
+    if (n_pending > 0) {
+      cat("  r. Resume an unfinished data task\n")
+    }
+    cat("  q. Quit\n")
+    cat("\nEnter selection: ")
+    
+    top_choice <- trimws(readline())
+    
+    if (tolower(top_choice) == "q") {
+      return(ui_exit_metadata_manager(entries_at_start))
+    }
+    
+    #### Resume an unfinished data task ####
+    if (tolower(top_choice) == "r" && n_pending > 0) {
+      ui_resume_pending_ingest()
+      next
+    }
+    
+    # Hidden admin function - delete metadata row
+    if (tolower(top_choice) == "deletion") {
+      ui_delete_metadata_row()
+      next  # Return to main menu after deletion
+    }
+    
+    ################################################################################
+    #### BRANCH 1: WORKED ON EXISTING STATION ####
+    ################################################################################
+    
+    if (top_choice == "1") {
+      
+      repeat {  # Sub-loop for multiple actions at same station
+        
+        cat("\n--- EXISTING STATION WORK ---\n")
+        cat("What type of work?\n")
+        cat("  1. Routine maintenance ONLY (cleaning, battery, inspection, notes)\n")
+        cat("  2. Downloaded data manually (HOBO or local Zentra)\n")
+        cat("  3. Port configuration change (sensor swap, depth change)\n")
+        cat("  4. Device replacement (old device out, new device in)\n")
+        cat("  5. Device removal (taking device out of service)\n")
+        cat("  6. Station relocated (moved to new location)\n")
+        cat("  7. Station decommissioned (entire station shut down)\n")
+        cat("  8. Field surveyed elevation of station or loggers\n")
+        cat("  9. Correct device details (model, name, role, interval, coords)\n")
+        cat("  q. Back to main menu\n")
+        
+        work_choice <- trimws(readline())
+        
+        if (tolower(work_choice) == "q") {
+          break  # Back to main menu
+        }
+        
+        ### Option 1: Routine maintenance
+        if (work_choice == "1") {
+          result <- ui_log_maintenance()
+          
+          if (!is.null(result)) {
+            # Ask if they also did more significant work
+            # Two different situations, previously asked as one question and
+            # answered as the other. Doing maintenance AND a port change on
+            # one visit is normal - both happened, both belong in the log.
+            # Picking the wrong workflow is a miscategorisation, and only that
+            # warrants removing the entry just written.
+            cat("\nAnything else at this station on this visit?\n")
+            cat("  1. Yes - I also did something else (port change, device\n")
+            cat("     replacement, relocation, decommissioning)\n")
+            cat("  2. No - that was the whole visit\n")
+            cat("  3. I picked the wrong workflow - this was not routine\n")
+            cat("     maintenance\n\n")
+            cat("Response: ")
+            major_work <- trimws(readline())
+            
+            if (major_work == "1") {
+              cat("\n\u2713 Maintenance entry kept - select the next workflow\n")
+              next
+              
+            } else if (major_work == "3") {
+              cat("\nThe routine maintenance entry just logged will be removed,\n")
+              cat("and you can select the workflow you meant.\n\n")
+              
+              if (ui_yes_no("Remove it?", allow_quit = FALSE) == "Y") {
+                delete_result <- delete_last_maintenance_entry(result$device_serial)
+                if (isTRUE(delete_result)) {
+                  cat("\u2713 Entry removed - select the correct workflow\n")
+                } else {
+                  cat("\u26a0\ufe0f  Could not remove the entry - edit maintenance_log.csv by hand\n")
+                }
+              } else {
+                cat("\u2713 Entry kept\n")
+              }
+              next
+              
+            } else {
+              break
+            }
+          } else {
+            # User quit - back to work type menu
+            next
+          }
+        }
+        
+        ### Option 2: Downloaded data
+        else if (work_choice == "2") {
+          result <- ui_log_download()
+          
+          if (!is.null(result)) {
+            # Nobody visits a station, downloads it, and does nothing else -
+            # at minimum they looked at it. So offer the maintenance entry
+            # directly, carrying over the station, device and date rather than
+            # making the user re-select all three from the top of the menu.
+            cat("\nLog routine maintenance for this visit?\n")
+            cat("  Inspection, cleaning, battery, relaunch - same station,\n")
+            cat("  device and date, no need to re-select.\n")
+            add_maint <- ui_yes_no("Log it now?", allow_quit = FALSE)
+            
+            if (add_maint == "Y") {
+              ui_log_maintenance(
+                prefill_station    = result$station_id,
+                prefill_device     = result$device_serial,
+                prefill_visit_date = result$field_visit_date,
+                prefill_logged_by  = result$logged_by
+              )
+            }
+            
+            cat("\nAnything else at this station on this visit?\n")
+            cat("  Sensor swap, device replaced, station moved -> its own workflow\n")
+            cat("Response (Y/N): ")
+            more_work <- toupper(trimws(readline()))
+            if (more_work != "Y" && more_work != "1") {
+              break
+            }
+          } else {
+            next
+          }
+        }
+        
+        ### Option 3: Port configuration change
+        else if (work_choice == "3") {
+          result <- ui_update_ports()
+          
+          if (!is.null(result)) {
+            cat("\nDid you do anything else at this station? (Y/N)\n")
+            cat("  If you also replaced/relocated/decommissioned, select that workflow next.\n")
+            cat("  Response: ")
+            more_work <- toupper(trimws(readline()))
+            if (more_work != "Y" && more_work != "1") {
+              break
+            }
+          } else {
+            next
+          }
+        }
+        
+        ### Option 4: Device replaced
+        else if (work_choice == "4") {
+          result <- ui_replace_device()
+          
+          if (!is.null(result)) {
+            # ui_replace_device() handles both:
+            # 1. Marking old device as "replaced"
+            # 2. Adding new replacement device
+            # Returns: list(old_device_serial, new_device_serial)
+            
+            # Check if new device is HOBO (no ports needed)
+            metadata <- load_zentra_metadata()
+            new_device_row <- get_device_row(result$new_device_serial,
+                                             metadata = metadata)
+            
+            if (is_hobo_device(new_device_row$mfger)) {
+              cat("✓ HOBO device - no port configuration needed\n")
+              
+            } else {
+              # No "already configured" guard here, deliberately. A replacement
+              # means a box was physically brought out and sensors plugged into
+              # it, so its ports DO need configuring. The only serial that
+              # would trip such a guard is one already active at another
+              # station - which is not a replacement at all.
+              cat("\nInitialize port configuration for new device? (Y/N): ")
+              init_ports <- toupper(trimws(readline()))
+              if (init_ports == "Y" || init_ports == "1") {
+                ui_initialize_ports(result$new_device_serial)
+              }
+            }
+            
+            cat("\nDid you do anything else at this station? (Y/N)\n")
+            cat("  Note: Device is replaced - further work would be on the NEW device.\n")
+            cat("  Response: ")
+            more_work <- toupper(trimws(readline()))
+            if (more_work != "Y" && more_work != "1") {
+              break
+            }
+          } else {
+            next
+          }
+        }
+        
+        ### Option 5: Device removed
+        else if (work_choice == "5") {
+          result <- ui_remove_device()
+          
+          if (!is.null(result)) {
+            cat("\nDid you do anything else at this station? (Y/N)\n")
+            cat("  Response: ")
+            more_work <- toupper(trimws(readline()))
+            if (more_work != "Y" && more_work != "1") {
+              break
+            }
+          } else {
+            next
+          }
+        }
+        
+        ### Option 6: Station relocated
+        else if (work_choice == "6") {
+          result <- ui_relocate_station()
+          
+          if (!is.null(result)) {
+            # Relocation is terminal - no more work at this location
+            cat("\n✓ Station relocation complete\n")
+            break
+          } else {
+            next
+          }
+        }
+        
+        ### Option 7: Station decommissioned
+        else if (work_choice == "7") {
+          result <- ui_decommission_station()
+          
+          if (!is.null(result)) {
+            # Decommissioning is terminal - station shut down
+            cat("\n✓ Station decommissioned\n")
+            break
+          } else {
+            next
+          }
+        }
+        
+        ### Option 8: Surveyed elevation of station or logger
+        else if (work_choice == "8") {
+          result <- ui_survey_elevations()
+          
+          if (!is.null(result)) {
+            cat("\n✓ Elevation survey complete\n")
+          }
+          # Continue to next iteration (allow more work)
+          next
+        }
+        
+        ### Option 9: Correct device details
+        else if (work_choice == "9") {
+          ui_correct_device_details()
+          next
+        }
+        
+        else {
+          cat("⚠️  Invalid selection\n")
+        }
+        
+      }  # End sub-loop (work on existing station)
+      
+    }
+    
+    ################################################################################
+    #### BRANCH 2: ESTABLISHED NEW STATION OR REACTIVATED ####
+    ################################################################################
+    
+    else if (top_choice == "2") {
+      
+      cat("\n--- NEW/REACTIVATED STATION SETUP ---\n")
+      cat("Station setup type:\n")
+      cat("  1. Establishing brand new station\n")
+      cat("  2. New device at existing active station\n")
+      cat("  3. Reactivate decommissioned station\n")
+      cat("  q. Back to main menu\n")
+      cat("\nEnter selection: ")
+      
+      new_choice <- trimws(readline())
+      
+      if (tolower(new_choice) == "q") {
+        next  # Back to main menu
+      }
+      
+      ### Options 1 & 2: Add new device
+      if (new_choice %in% c("1", "2")) {
+        is_new_station <- (new_choice == "1")
+        
+        # Add device (function handles new vs existing station internally)
+        result <- ui_add_device(is_new_station = is_new_station)
+        
+        if (!is.null(result)) {
+          # Check if device is HOBO (no ports needed)
+          metadata <- load_zentra_metadata()
+          device_row <- get_device_row(result$device_serial,
+                                       station_id = result$station_id,
+                                       metadata = metadata)
+          
+          if (is_hobo_device(device_row$mfger)) {
+            cat("✓ HOBO device added - no port configuration needed\n")
+            
+            #### Surveyed elevation ####
+            # Only once a station HAS a pair. A single water level logger is a
+            # legitimate permanent arrangement - flow can come from a rating
+            # curve built on flow-meter measurements instead of a hydraulic
+            # slope - so a lone logger is not a half-finished gauge and should
+            # not be nagged as one.
+            #
+            # A pair is different: the elevation difference between the two IS
+            # the slope, and until it is surveyed the station produces water
+            # levels that cannot become flow. The survey can only run once both
+            # rows exist, which is exactly now.
+            if (tolower(device_row$station_type) == "hydro") {
+              
+              station_devices <- get_active_station_devices(device_row$station_id)
+              roles <- tolower(station_devices$device_role)
+              has_pair <- sum(!is.na(roles) & roles %in% c("primary", "secondary")) >= 2
+              unsurveyed <- any(is.na(station_devices$elev))
+              
+              if (has_pair && unsurveyed) {
+                cat("\n--- SURVEYED ELEVATION ---\n\n")
+                cat("This station now has a primary and a secondary logger. The\n")
+                cat("elevation difference between them is the hydraulic slope,\n")
+                cat("and until it is surveyed the water levels cannot become flow.\n\n")
+                
+                do_survey <- ui_yes_no("Do you have the elevation survey data to enter now?",
+                                       allow_quit = FALSE)
+                
+                if (do_survey == "Y") {
+                  ui_survey_elevations()
+                } else {
+                  cat("\nNo problem - record it later with 'Field surveyed\n")
+                  cat("elevation' (option 8) under existing station work.\n")
+                }
+              }
+            }
+            
+          } else {
+            # Zentra device - ask about ports, unless this serial already has
+            # them. A ZL6 shared between a weather and a vwc station is
+            # configured once, by whichever station was set up first.
+            # A NULL here would silently disable the type filter, which is
+            # exactly the bug this check exists to prevent - so fall back to
+            # metadata rather than trusting the caller.
+            device_station_type <- result$station_type
+            if (is.null(device_station_type) || is.na(device_station_type)) {
+              meta_lu <- load_zentra_metadata()
+              hit <- meta_lu$station_type[meta_lu$device_serial == result$device_serial]
+              device_station_type <- if (length(hit) > 0) hit[1] else NULL
+            }
+            
+            if (nrow(get_active_ports(result$device_serial,
+                                      device_station_type)) > 0) {
+              cat("\n✓ Ports already configured on ", result$device_serial,
+                  " - shared with its other station\n", sep = "")
+              
+            } else if (nrow(get_active_ports(result$device_serial)) > 0) {
+              # The logger has active ports, but none of this station's type -
+              # its sensor was taken off when the station was last retired.
+              cat("\n⚠️  ", result$device_serial, " has active ports, but none\n",
+                  sep = "")
+              cat("   of type '", device_station_type, "'. Its sensor was\n", sep = "")
+              cat("   removed when this station was last retired.\n\n")
+              cat("   Full port initialisation would overwrite the other\n")
+              cat("   station's configuration, so the sensor is recorded one\n")
+              cat("   port at a time instead.\n\n")
+              
+              # Offer it here rather than naming a menu item. A pointer to
+              # somewhere else is a step someone has to remember to take.
+              if (ui_yes_no(paste0("Set up the ", device_station_type,
+                                   " sensor for this station now?"),
+                            allow_quit = FALSE) == "Y") {
+                ui_update_ports(preset_device_serial = result$device_serial)
+              } else {
+                cat("\u2713 Record it later with 'Port configuration change'\n")
+                cat("  (existing station work, option 3)\n")
+              }
+              
+            } else {
+              cat("\nInitialize port configuration now? (Y/N): ")
+              init_ports <- toupper(trimws(readline()))
+              
+              if (init_ports == "Y" || init_ports == "1") {
+                ui_initialize_ports(result$device_serial)
+              } else {
+                cat("⚠️  Remember to initialize ports later!\n")
+              }
+            }
+          }
+        }
+      }
+      
+      ### Option 3: Reactivate decommissioned station
+      else if (new_choice == "3") {
+        result <- ui_reactivate_station()
+        
+        if (!is.null(result)) {
+          # ui_reactivate_station() adds the new device
+          # Check if device is HOBO (no ports needed)
+          metadata <- load_zentra_metadata()
+          device_row <- get_device_row(result$device_serial,
+                                       station_id = result$station_id,
+                                       metadata = metadata)
+          
+          if (is_hobo_device(device_row$mfger)) {
+            cat("✓ HOBO device - no port configuration needed\n")
+          } else {
+            # Zentra device - ask about ports, unless this serial already has
+            # them. A ZL6 shared between a weather and a vwc station is
+            # configured once, by whichever station was set up first.
+            # A NULL here would silently disable the type filter, which is
+            # exactly the bug this check exists to prevent - so fall back to
+            # metadata rather than trusting the caller.
+            device_station_type <- result$station_type
+            if (is.null(device_station_type) || is.na(device_station_type)) {
+              meta_lu <- load_zentra_metadata()
+              hit <- meta_lu$station_type[meta_lu$device_serial == result$device_serial]
+              device_station_type <- if (length(hit) > 0) hit[1] else NULL
+            }
+            
+            if (nrow(get_active_ports(result$device_serial,
+                                      device_station_type)) > 0) {
+              cat("\n✓ Ports already configured on ", result$device_serial,
+                  " - shared with its other station\n", sep = "")
+              
+            } else if (nrow(get_active_ports(result$device_serial)) > 0) {
+              # The logger has active ports, but none of this station's type -
+              # its sensor was taken off when the station was last retired.
+              cat("\n⚠️  ", result$device_serial, " has active ports, but none\n",
+                  sep = "")
+              cat("   of type '", device_station_type, "'. Its sensor was\n", sep = "")
+              cat("   removed when this station was last retired.\n\n")
+              cat("   Full port initialisation would overwrite the other\n")
+              cat("   station's configuration, so the sensor is recorded one\n")
+              cat("   port at a time instead.\n\n")
+              
+              # Offer it here rather than naming a menu item. A pointer to
+              # somewhere else is a step someone has to remember to take.
+              if (ui_yes_no(paste0("Set up the ", device_station_type,
+                                   " sensor for this station now?"),
+                            allow_quit = FALSE) == "Y") {
+                ui_update_ports(preset_device_serial = result$device_serial)
+              } else {
+                cat("\u2713 Record it later with 'Port configuration change'\n")
+                cat("  (existing station work, option 3)\n")
+              }
+              
+            } else {
+              cat("\nInitialize port configuration now? (Y/N): ")
+              init_ports <- toupper(trimws(readline()))
+              
+              if (init_ports == "Y" || init_ports == "1") {
+                ui_initialize_ports(result$device_serial)
+              } else {
+                cat("⚠️  Remember to initialize ports later!\n")
+              }
+            }
+          }
+        }
+      }
+      
+      else {
+        cat("⚠️  Invalid selection\n")
+      }
+      
+    }
+    
+    ################################################################################
+    #### BRANCH 3: VIEW METADATA ####
+    ################################################################################
+    
+    else if (top_choice == "3") {
+      
+      cat("\n--- VIEW METADATA ---\n")
+      cat("What would you like to view?\n")
+      cat("  1. Device metadata\n")
+      cat("  2. Port configurations\n")
+      cat("  3. Maintenance log\n")
+      cat("  4. Download log\n")
+      cat("  q. Back to main menu\n")
+      cat("\nEnter selection: ")
+      
+      view_choice <- trimws(readline())
+      
+      if (tolower(view_choice) == "q") {
+        next
+      }
+      
+      if (view_choice == "1") {
+        ui_view_metadata()
+      } else if (view_choice == "2") {
+        ui_view_ports()
+      } else if (view_choice == "3") {
+        ui_view_maintenance_log()
+      } else if (view_choice == "4") {
+        ui_view_download_log()
+      } else {
+        cat("⚠️  Invalid selection\n")
+      }
+      
+    }
+    
+    else {
+      cat("⚠️  Invalid selection\n")
+    }
+    
+    # After completing any branch, ask if user wants to do more
+    cat("\nDo something else? This would return you to main menu. (Y/N): ")
+    continue_response <- toupper(trimws(readline()))
+    if (continue_response != "Y" && continue_response != "1") {
+      return(ui_exit_metadata_manager(entries_at_start))
+    }
+    
+  }  # End main loop
+  
 }

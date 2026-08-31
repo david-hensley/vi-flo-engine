@@ -3,7 +3,15 @@ All notable changes to the VI-FLO Engine project are documented here.
 
 ---
 
-## [v0.6.1] (unreleased)
+## [v1.0.0] - 2026-08-31
+
+First release. The metadata manager is feature-complete for single-user work:
+every workflow has been exercised against real field data, and the metadata
+schema is settled. Breaking changes get a major bump from here.
+
+This release does NOT claim multi-user safety. `device_metadata.csv` is a
+file, not a database, and nothing prevents two people editing it between
+syncs. That work is planned for v1.1.
 
 ### Added
 - `close_device_ports()`
@@ -67,6 +75,24 @@ All notable changes to the VI-FLO Engine project are documented here.
   configuration, so it routes to the per-port workflow instead
 - `ui_update_ports()` accepts a device, so a workflow that already knows which
   logger it is acting on does not ask again
+- `save_device_metadata()` - one function writes `device_metadata.csv`.
+  Nineteen call sites previously repeated the same six lines, and two of them
+  had drifted: `api_functions.R` and `set_download_approved()` formatted only
+  three of the datetime columns because they predate the others. That is how
+  `last_record_date` came to be written as a Unix epoch
+- `get_device_row()` resolves a serial to ONE row - active rows preferred,
+  narrowed by station where the caller knows it. A serial does not identify a
+  row: it can carry a terminal row plus its successor, or two active rows
+  where one ZL6 serves two stations. `initialize_ports()` was reading
+  `deploy_datetime` from an arbitrary one and stamping every port with it
+- `ui_prompt_functions.R` - the shared prompts, split out from the workflows
+  so an existing prompt is easy to find. Five near-identical download-approval
+  prompts once existed because it was not
+- Validation checks pending data tasks: the station must exist, and the stage
+  must be one the workflow can resume from. Deliberately NOT checked is whether
+  the device is still active - a station can be decommissioned while data
+  offloaded from it has yet to be archived, and the pending row is then doing
+  its job
 ### Changed
 - The duplicate-serial check now matches `validate_metadata()`: one active row
   per serial PER STATION TYPE. A serial active at a different station type is
@@ -112,6 +138,16 @@ All notable changes to the VI-FLO Engine project are documented here.
   terminal rows. Ports belong to the device, and a shared ZL6 was appearing
   three times: its decommissioned row, its other station, and its reactivated
   row
+- The ingest temp file is named per DEVICE, not per station. At a paired gauge
+  an abandoned export sat waiting to be picked up by the next logger, where
+  the serial check rejected it as "the wrong .hobo file" - which is not what
+  had gone wrong
+- `metadata_manager_functions.R` reorganised into labelled sections and then
+  split three ways: core logic joins `metadata_functions.R`, shared prompts
+  become `ui_prompt_functions.R`, and the workflows and menu keep the original
+  name. Every function body is byte-identical; only their homes changed
+- `ui_survey_elevations()` reports a failed `last_visit` write instead of
+  passing silently
 ### Fixed
 - `ui_update_ports()` referenced `metadata` after it had been moved inside a
   conditional branch

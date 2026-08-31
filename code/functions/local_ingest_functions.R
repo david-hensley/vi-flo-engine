@@ -421,7 +421,12 @@ ui_ingest_local_data <- function(station_id, device_serial, station_type,
   #### Resolve paths ####
   raw_dir     <- get_raw_dir(station_type)
   shuttle_dir <- get_shuttle_dir()
-  temp_file   <- paste0(station_id, "_raw_temp.csv")
+  # Per DEVICE, not per station. A paired stream gauge has two or three
+  # loggers, and a station-level name means an abandoned export from one sits
+  # on disk waiting to be picked up by the next: the serial check would reject
+  # it as "the wrong .hobo file", which is not what went wrong, and the user
+  # loops. Including the serial makes the collision impossible.
+  temp_file   <- paste0(station_id, "_", device_serial, "_raw_temp.csv")
   temp_path   <- file.path(raw_dir, temp_file)
 
   if (!dir.exists(raw_dir)) dir.create(raw_dir, recursive = TRUE)
@@ -518,6 +523,20 @@ ui_ingest_local_data <- function(station_id, device_serial, station_type,
     cat("\n--------------------------------------------\n")
     cat("Could not find the expected file:\n\n")
     cat("     ", temp_path, "\n\n", sep = "")
+
+    # An export abandoned earlier at this station leaves a temp file for a
+    # DIFFERENT logger sitting in the same folder. Naming it is more useful
+    # than letting the user wonder why the folder looks full.
+    other_temps <- list.files(raw_dir,
+                              pattern = paste0("^", station_id, "_.*_raw_temp\\.csv$"))
+    other_temps <- setdiff(other_temps, temp_file)
+
+    if (length(other_temps) > 0) {
+      cat("There are unfinished exports for other loggers at this station:\n")
+      for (f in other_temps) cat("     ", f, "\n", sep = "")
+      cat("\nThose belong to a different logger and are not this one. Resume\n")
+      cat("them from the main menu, or delete them if they are stale.\n\n")
+    }
 
     candidates <- find_recent_file_in_data_root(anchor)
 
@@ -834,18 +853,7 @@ update_last_record_date <- function(device_serial, record_datetime) {
     lrd <- format_datetime_safe(metadata$last_record_date)
     lrd[device_index] <- format(as.POSIXct(record_datetime), "%Y-%m-%d %H:%M:%S")
     metadata$last_record_date <- lrd
-
-    setwd(wds("meta_internal"))
-    metadata$deploy_datetime    <- format_datetime_safe(metadata$deploy_datetime)
-    metadata$last_update        <- format_datetime_safe(metadata$last_update)
-    metadata$last_download_date <- format_datetime_safe(metadata$last_download_date)
-    metadata$last_record_date   <- format_datetime_safe(metadata$last_record_date)
-    metadata$last_visit         <- as.character(metadata$last_visit)
-    if ("expiry_date" %in% names(metadata)) {
-      metadata$expiry_date <- as.character(metadata$expiry_date)
-    }
-
-    write.csv(metadata, "device_metadata.csv", row.names = FALSE)
+    save_device_metadata(metadata)
     return(TRUE)
   }, error = function(e) {
     return(paste0("Failed to update last_record_date: ", e$message))
