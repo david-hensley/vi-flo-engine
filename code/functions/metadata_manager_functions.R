@@ -760,13 +760,44 @@ ui_survey_elevations <- function() {
       save_device_metadata(metadata)
       cat("✓ Roles assigned\n")
       
+      #### Reach length ####
+      # Same requirement as the other path: slope is the elevation difference
+      # over this distance, so a survey without it cannot produce one.
+      repeat {
+        cat("\n--- REACH LENGTH ---\n\n")
+        cat("Distance between the two loggers ALONG THE CHANNEL, in metres.\n")
+        cat("Where the channel bends, this is longer than the straight line,\n")
+        cat("and using the straight line overestimates slope.\n\n")
+        cat("Reach length (m): ")
+        rl_input <- trimws(readline())
+        reach_length <- suppressWarnings(as.numeric(rl_input))
+        
+        if (is.na(reach_length) || reach_length <= 0) {
+          cat("\u26a0\ufe0f  Enter a positive number of metres.\n")
+          next
+        }
+        
+        slope <- elevation_diff / reach_length
+        cat("\n  Reach length: ", reach_length, " m\n", sep = "")
+        cat("  Slope:        ", sprintf("%.5f", slope),
+            "  (", sprintf("%.3f", slope * 100), "%)\n", sep = "")
+        
+        if (abs(slope) > 0.1 || abs(slope) < 0.0001) {
+          cat("\n\u26a0\ufe0f  That slope is unusual for a stream reach. Check the\n")
+          cat("   elevation difference and the distance before saving.\n")
+          if (ui_yes_no("  Use it anyway?", allow_quit = FALSE) == "N") next
+        }
+        break
+      }
+      
       #### Then the elevations, through the existing logic function ####
       result <- survey_dual_logger_elevations(
         station_id       = station_id,
         primary_serial   = primary_device$device_serial,
         secondary_serial = secondary_device$device_serial,
         primary_elev     = primary_elev,
-        elevation_diff   = elevation_diff
+        elevation_diff   = elevation_diff,
+        reach_length_m   = reach_length
       )
       
       if (!isTRUE(result)) {
@@ -851,6 +882,46 @@ ui_survey_elevations <- function() {
       }
     }
     
+
+    #### Reach length ####
+    # Required, not optional. Slope is the elevation difference divided by
+    # this, so a survey without it produces a number nobody can use - and
+    # realistically nobody measures one without the other. If only the
+    # levelling was done, keep the figures until the distance is measured too.
+    #
+    # ALONG THE CHANNEL, not straight-line. On a straight reach they are the
+    # same; on a sinuous one the straight-line distance is shorter, which
+    # overestimates slope and therefore discharge.
+    repeat {
+      cat("\n--- REACH LENGTH ---\n\n")
+      cat("Distance between the two loggers ALONG THE CHANNEL, in metres.\n")
+      cat("On a straight reach a laser or tape reading serves. Where the\n")
+      cat("channel bends, the along-channel distance is longer than the\n")
+      cat("straight line, and using the straight line overestimates slope.\n\n")
+      cat("Reach length (m): ")
+      rl_input <- trimws(readline())
+      reach_length <- suppressWarnings(as.numeric(rl_input))
+
+      if (is.na(reach_length) || reach_length <= 0) {
+        cat("\u26a0\ufe0f  Enter a positive number of metres.\n")
+        next
+      }
+
+      slope <- elevation_diff / reach_length
+      cat("\n  Reach length: ", reach_length, " m\n", sep = "")
+      cat("  Slope:        ", sprintf("%.5f", slope),
+          "  (", sprintf("%.3f", slope * 100), "%)\n", sep = "")
+
+      # A hydraulic slope outside roughly 0.0001 to 0.1 is unusual enough to
+      # be worth a second look - most often a decimal slip in one or the other
+      if (abs(slope) > 0.1 || abs(slope) < 0.0001) {
+        cat("\n\u26a0\ufe0f  That slope is unusual for a stream reach. Check the\n")
+        cat("   elevation difference and the distance before saving.\n")
+        if (ui_yes_no("  Use it anyway?", allow_quit = FALSE) == "N") next
+      }
+      break
+    }
+
     #### Does the measurement contradict the recorded roles? ####
     # Primary is the downstream logger and downstream is lower, so a negative
     # difference means the roles on record are the wrong way round. The
@@ -917,6 +988,10 @@ ui_survey_elevations <- function() {
     cat("  Primary   ", device_label(primary_device), ": ", primary_elev, " m\n", sep = "")
     cat("  Secondary ", device_label(secondary_device), ": ", secondary_elev, " m\n", sep = "")
     cat("  Difference: ", sprintf("%+.2f", elevation_diff), " m\n", sep = "")
+    cat("  Reach length: ", reach_length, " m\n", sep = "")
+    cat("  Slope: ", sprintf("%.5f", elevation_diff / reach_length),
+        "  (", sprintf("%.3f", (elevation_diff / reach_length) * 100), "%)\n",
+        sep = "")
     cat("============================================\n\n")
     
     confirm <- ui_yes_no("Confirm and save?", allow_quit = FALSE)
@@ -931,7 +1006,8 @@ ui_survey_elevations <- function() {
       primary_serial = primary_device$device_serial,
       secondary_serial = secondary_device$device_serial,
       primary_elev = primary_elev,
-      elevation_diff = elevation_diff
+      elevation_diff = elevation_diff,
+      reach_length_m = reach_length
     )
     
     if (!isTRUE(result)) {
@@ -2044,6 +2120,19 @@ ui_replace_device <- function() {
   cat("\n✓ Device replacement complete!\n")
   cat("  Old:", old_device_serial, "(replaced)\n")
   cat("  New:", new_device_serial, "\n")
+
+  #### Survey geometry that no longer describes reality ####
+  cleared <- invalidate_pair_geometry(station_id, old_device_serial, old_device_row$device_role)
+  if (length(cleared) > 0) {
+    cat("\n--- SURVEY GEOMETRY CLEARED ---\n\n")
+    cat("This station has paired loggers, and their survey describes the\n")
+    cat("positions they were in. Those values have been cleared:\n\n")
+    for (line in cleared) cat("  ", line, "\n", sep = "")
+    cat("\nA wrong slope is worse than a missing one - it biases every\n")
+    cat("discharge value computed from this reach, silently. Re-survey with\n")
+    cat("'Field surveyed elevation' (option 8) once the loggers are settled.\n")
+  }
+
   
   #### Surveyed elevation is now suspect ####
   # A replacement logger is rarely at exactly the height of the one it
@@ -2217,6 +2306,12 @@ ui_relocate_station <- function() {
       cat("⚠️  Invalid longitude. Must be between -180 and 180.\n")
     }
   }
+
+  ## Elevation at the new location
+  # The station has moved, so its old elevation describes a different place.
+  station_type_now <- current_device$station_type
+  role_now <- current_device$device_role
+  reloc_elev <- ui_prompt_elevation(new_lat, new_lon, station_type_now, role_now)
   
   ################################################################################
   #### DEPLOYMENT AT NEW LOCATION ####
@@ -2295,7 +2390,9 @@ ui_relocate_station <- function() {
     new_lon = new_lon,
     deploy_datetime = deploy_datetime,
     new_status = new_status,
-    download_approved = download_approved
+    download_approved = download_approved,
+    new_elev = reloc_elev$elev,
+    new_elev_source = reloc_elev$elev_source
   )
   
   if (!result$success) {
@@ -2306,6 +2403,19 @@ ui_relocate_station <- function() {
   cat("\n✓ Station relocation complete!\n")
   cat("  Old device marked as 'relocated'\n")
   cat("  New metadata row created at new location\n")
+
+  #### Survey geometry that no longer describes reality ####
+  cleared <- invalidate_pair_geometry(station_id, current_device$device_serial, current_device$device_role)
+  if (length(cleared) > 0) {
+    cat("\n--- SURVEY GEOMETRY CLEARED ---\n\n")
+    cat("This station has paired loggers, and their survey describes the\n")
+    cat("positions they were in. Those values have been cleared:\n\n")
+    for (line in cleared) cat("  ", line, "\n", sep = "")
+    cat("\nA wrong slope is worse than a missing one - it biases every\n")
+    cat("discharge value computed from this reach, silently. Re-survey with\n")
+    cat("'Field surveyed elevation' (option 8) once the loggers are settled.\n")
+  }
+
   
   #### The old row was visited too ####
   # Somebody stood at that station on the day it was moved. update_last_visit()
@@ -2681,11 +2791,18 @@ ui_reactivate_station <- function() {
     
     new_device_serial <- add_result$device_serial
     
-    # Update location to match old station coordinates
+    # Same coordinates as before, so the old elevation still describes this
+    # place - carry its source with it rather than leaving the value unlabelled
+    old_source <- if ("elev_source" %in% names(old_device)) {
+      old_device$elev_source
+    } else NA_character_
+    
     result <- update_device_location(new_device_serial, 
                                      old_device$lat, 
                                      old_device$lon, 
-                                     old_device$elev)
+                                     old_device$elev,
+                                     elev_source = old_source,
+                                     station_id = station_id)
     
     if (!isTRUE(result)) {
       cat("⚠️  Warning: Could not update location:", result, "\n")
@@ -2738,11 +2855,18 @@ ui_reactivate_station <- function() {
     
     new_device_serial <- add_result$device_serial
     
-    # Update location to new coordinates
+    # A different place needs its own elevation - leaving it NA meant every
+    # station reactivated at new coordinates started without one
+    react_elev <- ui_prompt_elevation(new_lat, new_lon,
+                                      old_device$station_type,
+                                      old_device$device_role)
+    
     result <- update_device_location(new_device_serial, 
                                      new_lat, 
                                      new_lon, 
-                                     NA)  # No elevation
+                                     react_elev$elev,
+                                     elev_source = react_elev$elev_source,
+                                     station_id = station_id)
     
     if (!isTRUE(result)) {
       cat("⚠️  Warning: Could not update location:", result, "\n")
@@ -4122,6 +4246,20 @@ ui_remove_device <- function() {
   
   cat("\n✓ Device removal complete!\n")
   cat("  Device ", device_serial, " has been removed from service\n", sep = "")
+  
+  #### Survey geometry that no longer describes reality ####
+  # Removing the primary leaves its dependants measured against a logger that
+  # is no longer there; removing a secondary ends that relationship outright.
+  cleared <- invalidate_pair_geometry(station_id, device_serial,
+                                      device_row$device_role)
+  if (length(cleared) > 0) {
+    cat("\n--- SURVEY GEOMETRY CLEARED ---\n\n")
+    cat("This station has paired loggers, and their survey describes the\n")
+    cat("positions they were in. Those values have been cleared:\n\n")
+    for (line in cleared) cat("  ", line, "\n", sep = "")
+    cat("\nA wrong slope is worse than a missing one. Re-survey once the\n")
+    cat("station is settled.\n")
+  }
   
   return(TRUE)
 }

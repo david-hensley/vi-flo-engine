@@ -776,18 +776,32 @@ update_download_approval <- function(station_id, approved) {
 #' @param lon Numeric. New longitude  
 #' @param elev Numeric or NA. New elevation
 #' @return TRUE if successful, error message if failed
-update_device_location <- function(device_serial, lat, lon, elev) {
+update_device_location <- function(device_serial, lat, lon, elev,
+                                  elev_source = NA, station_id = NULL) {
   tryCatch({
     metadata <- load_zentra_metadata()
-    device_index <- which(metadata$device_serial == device_serial)
+    
+    # Scoped to active rows, and to a station where the caller knows it. A
+    # serial can carry several rows, and writing a new location onto a closed
+    # historical one would move a station that never went anywhere.
+    terminal <- c("removed", "replaced", "relocated", "decommissioned")
+    device_index <- which(metadata$device_serial == device_serial &
+                          !tolower(metadata$status) %in% terminal)
+    if (!is.null(station_id)) {
+      scoped <- device_index[metadata$station_id[device_index] == station_id]
+      if (length(scoped) > 0) device_index <- scoped
+    }
     
     if (length(device_index) == 0) {
-      return("Device not found in metadata")
+      return("No active row found for this device")
     }
     
     metadata$lat[device_index] <- lat
     metadata$lon[device_index] <- lon
     metadata$elev[device_index] <- elev
+    if ("elev_source" %in% names(metadata)) {
+      metadata$elev_source[device_index] <- elev_source
+    }
     save_device_metadata(metadata)
     
     return(TRUE)
@@ -848,18 +862,45 @@ survey_device_elevation <- function(device_serial, elevation) {
 #' @param elevation_diff Numeric. Elevation difference: secondary - primary (meters)
 #' @return TRUE if successful, error message if failed
 survey_dual_logger_elevations <- function(station_id, primary_serial, secondary_serial,
-                                          primary_elev, elevation_diff) {
+                                          primary_elev, elevation_diff,
+                                          reach_length_m = NA) {
   tryCatch({
     metadata <- load_zentra_metadata()
     
-    # Calculate secondary elevation
     secondary_elev <- primary_elev + elevation_diff
     
-    # Update primary device elevation
-    metadata$elev[metadata$device_serial == primary_serial] <- primary_elev
+    # Scoped by station AND active status, not by serial alone. A serial can
+    # carry several rows - a relocated one plus its successor - and writing to
+    # all of them would put a current survey onto a closed historical record.
+    terminal <- c("removed", "replaced", "relocated", "decommissioned")
+    active <- !tolower(metadata$status) %in% terminal
     
-    # Update secondary device elevation
-    metadata$elev[metadata$device_serial == secondary_serial] <- secondary_elev
+    p_idx <- which(metadata$device_serial == primary_serial &
+                   metadata$station_id == station_id & active)
+    s_idx <- which(metadata$device_serial == secondary_serial &
+                   metadata$station_id == station_id & active)
+    
+    if (length(p_idx) == 0 || length(s_idx) == 0) {
+      return("Could not find active rows for both loggers at this station")
+    }
+    
+    metadata$elev[p_idx[1]] <- primary_elev
+    metadata$elev[s_idx[1]] <- secondary_elev
+    
+    # The secondary's elevation is DERIVED - its absolute accuracy is the
+    # primary's, its accuracy relative to the primary is the survey's. Saying
+    # so is the difference between a usable slope and an unexplained number.
+    if ("elev_source" %in% names(metadata)) {
+      metadata$elev_source[s_idx[1]] <- "surveyed_relative"
+    }
+    
+    # Reach length belongs to the secondary: it is that logger's distance to
+    # the primary, measured along the channel. Slope is then
+    # (secondary_elev - primary_elev) / reach_length_m.
+    if ("reach_length_m" %in% names(metadata) && !is.na(reach_length_m)) {
+      metadata$reach_length_m[s_idx[1]] <- reach_length_m
+    }
+    
     save_device_metadata(metadata)
     
     return(TRUE)
@@ -1139,6 +1180,8 @@ add_new_device <- function(device_data) {
       lon = device_data$lon,
       elev = device_data$elev,
       elev_source = device_data$elev_source,
+      reach_length_m = if (is.null(device_data$reach_length_m)) NA_real_
+                       else device_data$reach_length_m,
       interval_min = device_data$interval_min,
       timezone = device_data$timezone,
       deploy_datetime = device_data$deploy_datetime,
@@ -1176,7 +1219,8 @@ add_new_device <- function(device_data) {
 #' @param download_approved Logical. Approval for download
 #' @return List with success status and new unique_ids
 relocate_station <- function(station_id, new_lat, new_lon, deploy_datetime,
-                            new_status, download_approved) {
+                            new_status, download_approved,
+                            new_elev = NA, new_elev_source = NA) {
   tryCatch({
     metadata <- load_zentra_metadata()
     
@@ -1212,6 +1256,17 @@ relocate_station <- function(station_id, new_lat, new_lon, deploy_datetime,
       new_row$unique_id <- new_unique_id
       new_row$lat <- new_lat
       new_row$lon <- new_lon
+      # new_row is a copy of the old device, so without this it would carry the
+      # OLD location's elevation to the new coordinates - a value describing a
+      # place the station is no longer at.
+      new_row$elev <- new_elev
+      if ("elev_source" %in% names(new_row)) {
+        new_row$elev_source <- new_elev_source
+      }
+      # Reach length describes a distance to the primary from the old position
+      if ("reach_length_m" %in% names(new_row)) {
+        new_row$reach_length_m <- NA_real_
+      }
       new_row$deploy_datetime <- deploy_datetime
       new_row$status <- new_status
       new_row$last_update <- old_device$last_update  # Copy from old
@@ -1602,3 +1657,79 @@ device_label <- function(device_row, with_role = FALSE) {
 
 
 ################################################################################
+
+
+#' Invalidates survey geometry when half a pair moves or leaves
+#'
+#' A paired stream gauge's numbers describe a RELATIONSHIP between two
+#' positions: the secondary's elevation is the primary's plus a measured
+#' difference, and reach_length_m is the distance between them along the
+#' channel. Move either logger and both statements stop being true - but
+#' nothing about the elevation field changes, so nothing would notice.
+#'
+#' A wrong slope is worse than a missing one. A missing one announces itself;
+#' a wrong one silently biases every discharge value computed from the reach.
+#'
+#' Which values die depends on which logger moved:
+#'   - the PRIMARY moved: its own elevation is for the old position, and the
+#'     secondary's was measured against it. Both go, and the reach length too
+#'   - a SECONDARY or TERTIARY moved: only its own elevation and reach length
+#'   - the primary is REMOVED: the dependants reference nothing
+#'
+#' @param station_id Character
+#' @param changed_serial Character. The device that moved or left
+#' @param changed_role Character. Its role, or NA
+#' @return Character vector describing what was cleared, empty if nothing
+invalidate_pair_geometry <- function(station_id, changed_serial, changed_role) {
+
+  cleared <- character(0)
+
+  metadata <- load_zentra_metadata()
+  terminal <- c("removed", "replaced", "relocated", "decommissioned")
+  active <- !tolower(metadata$status) %in% terminal
+
+  at_station <- which(metadata$station_id == station_id & active)
+  if (length(at_station) == 0) return(cleared)
+
+  if (tolower(metadata$station_type[at_station[1]]) != "hydro") return(cleared)
+
+  roles <- tolower(as.character(metadata$device_role[at_station]))
+  if (!any(roles %in% c("secondary", "tertiary"))) return(cleared)
+
+  role <- tolower(as.character(changed_role))
+  primary_moved <- !is.na(role) && role == "primary"
+
+  has_value <- function(i) {
+    !is.na(metadata$elev[i]) ||
+      ("reach_length_m" %in% names(metadata) && !is.na(metadata$reach_length_m[i]))
+  }
+
+  affected <- if (primary_moved) {
+    at_station
+  } else {
+    at_station[metadata$device_serial[at_station] == changed_serial]
+  }
+
+  affected <- affected[vapply(affected, has_value, logical(1))]
+  if (length(affected) == 0) return(cleared)
+
+  for (i in affected) {
+    label <- paste0(metadata$device_serial[i],
+                    if (!is.na(metadata$device_role[i]))
+                      paste0(" (", metadata$device_role[i], ")") else "")
+    bits <- character(0)
+    if (!is.na(metadata$elev[i])) {
+      bits <- c(bits, paste0("elevation ", metadata$elev[i], " m"))
+      metadata$elev[i] <- NA
+      if ("elev_source" %in% names(metadata)) metadata$elev_source[i] <- NA
+    }
+    if ("reach_length_m" %in% names(metadata) && !is.na(metadata$reach_length_m[i])) {
+      bits <- c(bits, paste0("reach length ", metadata$reach_length_m[i], " m"))
+      metadata$reach_length_m[i] <- NA
+    }
+    cleared <- c(cleared, paste0(label, ": ", paste(bits, collapse = ", ")))
+  }
+
+  save_device_metadata(metadata)
+  cleared
+}

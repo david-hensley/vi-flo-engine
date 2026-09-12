@@ -3,7 +3,12 @@ All notable changes to the VI-FLO Engine project are documented here.
 
 ---
 
-## [v1.1.0] (unreleased)
+## [v1.1.0] - 2026-09-12
+
+Elevation and paired-logger survey. A stream gauge's hydraulic slope is now
+derivable from stored metadata alone, and the workflows that could invalidate
+a survey - relocation, replacement, removal - clear the values that no longer
+describe reality rather than leaving them to mislead.
 
 ### Added
 - `elevation_functions.R`
@@ -27,6 +32,26 @@ All notable changes to the VI-FLO Engine project are documented here.
 - `tools/migrations/migrate_fill_elevations.R` - added `elev_source` and
   filled 35 existing devices from USGS 3DEP, all at 1 m resolution
 
+- `reach_length_m` column - distance from a secondary or tertiary hydro logger
+  to its station's primary, measured ALONG THE CHANNEL. With it, hydraulic
+  slope is derivable from stored values alone:
+  `(secondary elev - primary elev) / reach_length_m`
+- The elevation survey now requires reach length alongside the elevation
+  difference, and shows the resulting slope before saving. A survey without a
+  distance cannot produce a slope, and realistically nobody measures one
+  without the other. A slope outside roughly 0.0001 to 0.1 asks for
+  confirmation - that range covers essentially every real stream reach, so
+  anything beyond it is usually a decimal slip
+- `invalidate_pair_geometry()` - relocating, replacing or removing half a
+  paired gauge clears the survey values that described the old positions, and
+  says which. Moving the PRIMARY clears both loggers' elevations and the reach
+  length, since the secondary's was measured against a position that no longer
+  exists; moving a secondary clears only its own. A wrong slope is worse than
+  a missing one - a missing one announces itself, a wrong one silently biases
+  every discharge value computed from the reach
+- `ui_prompt_elevation()` now runs wherever coordinates are entered:
+  establishment, relocation, and reactivation at new coordinates
+- `tools/migrations/migrate_add_reach_length.R`
 ### Changed
 - A `secondary` or `tertiary` hydro logger is never given an elevation
   automatically, by lookup or by inheritance. Its elevation is the primary's
@@ -39,6 +64,27 @@ All notable changes to the VI-FLO Engine project are documented here.
   including that `surveyed_relative` inherits its absolute accuracy from the
   primary while being millimetre-accurate relative to it
 - `README.md` records the Open-Meteo attribution required under CC BY 4.0
+
+---
+
+- `survey_dual_logger_elevations()` sets the secondary's `elev_source` to
+  `surveyed_relative`, which nothing was doing, and scopes its writes by
+  station rather than by serial alone
+- Reactivating a station at its ORIGINAL coordinates carries the old
+  `elev_source` with the elevation, rather than leaving the value unlabelled
+### Fixed
+- `relocate_station()` built the new row as a copy of the old device, so a
+  relocated station carried the OLD location's elevation to its new
+  coordinates. For a paired station the geometry invalidation caught it; for a
+  lone gauge nothing did
+- Reactivating at NEW coordinates left elevation NA with no prompt, so every
+  station reactivated at a new location started without one
+- `update_device_location()` matched on serial with no status or station
+  filter, so a new location could be written onto a closed historical row -
+  moving a station that never went anywhere
+- A `secondary` or `tertiary` hydro logger added to an existing station
+  inherited the primary's elevation, which would have made the pair's
+  elevation difference exactly zero
 
 ---
 
