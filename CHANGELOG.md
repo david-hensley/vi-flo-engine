@@ -3,6 +3,45 @@ All notable changes to the VI-FLO Engine project are documented here.
 
 ---
 
+## [v1.1.0] (unreleased)
+
+### Added
+- `elevation_functions.R`
+  - `lookup_elevation()` resolves a coordinate to a ground elevation, trying
+    USGS 3DEP first and falling through to Open-Meteo where USGS reports no
+    coverage. USGS returns 1 m lidar for the US Virgin Islands, Puerto Rico,
+    Culebra and Vieques; Open-Meteo covers everywhere else at roughly 90 m,
+    so the British Virgin Islands are reachable
+  - No new dependency: `jsonlite` is used where present, with a regex
+    fallback otherwise. A parse that fails returns NA and the caller falls
+    back to manual entry
+  - USGS signals "outside the United States" by returning -1000000 rather
+    than an error, and "not on land" by returning 0. Both are caught
+- `elev_source` column in `device_metadata.csv`, recording WHICH dataset a
+  value came from and at what resolution - `usgs_3dep_1m`, `open_meteo`,
+  `gnss`, `dem_manual`, `surveyed_relative`. Without it a +/-5 m estimate and
+  a surveyed value are indistinguishable
+- `ui_prompt_elevation()` in station establishment. Looks up automatically
+  while the coordinates are still on screen, names whichever source answered,
+  and accepts a typed value instead. A failed lookup prints the URL
+- `tools/migrations/migrate_fill_elevations.R` - added `elev_source` and
+  filled 35 existing devices from USGS 3DEP, all at 1 m resolution
+
+### Changed
+- A `secondary` or `tertiary` hydro logger is never given an elevation
+  automatically, by lookup or by inheritance. Its elevation is the primary's
+  plus a surveyed difference, and that difference is what hydraulic slope
+  uses - a DEM value there would be the difference between two samples of a
+  raster, and an inherited one would make the difference exactly zero
+- The confirmation summary when adding a device shows elevation and its
+  source, so the value being approved is visible at the point of approval
+- `DATA_DICTIONARY.md` documents `elev` and the `elev_source` vocabulary,
+  including that `surveyed_relative` inherits its absolute accuracy from the
+  primary while being millimetre-accurate relative to it
+- `README.md` records the Open-Meteo attribution required under CC BY 4.0
+
+---
+
 ## [v1.0.0] - 2026-08-31
 
 First release. The metadata manager is feature-complete for single-user work:

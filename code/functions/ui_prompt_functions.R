@@ -404,3 +404,115 @@ ui_prompt_download_approval <- function(station_id, device_row, apply = TRUE) {
 
 
 ################################################################################
+
+
+#' Establishes an elevation for a new device
+#'
+#' Tries USGS 3DEP first, since it is authoritative for US territories and
+#' returns 1 m lidar where available. Where that cannot answer - outside US
+#' coverage, or no connection - the URL is shown so the value can be looked up
+#' by hand, and a typed value is always accepted.
+#'
+#' A secondary or tertiary hydro logger is NOT looked up. Its elevation is the
+#' primary's plus a surveyed difference, so that the difference between the
+#' pair is a real measurement. A DEM value there would be the difference
+#' between two samples of a raster, which is not a slope.
+#'
+#' @param lat Numeric latitude
+#' @param lon Numeric longitude
+#' @param station_type Character, e.g. "hydro"
+#' @param device_role Character or NA
+#' @return List with elev (numeric or NA) and elev_source (character or NA)
+ui_prompt_elevation <- function(lat, lon, station_type = NA, device_role = NA) {
+
+  none <- list(elev = NA_real_, elev_source = NA_character_)
+
+  #### Paired hydro loggers get theirs from the survey ####
+  role <- tolower(as.character(device_role))
+  if (!is.na(station_type) && tolower(station_type) == "hydro" &&
+      !is.na(role) && role %in% c("secondary", "tertiary")) {
+    cat("\n--- ELEVATION ---\n\n")
+    cat("Not set here. A ", role, " logger's elevation is the primary's plus\n",
+        sep = "")
+    cat("a surveyed difference - that difference is what hydraulic slope uses,\n")
+    cat("so it has to be measured, not looked up.\n\n")
+    cat("Record it with 'Field surveyed elevation' (option 8) once surveyed.\n")
+    return(none)
+  }
+
+  cat("\n--- ELEVATION ---\n\n")
+
+  if (!exists("lookup_elevation")) {
+    suppressMessages(try(load_functions("elevation"), silent = TRUE))
+  }
+
+  #### Try the lookup ####
+  res <- NULL
+  if (exists("lookup_elevation")) {
+    cat("Looking up...\n")
+    res <- lookup_elevation(lat, lon)
+  }
+
+  if (!is.null(res) && isTRUE(res$ok)) {
+    label <- elevation_source_label(res)
+    cat("  \u2713 ", res$elev, " m", sep = "")
+    if (!is.na(res$resolution)) {
+      cat("   [USGS 3DEP, ", res$resolution, " m DEM]", sep = "")
+    } else {
+      cat("   [", label, "]", sep = "")
+    }
+    cat("\n\n")
+
+    if (ui_yes_no("Accept this elevation?", allow_quit = FALSE) == "Y") {
+      return(list(elev = res$elev, elev_source = label))
+    }
+    cat("\nEnter a different value instead.\n")
+
+  } else {
+    if (!is.null(res)) cat("  \u2717 ", res$message, "\n", sep = "")
+    cat("\nLook it up here and paste the value:\n\n")
+    cat("     ", build_elevation_url(lat, lon), "\n\n", sep = "")
+    cat("For a location outside US coverage, use any DEM source - but use the\n")
+    cat("SAME one for every station, or the elevations stop being comparable.\n")
+  }
+
+  #### Manual entry ####
+  repeat {
+    cat("\nElevation in metres (or press Enter to leave blank): ")
+    input <- trimws(readline())
+
+    if (input == "") {
+      cat("\u2713 No elevation recorded - it can be added later with\n")
+      cat("  'Correct device details' (option 9)\n")
+      return(none)
+    }
+
+    value <- suppressWarnings(as.numeric(input))
+    if (is.na(value)) {
+      cat("\u26a0\ufe0f  Not a number.\n")
+      next
+    }
+    if (value < -5 || value > 600) {
+      cat("\u26a0\ufe0f  ", value, " m is outside the plausible range for this region.\n",
+          sep = "")
+      if (ui_yes_no("  Use it anyway?", allow_quit = FALSE) == "N") next
+    }
+
+    #### Where did it come from? ####
+    cat("\nWhere does this value come from?\n")
+    cat("  1. A DEM lookup site\n")
+    cat("  2. A GNSS receiver in the field\n")
+    cat("  3. Other / not sure\n")
+    cat("Selection: ")
+    choice <- trimws(readline())
+
+    src <- switch(choice,
+                  "1" = "dem_manual",
+                  "2" = "gnss",
+                  NA_character_)
+
+    cat("\u2713 Elevation: ", value, " m",
+        if (!is.na(src)) paste0(" (", src, ")") else "", "\n", sep = "")
+    return(list(elev = value, elev_source = src))
+  }
+}

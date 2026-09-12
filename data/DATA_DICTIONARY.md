@@ -39,6 +39,8 @@ Generally stored in a top-level directory alongside raw and processed databases.
 
   * `usgs_3dep_1m`: USGS Elevation Point Query Service, 1 m lidar DEM. Vertical datum NAVD88. The default for US territories
   * `usgs_3dep_10m`, `usgs_3dep_30m`: The same service where lidar is unavailable and it falls back to coarser seamless data. The suffix is the resolution EPQS itself reported
+  * `open_meteo`: Open-Meteo elevation API, a global product at roughly 90 m. Used only where USGS reports no coverage - outside US territory, such as the British Virgin Islands. Coarser than 3DEP by a wide margin, which is why it is recorded distinctly rather than lumped in as "a DEM"
+  * `dem_manual`: Typed in after being looked up by hand on some DEM site. Use the SAME site for every station, or the values stop being comparable
   * `gnss`: Measured in the field with a GNSS receiver. Check whether the receiver reported orthometric or ellipsoidal height - in the Caribbean the two differ by tens of metres
   * `surveyed_relative`: Computed as the primary logger's elevation plus a surveyed difference. Its ABSOLUTE accuracy is inherited from the primary and is no better; its accuracy RELATIVE to the primary is millimetres. That distinction is the whole point of recording it, since hydraulic slope uses the difference and the shared datum error cancels
 

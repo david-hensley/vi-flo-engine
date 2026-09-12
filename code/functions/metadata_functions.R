@@ -1138,6 +1138,7 @@ add_new_device <- function(device_data) {
       lat = device_data$lat,
       lon = device_data$lon,
       elev = device_data$elev,
+      elev_source = device_data$elev_source,
       interval_min = device_data$interval_min,
       timezone = device_data$timezone,
       deploy_datetime = device_data$deploy_datetime,

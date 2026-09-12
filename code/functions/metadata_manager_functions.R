@@ -1642,8 +1642,14 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL, suppr
         }
       }
       
-      ## Elevation (will be derived from DEM or entered via survey workflow)
-      elev <- NA
+      ## Elevation
+      # Looked up now, while the coordinates are on screen and correctable.
+      # A secondary or tertiary hydro logger is deliberately NOT looked up -
+      # its elevation is the primary's plus a surveyed difference, and a DEM
+      # value there would make the difference between the pair meaningless.
+      elev_result <- ui_prompt_elevation(lat, lon, station_type, device_role)
+      elev <- elev_result$elev
+      elev_source <- elev_result$elev_source
       
     } else {
       # Existing station - inherit location from station
@@ -1651,12 +1657,33 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL, suppr
       lat <- station_devices$lat[1]
       lon <- station_devices$lon[1]
       elev <- station_devices$elev[1]
+      elev_source <- if ("elev_source" %in% names(station_devices)) {
+        station_devices$elev_source[1]
+      } else NA_character_
+      
+      # Coordinates are shared across a station's devices; ELEVATION is not.
+      # A secondary or tertiary hydro logger's elevation is the primary's plus
+      # a surveyed difference - inheriting the primary's value would make that
+      # difference zero and the hydraulic slope meaningless.
+      role_now <- tolower(as.character(device_role))
+      if (tolower(station_type) == "hydro" &&
+          !is.na(role_now) && role_now %in% c("secondary", "tertiary")) {
+        elev <- NA
+        elev_source <- NA_character_
+      }
       
       cat("✓ Location inherited from station:\n")
       cat("  Latitude:", lat, "\n")
       cat("  Longitude:", lon, "\n")
       if (!is.na(elev)) {
-        cat("  Elevation:", elev, "m\n")
+        cat("  Elevation:", elev, "m",
+            if (!is.na(elev_source)) paste0(" (", elev_source, ")") else "", "\n")
+      } else if (tolower(station_type) == "hydro" &&
+                 !is.na(role_now) && role_now %in% c("secondary", "tertiary")) {
+        cat("  Elevation: not set - a ", role_now, " logger's elevation is the\n",
+            sep = "")
+        cat("             primary's plus a surveyed difference. Record it with\n")
+        cat("             'Field surveyed elevation' (option 8).\n")
       } else {
         cat("  Elevation: Not recorded\n")
       }
@@ -1792,6 +1819,12 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL, suppr
     cat("  Station:", station_id, "(", site_full, ")\n")
     cat("  Device:", device_serial, "(", mfger, ")\n")
     cat("  Location:", lat, ",", lon, "\n")
+    if (!is.na(elev)) {
+      cat("  Elevation:", elev, "m",
+          if (!is.na(elev_source)) paste0(" (", elev_source, ")") else "", "\n")
+    } else {
+      cat("  Elevation: not set\n")
+    }
     cat("  Deploy:", format(deploy_datetime), "\n")
     cat("  Status:", status, "\n")
     cat("  Download approved:", download_approved, "\n")
@@ -1835,6 +1868,7 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL, suppr
     lat = lat,
     lon = lon,
     elev = elev,
+    elev_source = elev_source,
     interval_min = interval,
     timezone = timezone,
     deploy_datetime = deploy_datetime,

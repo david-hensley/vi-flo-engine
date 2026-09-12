@@ -158,6 +158,24 @@ and goes straight to the menu.
 
 ---
 
+## Data sources
+
+Elevations are looked up from the **USGS Elevation Point Query Service**,
+which interpolates the 3DEP dynamic elevation service - 1 m lidar where
+available, NAVD88 vertical datum. This covers the US Virgin Islands, Puerto
+Rico, Culebra and Vieques.
+
+Where USGS reports no coverage, the lookup falls through to the
+**[Open-Meteo](https://open-meteo.com/) elevation API**, a global product at
+roughly 90 m resolution. Open-Meteo data is provided under
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) and is free for
+non-commercial use.
+
+`elev_source` in `device_metadata.csv` records which was used, because the two
+differ substantially in accuracy. See `data/DATA_DICTIONARY.md`.
+
+---
+
 ## Dependencies
 
 * R version 4 or higher

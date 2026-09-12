@@ -18,7 +18,8 @@
 # error: the caller is expected to fall back to manual entry.                  #
 ################################################################################
 
-EPQS_URL <- "https://epqs.nationalmap.gov/v1/json"
+EPQS_URL      <- "https://epqs.nationalmap.gov/v1/json"
+OPENMETEO_URL <- "https://api.open-meteo.com/v1/elevation"
 
 #' Builds the lookup URL for a coordinate
 #'
@@ -34,52 +35,61 @@ build_elevation_url <- function(lat, lon) {
 }
 
 
-#' Looks up ground elevation for a coordinate
-#'
-#' @param lat Numeric. Latitude, decimal degrees
-#' @param lon Numeric. Longitude, decimal degrees
-#' @param timeout Numeric. Seconds to wait (default 10)
-#' @return List with elev (numeric or NA), resolution (numeric or NA),
-#'   ok (logical), and message (character) describing any failure
-lookup_elevation <- function(lat, lon, timeout = 10) {
-
-  fail <- function(msg) list(elev = NA_real_, resolution = NA_real_,
-                             ok = FALSE, message = msg)
-
-  if (is.na(lat) || is.na(lon)) return(fail("No coordinates"))
-
-  url <- build_elevation_url(lat, lon)
-
-  raw <- tryCatch({
+#' Fetches a URL and returns its body, or NULL
+#' @param url Character
+#' @return Character, or NULL on any failure
+fetch_url_text <- function(url) {
+  tryCatch({
     con <- url(url, open = "r")
     on.exit(try(close(con), silent = TRUE), add = TRUE)
     paste(readLines(con, warn = FALSE), collapse = "")
-  }, error = function(e) NULL,
-     warning = function(w) NULL)
+  }, error = function(e) NULL, warning = function(w) NULL)
+}
 
+
+#' Builds the Open-Meteo lookup URL
+#' @param lat,lon Numeric
+#' @return Character
+build_elevation_url_global <- function(lat, lon) {
+  paste0(OPENMETEO_URL, "?latitude=", lat, "&longitude=", lon)
+}
+
+
+#' Looks up elevation from Open-Meteo, for points outside USGS coverage
+#'
+#' A global fallback, so the British Virgin Islands and anywhere else beyond
+#' US territory can still get a value. Coarser than 3DEP - a global product at
+#' roughly 90 m rather than 1 m lidar - which is why it is second in the chain
+#' and why elev_source records which was used.
+#'
+#' Free, no key, non-commercial use, data under CC BY 4.0 - attribution is
+#' required and is recorded in the README.
+#'
+#' @param lat,lon Numeric
+#' @return Same shape as lookup_elevation()
+lookup_elevation_global <- function(lat, lon) {
+
+  fail <- function(msg) list(elev = NA_real_, resolution = NA_real_,
+                             ok = FALSE, message = msg,
+                             provider = "open_meteo")
+
+  raw <- fetch_url_text(build_elevation_url_global(lat, lon))
   if (is.null(raw) || !nzchar(raw)) {
-    return(fail("Could not reach the elevation service"))
+    return(fail("Could not reach the global elevation service"))
   }
 
-  #### Parse ####
-  # jsonlite where available; a regex otherwise. The regex is the weaker of
-  # the two and would break if the response shape changed - but a broken parse
-  # returns NA, and the caller falls back to manual entry.
+  # Open-Meteo returns the value inside an ARRAY: {"elevation":[44.812]}
   value <- NA_real_
-  resolution <- NA_real_
 
   if (requireNamespace("jsonlite", quietly = TRUE)) {
     parsed <- tryCatch(jsonlite::fromJSON(raw), error = function(e) NULL)
-    if (!is.null(parsed) && !is.null(parsed$value)) {
-      value <- suppressWarnings(as.numeric(parsed$value))
-      if (!is.null(parsed$resolution)) {
-        resolution <- suppressWarnings(as.numeric(parsed$resolution))
-      }
+    if (!is.null(parsed) && !is.null(parsed$elevation)) {
+      value <- suppressWarnings(as.numeric(parsed$elevation[1]))
     }
   }
 
   if (is.na(value)) {
-    m <- regmatches(raw, regexpr('"value"\\s*:\\s*"?-?[0-9.]+"?', raw))
+    m <- regmatches(raw, regexpr('"elevation"\\s*:\\s*\\[?\\s*-?[0-9.]+', raw))
     if (length(m) > 0) {
       value <- suppressWarnings(as.numeric(gsub('[^0-9.-]', '', m)))
     }
@@ -87,18 +97,93 @@ lookup_elevation <- function(lat, lon, timeout = 10) {
 
   if (is.na(value)) return(fail("Could not read a value from the response"))
 
-  #### The service's own failure signals ####
-  # Outside the United States, EPQS returns -1000000 rather than an error
-  if (value < -99999) {
-    return(fail("Outside USGS coverage - no elevation available for this point"))
-  }
-  # Inside the US but not on land returns exactly 0
-  if (value == 0) {
-    return(fail("Returned 0 - the point may be over water, check the coordinates"))
+  list(elev = round(value, 2), resolution = NA_real_,
+       ok = TRUE, message = "", provider = "open_meteo")
+}
+
+
+#' Looks up ground elevation for a coordinate
+#'
+#' Tries USGS 3DEP first, since it is authoritative for US territories and
+#' returns 1 m lidar where available. Where USGS reports no coverage - which
+#' it does by returning -1000000 rather than an error - falls through to a
+#' global source so that the British Virgin Islands and anywhere else beyond
+#' US territory still gets a value.
+#'
+#' The two are not equivalent in quality, which is why the result carries the
+#' provider and the caller records it in elev_source.
+#'
+#' @param lat Numeric. Latitude, decimal degrees
+#' @param lon Numeric. Longitude, decimal degrees
+#' @param allow_global Logical. Fall through to the global source (default TRUE)
+#' @return List with elev, resolution, ok, message, provider
+lookup_elevation <- function(lat, lon, allow_global = TRUE) {
+
+  fail <- function(msg, provider = NA_character_) {
+    list(elev = NA_real_, resolution = NA_real_, ok = FALSE,
+         message = msg, provider = provider)
   }
 
-  list(elev = round(value, 2), resolution = resolution,
-       ok = TRUE, message = "")
+  if (is.na(lat) || is.na(lon)) return(fail("No coordinates"))
+
+  #### 1. USGS 3DEP ####
+  raw <- fetch_url_text(build_elevation_url(lat, lon))
+
+  usgs_value <- NA_real_
+  usgs_res <- NA_real_
+  outside_us <- FALSE
+
+  if (!is.null(raw) && nzchar(raw)) {
+    if (requireNamespace("jsonlite", quietly = TRUE)) {
+      parsed <- tryCatch(jsonlite::fromJSON(raw), error = function(e) NULL)
+      if (!is.null(parsed) && !is.null(parsed$value)) {
+        usgs_value <- suppressWarnings(as.numeric(parsed$value))
+        if (!is.null(parsed$resolution)) {
+          usgs_res <- suppressWarnings(as.numeric(parsed$resolution))
+        }
+      }
+    }
+    if (is.na(usgs_value)) {
+      m <- regmatches(raw, regexpr('"value"\\s*:\\s*"?-?[0-9.]+"?', raw))
+      if (length(m) > 0) {
+        usgs_value <- suppressWarnings(as.numeric(gsub('[^0-9.-]', '', m)))
+      }
+    }
+  }
+
+  if (!is.na(usgs_value)) {
+    # EPQS signals "outside the United States" with -1000000, not an error
+    if (usgs_value < -99999) {
+      outside_us <- TRUE
+    } else if (usgs_value == 0) {
+      # Inside the US but not on land
+      return(fail("Returned 0 - the point may be over water, check the coordinates",
+                  "usgs_3dep"))
+    } else {
+      return(list(elev = round(usgs_value, 2), resolution = usgs_res,
+                  ok = TRUE, message = "", provider = "usgs_3dep"))
+    }
+  }
+
+  #### 2. Global fallback ####
+  if (!allow_global) {
+    return(fail(if (outside_us) "Outside USGS coverage"
+                else "Could not reach the elevation service", "usgs_3dep"))
+  }
+
+  if (outside_us) {
+    cat("  (outside USGS coverage - trying global source)\n")
+  }
+
+  global <- lookup_elevation_global(lat, lon)
+  if (isTRUE(global$ok)) return(global)
+
+  fail(if (outside_us) {
+         paste0("Outside USGS coverage, and the global source failed: ",
+                global$message)
+       } else {
+         "Could not reach either elevation service"
+       }, "none")
 }
 
 
@@ -114,6 +199,13 @@ lookup_elevation <- function(lat, lon, timeout = 10) {
 #' @return Character, e.g. "usgs_3dep_1m"
 elevation_source_label <- function(res) {
   if (is.null(res) || !isTRUE(res$ok)) return(NA_character_)
-  if (is.na(res$resolution)) return("usgs_3dep")
-  paste0("usgs_3dep_", res$resolution, "m")
+
+  provider <- if (is.null(res$provider)) "usgs_3dep" else res$provider
+
+  if (provider == "usgs_3dep") {
+    if (is.na(res$resolution)) return("usgs_3dep")
+    return(paste0("usgs_3dep_", res$resolution, "m"))
+  }
+
+  provider
 }
