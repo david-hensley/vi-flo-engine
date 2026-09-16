@@ -1473,9 +1473,13 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL, suppr
     }
     
     # Get station devices and inherit metadata
-    station_devices <- get_station_devices(station_id)
+    # The station's current row, not its first - see get_station_current_row()
+    station_devices <- get_station_current_row(station_id)
+    if (is.null(station_devices)) {
+      cat("❌ No devices found at ", station_id, "\n", sep = "")
+      return(NULL)
+    }
     
-    # Inherit from first device at station
     watershed <- station_devices$watershed[1]
     area <- station_devices$area[1]
     site_full <- station_devices$site_full[1]
@@ -1585,6 +1589,11 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL, suppr
       lat             <- shared_row$lat
       lon             <- shared_row$lon
       elev            <- shared_row$elev
+      # This branch predates elev_source; without it the confirmation summary
+      # reaches an undefined variable and the whole workflow aborts
+      elev_source     <- if ("elev_source" %in% names(shared_row)) {
+        shared_row$elev_source
+      } else NA_character_
       interval        <- shared_row$interval_min
       timezone        <- shared_row$timezone
       deploy_datetime <- shared_row$deploy_datetime
@@ -1596,6 +1605,9 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL, suppr
       cat("  Model:        ", blank_or_value(model), "\n", sep = "")
       cat("  Name:         ", blank_or_value(device_name), "\n", sep = "")
       cat("  Location:     ", lat, ", ", lon, "\n", sep = "")
+      cat("  Elevation:    ", blank_or_value(elev), " m",
+          if (!is.na(elev_source)) paste0(" (", elev_source, ")") else "",
+          "\n", sep = "")
       cat("  Interval:     ", interval, " minutes\n", sep = "")
       cat("  Deployed:     ", blank_or_value(deploy_datetime), "\n", sep = "")
       cat("  Status:       ", status, "\n\n", sep = "")
@@ -1728,13 +1740,19 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL, suppr
       elev_source <- elev_result$elev_source
       
     } else {
-      # Existing station - inherit location from station
-      station_devices <- get_station_devices(station_id)
-      lat <- station_devices$lat[1]
-      lon <- station_devices$lon[1]
-      elev <- station_devices$elev[1]
-      elev_source <- if ("elev_source" %in% names(station_devices)) {
-        station_devices$elev_source[1]
+      # Existing station - inherit location from the station's CURRENT row,
+      # not its first. A station that has been relocated still holds the old
+      # row, and inheriting from it puts the new device at the old position.
+      current_row <- get_station_current_row(station_id)
+      if (is.null(current_row)) {
+        cat("❌ No devices found at ", station_id, "\n", sep = "")
+        return(NULL)
+      }
+      lat <- current_row$lat
+      lon <- current_row$lon
+      elev <- current_row$elev
+      elev_source <- if ("elev_source" %in% names(current_row)) {
+        current_row$elev_source
       } else NA_character_
       
       # Coordinates are shared across a station's devices; ELEVATION is not.
@@ -4522,7 +4540,7 @@ ui_correct_device_details <- function() {
   # but note that lat/lon changing because the DEVICE MOVED is an event, and
   # belongs in the relocation or replacement workflow so it leaves a log entry.
   editable <- c("model", "device_name", "device_role", "interval_min",
-                "deploy_datetime", "lat", "lon")
+                "deploy_datetime", "lat", "lon", "elev")
   editable <- editable[editable %in% names(metadata)]
 
   # A device already in a terminal state can have that state CORRECTED here -
@@ -4603,6 +4621,23 @@ ui_correct_device_details <- function() {
         cat("   device to service.\n")
         next
       }
+
+    } else if (field == "elev") {
+      # Offer a lookup rather than only accepting a typed number - the
+      # coordinates are right there, and a corrected elevation is usually a
+      # corrected position.
+      if (!exists("ui_prompt_elevation")) {
+        suppressMessages(try(load_functions("ui_prompt"), silent = TRUE))
+      }
+      res <- ui_prompt_elevation(metadata$lat[idx], metadata$lon[idx],
+                                 metadata$station_type[idx],
+                                 metadata$device_role[idx])
+      new_value <- res$elev
+      if (is.na(new_value)) {
+        cat("\u2713 No elevation recorded\n")
+      }
+      # elev_source travels with the value
+      metadata$elev_source[idx] <- res$elev_source
 
     } else if (field == "deploy_datetime") {
       cat("Enter deploy datetime (YYYY-MM-DD HH:MM:SS): ")
@@ -4691,6 +4726,24 @@ ui_correct_device_details <- function() {
         logged_by        = ui_ask_whois_logging()
       )
       if (isTRUE(log_result)) cat("Logged correction to maintenance\n")
+    }
+
+    # Coordinates changed means the elevation describes somewhere else
+    if (field %in% c("lat", "lon")) {
+      cat("\nThe elevation on record was looked up for the old coordinates.\n")
+      cat("If you still have the other coordinate to correct, say no and do\n")
+      cat("the lookup once both are right.\n")
+      if (ui_yes_no("Look up the elevation for the new position?",
+                    allow_quit = FALSE) == "Y") {
+        metadata <- load_zentra_metadata()
+        res <- ui_prompt_elevation(metadata$lat[idx], metadata$lon[idx],
+                                   metadata$station_type[idx],
+                                   metadata$device_role[idx])
+        metadata$elev[idx] <- res$elev
+        metadata$elev_source[idx] <- res$elev_source
+        save_device_metadata(metadata)
+        cat("\u2713 Elevation updated\n")
+      }
     }
 
     if (field == "device_name") {

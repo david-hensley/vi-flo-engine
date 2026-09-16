@@ -1733,3 +1733,36 @@ invalidate_pair_geometry <- function(station_id, changed_serial, changed_role) {
   save_device_metadata(metadata)
   cleared
 }
+
+
+#' The row describing a station's CURRENT state
+#'
+#' get_station_devices() returns every row a station has ever had, including
+#' relocated, replaced and removed ones. Taking the first is wrong whenever a
+#' station has history: a device added after a relocation inherited the
+#' coordinates of the row the relocation had just retired, and landed at the
+#' old position.
+#'
+#' Active rows are preferred, and among them the most recently deployed, since
+#' that is what the station looks like now. Where every row is terminal - a
+#' decommissioned station being reactivated - the most recent is still the best
+#' available answer.
+#'
+#' @param station_id Character
+#' @return One row, or NULL if the station has none
+get_station_current_row <- function(station_id) {
+
+  metadata <- load_zentra_metadata()
+  rows <- metadata[metadata$station_id == station_id, , drop = FALSE]
+
+  if (nrow(rows) == 0) return(NULL)
+
+  terminal <- c("removed", "replaced", "relocated", "decommissioned")
+  active <- rows[!tolower(rows$status) %in% terminal, , drop = FALSE]
+  if (nrow(active) > 0) rows <- active
+
+  deployed <- suppressWarnings(as.POSIXct(rows$deploy_datetime))
+  if (all(is.na(deployed))) return(rows[nrow(rows), ])
+
+  rows[which.max(deployed), ]
+}
