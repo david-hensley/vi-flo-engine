@@ -30,7 +30,7 @@
 #                                                                              #
 #   Available tokens:                                                          #
 #     {shuttle_dir}   absolute path to the shuttle readout folder              #
-#     {raw_dir}       absolute path to the raw data folder for this type       #
+#     {raw_dir}       absolute path to the Product 1 folder for this device    #
 #     {temp_file}     temporary filename the export must be saved as           #
 #     {station_id}    station being worked on, e.g. sr1_hydro                  #
 #                                                                              #
@@ -143,24 +143,31 @@ fill_instructions <- function(template, ...) {
 }
 
 
-#' Resolves the raw data directory for a station
-#' @param station_type Character. e.g. "hydro", "vwc"
+#' Resolves the Product 1 directory for a device
+#'
+#' Product 1 is keyed by DEVICE, not by station. A station name in a filename
+#' is an attribution, and attributions can be wrong - a logger swapped between
+#' stations and logged late leaves files filed under the wrong one, correctable
+#' only by rebuilding from something the mistake could not reach. The serial is
+#' the one identifier that never needs correcting.
+#'
+#' Station attribution happens at Product 2, in internal/raw/<type>/.
+#'
+#' @param mfger Character. Manufacturer, to pick the instrument folder
 #' @return Character. Absolute path
-get_raw_dir <- function(station_type) {
-  wds(paste0("internal_raw_", station_type))
+get_raw_dir <- function(mfger) {
+  if (is_hobo_device(mfger)) wds("device_hobo") else wds("device_zentra")
 }
 
 
 #' Resolves the shuttle readout folder
 #'
-#' A fixed subfolder of the hydro raw directory. Deliberately NOT a named path
-#' in the datamap - it is dumb storage that only humans interact with, and a
-#' fixed subfolder of an already-mapped location should be derived, not
-#' configured.
+#' Product 0 for HOBO loggers - the .hobo files exactly as they came off the
+#' shuttle, kept permanently alongside the Product 1 files derived from them.
 #'
 #' @return Character. Absolute path
 get_shuttle_dir <- function() {
-  file.path(wds("internal_raw_hydro"), "shuttle_readouts")
+  wds("shuttle_readouts")
 }
 
 
@@ -419,14 +426,17 @@ ui_ingest_local_data <- function(station_id, device_serial, station_type,
   cat("Device:  ", device_serial, "\n\n", sep = "")
 
   #### Resolve paths ####
-  raw_dir     <- get_raw_dir(station_type)
+  raw_dir     <- get_raw_dir(mfger)
   shuttle_dir <- get_shuttle_dir()
   # Per DEVICE, not per station. A paired stream gauge has two or three
   # loggers, and a station-level name means an abandoned export from one sits
   # on disk waiting to be picked up by the next: the serial check would reject
   # it as "the wrong .hobo file", which is not what went wrong, and the user
   # loops. Including the serial makes the collision impossible.
-  temp_file   <- paste0(station_id, "_", device_serial, "_raw_temp.csv")
+  # Serial only, matching Product 1. The station plays no part in a device's
+  # export, and including it was the last place a station name appeared in a
+  # filename where it no longer belongs.
+  temp_file   <- paste0(device_serial, "_raw_temp.csv")
   temp_path   <- file.path(raw_dir, temp_file)
 
   if (!dir.exists(raw_dir)) dir.create(raw_dir, recursive = TRUE)
@@ -527,12 +537,11 @@ ui_ingest_local_data <- function(station_id, device_serial, station_type,
     # An export abandoned earlier at this station leaves a temp file for a
     # DIFFERENT logger sitting in the same folder. Naming it is more useful
     # than letting the user wonder why the folder looks full.
-    other_temps <- list.files(raw_dir,
-                              pattern = paste0("^", station_id, "_.*_raw_temp\\.csv$"))
+    other_temps <- list.files(raw_dir, pattern = "_raw_temp\\.csv$")
     other_temps <- setdiff(other_temps, temp_file)
 
     if (length(other_temps) > 0) {
-      cat("There are unfinished exports for other loggers at this station:\n")
+      cat("There are unfinished exports for other loggers:\n")
       for (f in other_temps) cat("     ", f, "\n", sep = "")
       cat("\nThose belong to a different logger and are not this one. Resume\n")
       cat("them from the main menu, or delete them if they are stale.\n\n")
@@ -590,9 +599,10 @@ ui_ingest_local_data <- function(station_id, device_serial, station_type,
                                   resume_stage = "awaiting_temp_csv")))
     }
 
-    # Serial included: a paired gauge has two loggers at one station, and a
-    # station-level name would have the second overwrite the first.
-    final_name <- build_raw_filename(station_id, parsed$start, parsed$end,
+    # Serial only - no station. Product 1 records what the DEVICE measured;
+    # which station that was is applied at Product 2, where it can be corrected
+    # without touching the archive.
+    final_name <- build_raw_filename(parsed$start, parsed$end,
                                      ext = "rds", device_serial = device_serial)
 
     cat("\n--------------------------------------------\n")
@@ -603,7 +613,7 @@ ui_ingest_local_data <- function(station_id, device_serial, station_type,
     cat("  Last record:   ", format(parsed$end,   "%Y-%m-%d %H:%M:%S"), "\n", sep = "")
     cat("  Records:       ", format(parsed$n_records, big.mark = ","), "\n\n", sep = "")
 
-    check_raw_overlap(station_id, parsed$start, parsed$end, dir = raw_dir,
+    check_raw_overlap(start = parsed$start, end = parsed$end, dir = raw_dir,
                       device_serial = device_serial)
 
     #### Does the logger's actual interval match what metadata records? ####

@@ -139,17 +139,24 @@ coerce_datetime_flexible <- function(x, tz = NULL) {
 #' @return Character. The filename
 #' @examples
 #' \dontrun{
-#' build_raw_filename("sr1_hydro", as.POSIXct("2026-01-01"), as.POSIXct("2026-04-01"))
+#' build_raw_filename(as.POSIXct("2026-01-01"), as.POSIXct("2026-04-01"),
+#'                    device_serial = "21352826")
 #' # "sr1_hydro_20260101_20260401_raw.rds"
 #' }
-build_raw_filename <- function(station, start, end, ext = "rds", tz = NULL,
-                               device_serial = NULL) {
+build_raw_filename <- function(start, end, ext = "rds", tz = NULL,
+                               device_serial = NULL, station = NULL) {
 
-  if (is.null(station) || is.na(station) || !nzchar(station)) {
-    stop("station must be a non-empty character string", call. = FALSE)
-  }
   if (is.null(start) || is.null(end) || any(is.na(c(start, end)))) {
     stop("start and end must both be supplied and non-NA", call. = FALSE)
+  }
+
+  has_station <- !is.null(station) && !is.na(station) && nzchar(station)
+  has_serial  <- !is.null(device_serial) && !is.na(device_serial) &&
+                 nzchar(trimws(device_serial))
+
+  if (!has_station && !has_serial) {
+    stop("either device_serial (Product 1) or station (Product 2) is required",
+         call. = FALSE)
   }
 
   start <- coerce_datetime_flexible(start, tz)
@@ -162,10 +169,14 @@ build_raw_filename <- function(station, start, end, ext = "rds", tz = NULL,
 
   ext <- sub("^\\.", "", ext)  # tolerate ".rds" being passed
 
-  stem <- station
-  if (!is.null(device_serial) && !is.na(device_serial) &&
-      nzchar(trimws(device_serial))) {
-    stem <- paste0(station, "_", trimws(device_serial))
+  # Product 1 is keyed by serial alone; Product 2 leads with the station and
+  # keeps the serial, so a paired gauge's two loggers stay distinguishable.
+  stem <- if (has_station && has_serial) {
+    paste0(station, "_", trimws(device_serial))
+  } else if (has_station) {
+    station
+  } else {
+    trimws(device_serial)
   }
 
   paste0(stem, "_",
@@ -213,16 +224,25 @@ parse_raw_filename <- function(filename) {
   stem_parts <- parts[1:(n - 2)]
   if (length(stem_parts) == 0) return(NULL)
 
-  # A trailing all-digit segment is a device serial, not part of the station
-  # ID - station IDs are always <site>_<type>, never numeric at the end.
-  device_serial <- NA_character_
-  if (length(stem_parts) > 2 && grepl("^[0-9]+$", stem_parts[length(stem_parts)])) {
-    device_serial <- stem_parts[length(stem_parts)]
-    stem_parts <- stem_parts[-length(stem_parts)]
-  }
+  # Product 1 is serial only - "21352826_..." or "z6-13368_...". Product 2
+  # leads with a station, which is always <site>_<type> and never numeric, so
+  # a stem that is entirely a serial has no station at all.
+  is_serial <- function(x) grepl("^[0-9]+$", x) || grepl("^z6-[0-9]+$", x)
 
-  station <- paste(stem_parts, collapse = "_")
-  if (!nzchar(station)) return(NULL)
+  device_serial <- NA_character_
+  station <- NA_character_
+
+  if (length(stem_parts) == 1 && is_serial(stem_parts[1])) {
+    device_serial <- stem_parts[1]
+
+  } else {
+    if (length(stem_parts) > 2 && is_serial(stem_parts[length(stem_parts)])) {
+      device_serial <- stem_parts[length(stem_parts)]
+      stem_parts <- stem_parts[-length(stem_parts)]
+    }
+    station <- paste(stem_parts, collapse = "_")
+    if (!nzchar(station)) return(NULL)
+  }
 
   list(station = station, device_serial = device_serial,
        start = start, end = end, ext = ext)
@@ -239,19 +259,29 @@ parse_raw_filename <- function(filename) {
 #' @param dir Character. Directory to scan. Defaults to the station's raw
 #'   directory, resolved from station_type in device_metadata.
 #' @return Data frame with filename, start, end - zero rows if none found
-list_raw_files <- function(station, dir = NULL) {
+list_raw_files <- function(station = NULL, dir = NULL, device_serial = NULL) {
+
+  if (is.null(station) && is.null(device_serial)) {
+    stop("supply station (Product 2) or device_serial (Product 1)", call. = FALSE)
+  }
 
   if (is.null(dir)) {
-    # Resolve station_type from metadata, NOT by string-munging the station ID.
-    # Stripping the last underscore segment gives "hydro" for "sr1_hydro" but
-    # "vwc2" for "uvi_vwc2", which is wrong.
-    metadata <- load_zentra_metadata()
-    station_type <- metadata$station_type[metadata$station_id == station][1]
-    if (is.na(station_type)) {
-      stop("Station '", station, "' not found in device_metadata - cannot ",
-           "resolve its raw data directory.", call. = FALSE)
+    if (!is.null(device_serial)) {
+      # Product 1 - keyed by device, so the folder follows the instrument
+      dir <- if (grepl("^z6-", device_serial)) wds("device_zentra") else
+                                               wds("device_hobo")
+    } else {
+      # Product 2 - resolve station_type from metadata, NOT by string-munging
+      # the station ID. Stripping the last underscore segment gives "hydro" for
+      # "sr1_hydro" but "vwc2" for "uvi_vwc2", which is wrong.
+      metadata <- load_zentra_metadata()
+      station_type <- metadata$station_type[metadata$station_id == station][1]
+      if (is.na(station_type)) {
+        stop("Station '", station, "' not found in device_metadata - cannot ",
+             "resolve its raw data directory.", call. = FALSE)
+      }
+      dir <- wds(paste0("internal_raw_", station_type))
     }
-    dir <- wds(paste0("internal_raw_", station_type))
   }
 
   empty <- data.frame(filename = character(0),
@@ -267,7 +297,12 @@ list_raw_files <- function(station, dir = NULL) {
 
   rows <- lapply(files, function(f) {
     p <- parse_raw_filename(f)
-    if (is.null(p) || p$station != station) return(NULL)
+    if (is.null(p)) return(NULL)
+    if (!is.null(device_serial)) {
+      if (is.na(p$device_serial) || p$device_serial != device_serial) return(NULL)
+    } else {
+      if (is.na(p$station) || p$station != station) return(NULL)
+    }
     data.frame(filename = f, device_serial = p$device_serial,
                start = p$start, end = p$end,
                stringsAsFactors = FALSE)
@@ -298,13 +333,21 @@ list_raw_files <- function(station, dir = NULL) {
 #'   files, so a paired gauge's two loggers do not appear to overlap each other
 #' @return List with overlap (logical) and files
 #'   (data frame of overlapping files)
-check_raw_overlap <- function(station, start, end, dir = NULL, verbose = TRUE,
-                              device_serial = NULL) {
+check_raw_overlap <- function(station = NULL, start, end, dir = NULL,
+                              verbose = TRUE, device_serial = NULL) {
 
   start_dt <- coerce_datetime_flexible(start)
   end_dt   <- coerce_datetime_flexible(end)
 
-  existing <- list_raw_files(station, dir)
+  # Product 1 files carry no station, so overlap is checked against the
+  # DEVICE's own record - which is the more correct question anyway: whether
+  # this logger's readings have already been archived.
+  by_device <- is.null(station) && !is.null(device_serial)
+  existing <- if (by_device) {
+    list_raw_files(dir = dir, device_serial = device_serial)
+  } else {
+    list_raw_files(station = station, dir = dir)
+  }
 
   # At a paired gauge both loggers cover the same period by design, so files
   # from the OTHER logger are not an overlap - they are the point. Compare
@@ -359,7 +402,8 @@ check_raw_overlap <- function(station, start, end, dir = NULL, verbose = TRUE,
   if (verbose) {
     cat("\n")
     cat("WARNING: This date range overlaps data already archived for\n")
-    cat("         station '", station, "':\n", sep = "")
+    cat("         ", if (by_device) device_serial else station,
+        ":\n", sep = "")
     for (i in seq_len(nrow(hits))) {
       cat("         - ", hits$filename[i], "\n", sep = "")
     }

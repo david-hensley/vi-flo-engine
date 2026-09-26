@@ -145,7 +145,9 @@ safe_download_zentra_station <- function(station, start = NULL, end = NULL, all 
   # Generate filename via the shared helper, so the automated and manual
   # ingest paths cannot drift apart. See file_naming_functions.R.
   if (!exists("build_raw_filename")) load_functions("file_naming")
-  filename <- build_raw_filename(station, start, end, ext = "rds")
+  # Product 2 naming - the API path still writes station-attributed files.
+  # When it moves to Product 1 this becomes device_serial only.
+  filename <- build_raw_filename(start, end, ext = "rds", station = station)
   filepath <- file.path(station_dir, filename)
 
   # Warn if this range overlaps data already archived for this station.
