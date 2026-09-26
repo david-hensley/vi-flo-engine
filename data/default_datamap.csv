@@ -1,8 +1,12 @@
 named_path,path
 backup,backup
+device_hobo,internal/raw/device-data/hobo
+device_zentra,internal/raw/device-data/zentra
+device_zentra_backfill,internal/raw/device-data/zentra/backfill
 external_raw_weather,external/raw/weather
 internal_raw_hydro,internal/raw/streamflow
 internal_raw_vwc,internal/raw/vwc
 internal_raw_weather,internal/raw/weather
 meta_external,metadata/external
 meta_internal,metadata/internal
+shuttle_readouts,internal/raw/device-data/hobo/shuttle_readouts

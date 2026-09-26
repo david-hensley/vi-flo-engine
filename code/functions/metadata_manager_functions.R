@@ -1291,7 +1291,13 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL, suppr
     cat("✓ Watershed:", watershed, "\n")
     
     ## Area (optional)
-    specify_area <- ui_yes_no("Specify an area? (This is usually a subcatchment)", allow_quit = FALSE)
+    # Area groups stations that belong together within a site. For field
+    # stations that is usually a subcatchment; for campus work it is the
+    # experiment, which keeps station IDs a plain counter while the grouping
+    # stays filterable.
+    cat("\nArea groups stations within a site - a subcatchment in the field,\n")
+    cat("or the name of the experiment for campus work.\n")
+    specify_area <- ui_yes_no("Specify an area?", allow_quit = FALSE)
     if (specify_area == "N") {
       area <- NA
       cat("✓ No area recorded\n")
