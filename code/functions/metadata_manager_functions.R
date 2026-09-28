@@ -343,11 +343,11 @@ ui_log_maintenance <- function(prefill_station = NULL, prefill_device = NULL,
     }
   }
   
-  #### 12 - Download approval
+  #### 12 - Metadata review
   # Get device info to check status
   device_row <- station_devices[station_devices$device_serial == device_serial, ][1, ]
   
-  ui_prompt_download_approval(station_id, device_row)
+  ui_prompt_metadata_approval(station_id, device_row)
   
   cat("\n✓ All done!\n")
   
@@ -514,12 +514,12 @@ ui_log_download <- function() {
     cat("✓ Updated last_download_date\n")
   }
   
-  #### 10 - Download approval / cloud upload
+  #### 10 - Metadata review / cloud upload
   # Get device info to check status
   device_row <- station_devices[station_devices$device_serial == device_serial, ][1, ]
   device_status <- tolower(device_row$status)
   
-  # 'manual' needs nothing here - ui_prompt_download_approval() below skips it,
+  # 'manual' needs nothing here - ui_prompt_metadata_approval() below skips it,
   # and the data is archived directly in step 11. Saying so twice was just the
   # branch and the shared function both announcing it.
   if (device_status == "local") {
@@ -546,13 +546,13 @@ ui_log_download <- function() {
       cat("  open the metadata manager.\n")
     }
     
-    # The upload question is about where the DATA is. Download approval is
+    # The upload question is about where the DATA is. The metadata review is
     # about whether the METADATA is current. They are separate questions and
     # this branch used to answer the second with the first, which made the
     # flag mean two things at once and neither reliably.
   }
   
-  ui_prompt_download_approval(station_id, device_row)
+  ui_prompt_metadata_approval(station_id, device_row)
   
   #### 11 - Archive the data (manual stations only)
   # The field record is now written and stays true regardless of what happens
@@ -1637,10 +1637,10 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL, suppr
         cat("\u2713 Device role:", device_role, "\n")
       }
 
-      ## Download approval is per-station, so it is still asked
+      ## The metadata review is per-station, so it is still asked
       pending_row <- data.frame(status = status, stringsAsFactors = FALSE)
-      download_approved <- isTRUE(
-        ui_prompt_download_approval(station_id, pending_row, apply = FALSE))
+      metadata_approved <- isTRUE(
+        ui_prompt_metadata_approval(station_id, pending_row, apply = FALSE))
 
     } else {
 
@@ -1873,12 +1873,12 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL, suppr
     }
     cat("✓ Status:", status, "\n")
     
-    ## Download approval
+    ## Metadata review
     # apply = FALSE: the row does not exist yet - it is built from these values
     # below. The manual skip lives in the shared function.
     pending_row <- data.frame(status = status, stringsAsFactors = FALSE)
-    download_approved <- isTRUE(
-      ui_prompt_download_approval(station_id, pending_row, apply = FALSE))
+    metadata_approved <- isTRUE(
+      ui_prompt_metadata_approval(station_id, pending_row, apply = FALSE))
     
     ## Expiry date (optional)
     if (tolower(status) == "manual") {
@@ -1927,7 +1927,7 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL, suppr
     }
     cat("  Deploy:", format(deploy_datetime), "\n")
     cat("  Status:", status, "\n")
-    cat("  Download approved:", download_approved, "\n")
+    cat("  Record confirmed:", metadata_approved, "\n")
     cat("============================================\n\n")
     
     confirm <- ui_yes_no("Confirm?", allow_quit = FALSE)
@@ -1973,7 +1973,7 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL, suppr
     timezone = timezone,
     deploy_datetime = deploy_datetime,
     status = status,
-    download_approved = download_approved,
+    metadata_approved = metadata_approved,
     expiry_date = expiry_date
   )
   
@@ -2368,12 +2368,12 @@ ui_relocate_station <- function() {
   }
   cat("✓ Status:", new_status, "\n")
   
-  ## Download approval - same question, same wording, as everywhere else
+  ## Metadata review - same question, same wording, as everywhere else
   # apply = FALSE: the row this applies to is created below, and writing now
   # would set the flag on the row about to be marked 'relocated'
   pending_row <- data.frame(status = new_status, stringsAsFactors = FALSE)
-  download_approved <- isTRUE(
-    ui_prompt_download_approval(station_id, pending_row, apply = FALSE))
+  metadata_approved <- isTRUE(
+    ui_prompt_metadata_approval(station_id, pending_row, apply = FALSE))
   
   ################################################################################
   #### CONFIRMATION ####
@@ -2395,7 +2395,7 @@ ui_relocate_station <- function() {
   cat("  Location:", new_lat, ",", new_lon, sep = " ")
   cat("\n  Deploy:", format(deploy_datetime), "\n")
   cat("  Status:", new_status, "\n")
-  cat("  Download approved:", download_approved, "\n")
+  cat("  Record confirmed:", metadata_approved, "\n")
   cat("============================================\n\n")
   
   confirm <- ui_yes_no("Confirm relocation?", allow_quit = FALSE)
@@ -2414,7 +2414,7 @@ ui_relocate_station <- function() {
     new_lon = new_lon,
     deploy_datetime = deploy_datetime,
     new_status = new_status,
-    download_approved = download_approved,
+    metadata_approved = metadata_approved,
     new_elev = reloc_elev$elev,
     new_elev_source = reloc_elev$elev_source
   )
@@ -2866,7 +2866,7 @@ ui_reactivate_station <- function() {
       }
     }
     
-    # Add device (ui_add_device will handle deploy datetime, status, download approval)
+    # Add device (ui_add_device will handle deploy datetime, status, metadata review)
     cat("\n--- ADD DEVICE FOR REACTIVATION ---\n")
     cat("Station:", station_id, "(", old_device$site_full, ")\n\n")
     
@@ -3648,7 +3648,7 @@ ui_view_metadata <- function() {
     if (!is.na(device$last_download_date)) {
       cat("Last download:", format(device$last_download_date, "%Y-%m-%d"), "\n", sep = "")
     }
-    cat("Download appr:", device$download_approved, "\n", sep = "")
+    cat("Download appr:", device$metadata_approved, "\n", sep = "")
     cat("\n")
   }
   
@@ -4360,7 +4360,7 @@ ui_delete_metadata_row <- function() {
   cat("timezone:            ", row_to_delete$timezone, "\n", sep = "")
   cat("deploy_datetime:     ", format(row_to_delete$deploy_datetime, "%Y-%m-%d %H:%M:%S"), "\n", sep = "")
   cat("status:              ", row_to_delete$status, "\n", sep = "")
-  cat("download_approved:   ", row_to_delete$download_approved, "\n", sep = "")
+  cat("metadata_approved:   ", row_to_delete$metadata_approved, "\n", sep = "")
   cat("============================================\n\n")
   
   ################################################################################
@@ -4843,7 +4843,7 @@ ui_resume_pending_ingest <- function() {
     uploaded <- ui_yes_no("Has it been uploaded now?", allow_quit = FALSE)
 
     if (uploaded == "Y") {
-      # Only clears the pending task. Download approval is a separate
+      # Only clears the pending task. The metadata review is a separate
       # question - whether the metadata is current - and is not implied by
       # data having reached the cloud.
       clear_pending_ingest(row$station_id, row$device_serial)

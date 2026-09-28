@@ -21,7 +21,7 @@ load_zentra_metadata <- function(){
   metadata$expiry_date <- parse_date_flexible(metadata$expiry_date)
   metadata$last_visit <- parse_date_flexible(metadata$last_visit)
   # Convert logical column
-  metadata$download_approved <- as.logical(metadata$download_approved)
+  metadata$metadata_approved <- as.logical(metadata$metadata_approved)
   return(metadata)
 }
 
@@ -165,28 +165,28 @@ cleanup_old_backups <- function(backup_dir, days = 365) {
 
 ######################          EDITING FUNCTIONS         ######################
 
-#' Sets download_approved flag for device(s) in device_metadata.csv
+#' Sets metadata_approved flag for device(s) in device_metadata.csv
 #' Can approve single device, all devices at a station, or all devices
 #' @param device_serial Character. Device serial number (optional if station_id provided)
 #' @param station_id Character. Station ID - approves all devices at station (optional)
 #' @param approve_all Logical. If TRUE, approves all devices (default FALSE)
 #' @param value Logical. TRUE to approve, FALSE to un-approve (default TRUE)
 #' @return Invisible TRUE on success
-set_download_approved <- function(device_serial = NULL, station_id = NULL, approve_all = FALSE, value = TRUE) {
+set_metadata_approved <- function(device_serial = NULL, station_id = NULL, approve_all = FALSE, value = TRUE) {
   # Load metadata
   metadata <- load_zentra_metadata()
   # Determine which rows to update
   if (approve_all) {
     # Approve all devices
     rows_to_update <- rep(TRUE, nrow(metadata))
-    message("Setting download_approved = ", value, " for ALL devices")
+    message("Setting metadata_approved = ", value, " for ALL devices")
   } else if (!is.null(station_id)) {
     # Approve all devices at this station
     rows_to_update <- metadata$station_id == station_id
     if (sum(rows_to_update) == 0) {
       stop("No devices found for station: ", station_id, call. = FALSE)
     }
-    message("Setting download_approved = ", value, " for station: ", station_id, 
+    message("Setting metadata_approved = ", value, " for station: ", station_id, 
             " (", sum(rows_to_update), " device(s))")
   } else if (!is.null(device_serial)) {
     # Approve specific device
@@ -194,18 +194,29 @@ set_download_approved <- function(device_serial = NULL, station_id = NULL, appro
     if (sum(rows_to_update) == 0) {
       stop("Device not found: ", device_serial, call. = FALSE)
     }
-    message("Setting download_approved = ", value, " for device: ", device_serial)
+    message("Setting metadata_approved = ", value, " for device: ", device_serial)
   } else {
     stop("Must provide device_serial, station_id, or set approve_all = TRUE", call. = FALSE)
   }
-  # Update the flag
-  metadata$download_approved[rows_to_update] <- value
-  # Save metadata back to CSV
-  # This block previously formatted only three of the datetime columns - it
-  # predates last_record_date, last_visit and expiry_date - and runs on every
-  # approval. save_device_metadata() handles whatever columns are present.
+  # Update the flag AND when it was set. The flag alone says someone once
+  # confirmed the record; it does not say whether that was this morning or in
+  # March. The pair answers the question that matters - how long since a human
+  # looked at this station.
+  #
+  # The timestamp updates for FALSE as well as TRUE. "I looked and something is
+  # missing" is as much a review as "I looked and it is fine".
+  metadata$metadata_approved[rows_to_update] <- value
+
+  if ("last_reviewed_utc" %in% names(metadata)) {
+    # UTC: a review happens at a keyboard that could be anywhere. The station's
+    # own times stay local, because they belong to a place.
+    metadata$last_reviewed_utc[rows_to_update] <-
+      format(Sys.time(), "%Y-%m-%d %H:%M:%S", tz = "UTC")
+  }
+
+  # save_device_metadata() handles whatever datetime columns are present.
   save_device_metadata(metadata)
-  message("✓ Updated download approval(s) for device_metadata.csv")
+  message("✓ Recorded metadata review for device_metadata.csv")
   invisible(TRUE)
 }
 
@@ -661,8 +672,8 @@ update_device_status <- function(device_serial, new_status, station_id = NULL) {
     # each workflow to remember.
     terminal_statuses <- c("removed", "replaced", "relocated", "decommissioned")
     if (tolower(new_status) %in% terminal_statuses &&
-        "download_approved" %in% names(metadata)) {
-      metadata$download_approved[rows] <- FALSE
+        "metadata_approved" %in% names(metadata)) {
+      metadata$metadata_approved[rows] <- FALSE
     }
     save_device_metadata(metadata)
     
@@ -744,8 +755,8 @@ update_station_status <- function(station_id, new_status,
     # through here and were being missed.
     station_terminal <- c("removed", "replaced", "relocated", "decommissioned")
     if (tolower(new_status) %in% station_terminal &&
-        "download_approved" %in% names(metadata)) {
-      metadata$download_approved[metadata$station_id == station_id &
+        "metadata_approved" %in% names(metadata)) {
+      metadata$metadata_approved[metadata$station_id == station_id &
                                  tolower(metadata$status) %in% station_terminal] <- FALSE
     }
     save_device_metadata(metadata)
@@ -756,17 +767,20 @@ update_station_status <- function(station_id, new_status,
   })
 }
 
-#' Update download approval flag for a station
+#' Records a human's review of a station's metadata
+#'
+#' Sets metadata_approved and last_reviewed_utc together for every device at
+#' the station. Both values are written whether the answer was yes or no.
+#'
 #' @param station_id Character. Station to update
-#' @param approved Logical. Approval status
+#' @param approved Logical. Whether the record was confirmed complete
 #' @return TRUE if successful, error message if failed
-update_download_approval <- function(station_id, approved) {
+update_metadata_approval <- function(station_id, approved) {
   tryCatch({
-    # Use existing set_download_approved function
-    set_download_approved(station_id = station_id, value = approved)
+    set_metadata_approved(station_id = station_id, value = approved)
     return(TRUE)
   }, error = function(e) {
-    return(paste0("Failed to update download approval: ", e$message))
+    return(paste0("Failed to record metadata review: ", e$message))
   })
 }
 
@@ -1196,7 +1210,7 @@ add_new_device <- function(device_data) {
       expiry_date = device_data$expiry_date,
       last_download_date = NA,
       last_record_date = NA,
-      download_approved = device_data$download_approved,
+      metadata_approved = device_data$metadata_approved,
       stringsAsFactors = FALSE
     )
     
@@ -1216,10 +1230,10 @@ add_new_device <- function(device_data) {
 #' @param new_lon Numeric. New longitude  
 #' @param deploy_datetime POSIXct. When relocation occurred
 #' @param new_status Character. Status at new location
-#' @param download_approved Logical. Approval for download
+#' @param metadata_approved Logical. Approval for download
 #' @return List with success status and new unique_ids
 relocate_station <- function(station_id, new_lat, new_lon, deploy_datetime,
-                            new_status, download_approved,
+                            new_status, metadata_approved,
                             new_elev = NA, new_elev_source = NA) {
   tryCatch({
     metadata <- load_zentra_metadata()
@@ -1271,7 +1285,7 @@ relocate_station <- function(station_id, new_lat, new_lon, deploy_datetime,
       new_row$status <- new_status
       new_row$last_update <- old_device$last_update  # Copy from old
       new_row$last_visit <- as.Date(deploy_datetime)
-      new_row$download_approved <- download_approved
+      new_row$metadata_approved <- metadata_approved
       
       metadata <- rbind(metadata, new_row)
       new_unique_ids <- c(new_unique_ids, new_unique_id)
@@ -1308,7 +1322,7 @@ remove_device <- function(device_serial, removal_datetime) {
     if (!isTRUE(result)) return(result)
     
     # 2. Disable downloads
-    result <- update_download_approval(device_row$station_id, FALSE)
+    result <- update_metadata_approval(device_row$station_id, FALSE)
     if (!isTRUE(result)) {
       # Non-fatal - continue
     }

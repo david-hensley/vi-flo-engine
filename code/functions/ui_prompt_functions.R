@@ -343,7 +343,7 @@ ui_prompt_device_status <- function(allow_quit = TRUE) {
 
 #' Asks whether a station may be downloaded automatically
 #'
-#' download_approved is a safety interlock for the automated download job: it
+#' metadata_approved is a safety interlock for the automated download job: it
 #' sits FALSE, a human sets it TRUE to say "the metadata for this station is
 #' current", and the job resets it after running.
 #'
@@ -367,38 +367,44 @@ ui_prompt_device_status <- function(allow_quit = TRUE) {
 #'   the flag on the row about to go terminal, before the user has even
 #'   confirmed the move
 #' @return TRUE if approved, FALSE otherwise
-ui_prompt_download_approval <- function(station_id, device_row, apply = TRUE) {
+ui_prompt_metadata_approval <- function(station_id, device_row, apply = TRUE) {
 
-  if (tolower(device_row$status) == "manual") {
-    cat("\n\u2713 Status is 'manual' - skipping download approval",
-        " (data is offloaded by hand)\n", sep = "")
-    return(invisible(FALSE))
-  }
+  # Manual stations are NOT skipped. The old flag gated automatic downloads,
+  # which a manual device cannot have - but this one asserts that the record is
+  # complete enough to attribute data to, and a HOBO's readings get attributed
+  # like any other.
 
-  cat("\n--- DOWNLOAD APPROVAL ---\n\n")
-  cat("Is everything you know about this station now recorded in metadata?\n")
-  cat("Say no if a sensor swap, device change or port reconfiguration is\n")
-  cat("still to be logged - an automated download would file data against\n")
-  cat("a record that is wrong.\n\n")
-  cat("Not about whether new data exists. The flag resets after each run.\n")
+  cat("\n--- METADATA REVIEW ---\n\n")
+  cat("Does the record match what is physically out there?\n\n")
+  cat("Say NO if a device was swapped, a station moved, or a sensor was\n")
+  cat("plugged into a different port and none of it has been logged yet.\n")
+  cat("Those make the record describe a station that no longer exists,\n")
+  cat("and readings would be attributed to the wrong thing.\n\n")
+  cat("A broken logger is NOT a reason to say no. A device recorded as\n")
+  cat("defunct and still in the field is an accurate record. Faulty\n")
+  cat("readings are a quality question, handled in processing.\n\n")
+  cat("This does not affect downloading - raw data is archived either way.\n")
 
-  response <- ui_yes_no("\nApprove for download?", allow_quit = FALSE)
+  response <- ui_yes_no("\nDoes the record match reality?", allow_quit = FALSE)
 
   if (response != "Y") {
-    cat("\u2713 Not approved - approve it once the record is complete\n")
+    cat("\u2713 Noted as incomplete - confirm it once the record is up to date\n")
+    # A "no" is still a review: someone looked and answered. Recording when
+    # matters as much as recording what.
+    if (apply) update_metadata_approval(station_id, FALSE)
     return(invisible(FALSE))
   }
 
   if (!apply) return(invisible(TRUE))
 
-  result <- update_download_approval(station_id, TRUE)
+  result <- update_metadata_approval(station_id, TRUE)
   if (!isTRUE(result)) {
-    cat("\u26a0\ufe0f  Warning: could not update download approval: ", result, "\n",
+    cat("\u26a0\ufe0f  Warning: could not record the review: ", result, "\n",
         sep = "")
     return(invisible(FALSE))
   }
 
-  cat("\u2713 Station approved for download\n")
+  cat("\u2713 Record confirmed complete\n")
   invisible(TRUE)
 }
 

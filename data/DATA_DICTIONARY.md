@@ -52,8 +52,8 @@ Generally stored in a top-level directory alongside raw and processed databases.
 * `status`: Device status. Active statuses describe how the device works and how its data reaches the archive:
 
   * `online`: Working, reports to the cloud over a cellular connection
-  * `local`: Working, but out of cellular service. Data reaches the cloud only when offloaded on site (e.g. Bluetooth) and uploaded afterwards. Still API-downloadable, so `download_approved` applies and a cloud subscription is required
-  * `manual`: Working, but no cloud pathway at all. Data comes off by shuttle or cable and is archived by hand via the local ingest workflow. `download_approved` is always FALSE and `expiry_date` is NA
+  * `local`: Working, but out of cellular service. Data reaches the cloud only when offloaded on site (e.g. Bluetooth) and uploaded afterwards. Still API-downloadable, and a cloud subscription is required
+  * `manual`: Working, but no cloud pathway at all. Data comes off by shuttle or cable and is archived by hand via the local ingest workflow. `expiry_date` is NA
   * `defunct`: Broken or assumed lost, but still deployed
   * `nonresponsive`: Should be communicating with the cloud but is not, for an unknown reason (>2 weeks since uplink)
 
@@ -64,7 +64,8 @@ Generally stored in a top-level directory alongside raw and processed databases.
 * `expiry_date`: For Zentra loggers, date of Zentra Cloud subscription expiration. NA for `manual` devices, which have no cloud subscription
 * `last_download_date`: Datetime of last successful download
 * `last_record_date`: Datetime of last actual logged observation now held in the archive. For `local` and `manual` devices `last_update` is NA, so this is the only record of how current the data is. Comparing it against `last_visit` is how gaps are detected for those devices
-* `download_approved`: Boolean indicating whether a user has recently approved the metadata for download. Always FALSE for `manual` devices, since automatic download is impossible for them
+* `metadata_approved`: Whether a human has confirmed that everything known about this station is recorded. This does NOT gate downloading - raw data is archived whatever the record says, because a Product 1 file applies no metadata at all. It gates ATTRIBUTION: readings are only assigned to a station whose configuration is known to be current. Applies to `manual` devices too, since their readings get attributed like any other
+* `last_reviewed_utc`: When a human last answered that question, in UTC. The flag alone says someone once confirmed the record; it does not say whether that was this morning or in March, and a stale confirmation is worth less than a recent one. Updated whether the answer was yes or no - "I looked and something is missing" is as much a review as "I looked and it is fine". Blank means nobody has been asked yet
 
 ### `download_log.csv`
 

@@ -71,16 +71,20 @@ safe_download_zentra_station <- function(station, start = NULL, end = NULL, all 
   
   # ========== STEP 2: CHECK APPROVAL FLAG ==========
   station_devices <- metadata[metadata$station_id == station, ]
-  # Check if any device for this station has download_approved != TRUE
-  if ("download_approved" %in% names(metadata)) {
-    if (any(station_devices$download_approved != TRUE, na.rm = TRUE)) {
+  # Check if any device for this station has metadata_approved != TRUE
+  if ("metadata_approved" %in% names(metadata)) {
+    if (any(station_devices$metadata_approved != TRUE, na.rm = TRUE)) {
+      # SUPERSEDED. This is the v4 download path, kept for reference only -
+      # zentra_download_functions.R replaces it. The flag it checks no longer
+      # gates downloading: raw data is archived either way, and the review
+      # gates ATTRIBUTION instead. See the Data products section of the README.
       stop("Station '", station, "' is not approved for download.\n",
-           "Set download_approved = TRUE in metadata after confirming metadata is current.",
+           "Set metadata_approved = TRUE in metadata after confirming metadata is current.",
            call. = FALSE)
     }
     message("✓ Download approved for station: ", station)
   } else {
-    stop("Column 'download_approved' not found in metadata! Quitting..")
+    stop("Column 'metadata_approved' not found in metadata! Quitting..")
   }
   
   # ========== STEP 3: HANDLE DATE RANGE ==========

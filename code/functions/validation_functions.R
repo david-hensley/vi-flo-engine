@@ -15,7 +15,7 @@
 #'      deploy_datetime, lat, lon, timezone, mfger
 #'   4. Coordinates must be valid: lat [-90, 90], lon [-180, 180]
 #'   5. Status must be from known set
-#'   6. download_approved must be FALSE for manual stations
+#'   6. metadata_approved must be FALSE for manual stations
 #'   7. Every download log filepath resolves to a file that exists
 #'   8. Pending data tasks reference stations and devices that still exist
 #'
@@ -261,26 +261,34 @@ validate_metadata <- function(verbose = TRUE, stop_on_error = FALSE) {
     record_pass("status values")
   }
   
-  # CHECK 6: Manual stations should have download_approved = FALSE
-  # Manual stations have no cloud pathway at all, so automatic download is
-  # impossible and approval is meaningless. Note this does NOT apply to
-  # 'local' stations - their data does reach ZentraCloud (offloaded on site
-  # and uploaded), so they are legitimately API-downloadable and approvable.
-  if ("download_approved" %in% names(metadata)) {
-    manual_approved <- metadata$status == "manual" & 
-                       !is.na(metadata$download_approved) & 
-                       metadata$download_approved == TRUE
-    
-    if (any(manual_approved)) {
-      problem_rows <- metadata[manual_approved, 
-                               c("unique_id", "station_id", "device_serial", "status", "download_approved")]
+  # CHECK 6: an approved record must say when it was approved
+  #
+  # This check previously required manual stations to have the flag FALSE,
+  # because the flag gated automatic downloads and a manual station cannot have
+  # one. That is no longer what it means: metadata_approved asserts that a
+  # human has confirmed the record is complete, which gates ATTRIBUTION - and a
+  # HOBO's readings get attributed like any other. A manual station being
+  # approved is now correct, not a violation.
+  #
+  # What is worth checking is that the pair stays together. A row claiming
+  # approval with no date behind it says someone once confirmed the record but
+  # not whether that was this morning or in March, which is the question the
+  # flag exists to answer.
+  if (all(c("metadata_approved", "last_reviewed_utc") %in% names(metadata))) {
+    blank_date <- is.na(metadata$last_reviewed_utc) |
+                  trimws(as.character(metadata$last_reviewed_utc)) == ""
+    undated <- which(metadata$metadata_approved %in% TRUE & blank_date)
+
+    if (length(undated) > 0) {
       record_violation(
-        "MANUAL_DOWNLOAD_APPROVED",
-        paste(sum(manual_approved), "manual station(s) have download_approved = TRUE"),
-        problem_rows
+        "APPROVED_WITHOUT_DATE",
+        paste(length(undated),
+              "row(s) are approved but carry no review date"),
+        metadata[undated, c("unique_id", "station_id", "device_serial",
+                            "metadata_approved", "last_reviewed_utc")]
       )
     } else {
-      record_pass("manual stations download_approved = FALSE")
+      record_pass("approved rows carry a review date")
     }
   }
   
