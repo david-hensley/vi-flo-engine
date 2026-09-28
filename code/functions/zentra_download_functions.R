@@ -237,12 +237,22 @@ zentra_log_download <- function(device_sn, first, last, n, fname, fetched_at) {
   rel <- sub(paste0("^", gsub("\\\\", "/", Sys.getenv("VI_FLO_DATA_ROOT")), "/?"),
              "", gsub("\\\\", "/", file.path(wds("device_zentra"), fname)))
 
+  # Two timezones, deliberately. A reading belongs to a place with a recorded
+  # timezone, so start and end are project-local and match what the HOBO path
+  # writes. A run timestamp belongs to a moment and could be triggered from
+  # anywhere, so it is UTC - and the column is named for it.
+  project_tz <- tryCatch({
+    m <- load_zentra_metadata()
+    tz <- m$timezone[!is.na(m$timezone)][1]
+    if (is.na(tz) || !nzchar(tz)) "America/Puerto_Rico" else tz
+  }, error = function(e) "America/Puerto_Rico")
+
   entry <- data.frame(
-    timestamp     = format(fetched_at, "%Y-%m-%d %H:%M:%S"),
+    timestamp_utc = format(fetched_at, "%Y-%m-%d %H:%M:%S", tz = "UTC"),
     station       = NA_character_,
     device_serial = device_sn,
-    start_date    = format(first, "%Y-%m-%d %H:%M:%S"),
-    end_date      = format(last,  "%Y-%m-%d %H:%M:%S"),
+    start_date    = format(first, "%Y-%m-%d %H:%M:%S", tz = project_tz),
+    end_date      = format(last,  "%Y-%m-%d %H:%M:%S", tz = project_tz),
     n_records     = n,
     filepath      = rel,
     download_type = "automatic",

@@ -71,11 +71,11 @@ Generally stored in a top-level directory alongside raw and processed databases.
 One row per download. Files are written once and never rewritten, so each row
 points at exactly what one fetch or one offload returned.
 
-* `timestamp`: When the download occurred, in project timezone. Matches the fetch stamp in the filename
+* `timestamp_utc`: When the download occurred, in UTC. Matches the fetch stamp in the filename, which is also UTC. UTC because a run can be triggered from anywhere, including a cloud runner - unlike the reading times below, which belong to a place UTC because a run can be triggered from anywhere, including a cloud runner - unlike the reading times below, which belong to a place
 * `station`: Same as station_id in `device_metadata.csv`. BLANK for Product 1 downloads, which are keyed by device - attribution happens at Product 2, and recording a station here would bake in an assumption the archive exists to avoid
 * `device_serial`: The logger the data came from. This is what identifies a Product 1 file
-* `start_date`: Datetime of the first record in the file
-* `end_date`: Datetime of the last record in the file
+* `start_date`: Datetime of the first record in the file, in PROJECT LOCAL time
+* `end_date`: Datetime of the last record in the file, in PROJECT LOCAL time
 * `n_records`: Number of rows in the file
 * `filepath`: Relative filepath within the data root
 * `download_type`: How the data was obtained:

@@ -783,7 +783,10 @@ archive_local_data <- function(station_id, device_serial, csv_path, parsed,
   filepath_relative <- sub("^/", "", filepath_relative)
 
   log_entry <- data.frame(
-    timestamp     = format(Sys.time(), "%Y-%m-%d %H:%M:%S"),
+    # UTC: a run timestamp could be recorded anywhere. start_date and end_date
+    # below stay in the logger's own local time, which is what the .hobo file
+    # carries and what a person reading the log expects.
+    timestamp_utc = format(Sys.time(), "%Y-%m-%d %H:%M:%S", tz = "UTC"),
     station       = station_id,
     start_date    = format(parsed$start, "%Y-%m-%d %H:%M:%S"),
     end_date      = format(parsed$end,   "%Y-%m-%d %H:%M:%S"),

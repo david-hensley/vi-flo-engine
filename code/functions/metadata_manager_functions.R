@@ -4001,7 +4001,13 @@ ui_view_download_log <- function() {
         as.Date(download_log$download_datetime) >= as.Date(start_date) &
           as.Date(download_log$download_datetime) <= as.Date(end_date), 
       ]
+    } else if ("timestamp_utc" %in% names(download_log)) {
+      filtered_log <- download_log[
+        as.Date(download_log$timestamp_utc) >= as.Date(start_date) &
+          as.Date(download_log$timestamp_utc) <= as.Date(end_date), 
+      ]
     } else if ("timestamp" %in% names(download_log)) {
+      # Pre-v2 logs, before the column was renamed for its timezone
       filtered_log <- download_log[
         as.Date(download_log$timestamp) >= as.Date(start_date) &
           as.Date(download_log$timestamp) <= as.Date(end_date), 

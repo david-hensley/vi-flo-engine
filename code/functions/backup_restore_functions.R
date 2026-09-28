@@ -48,7 +48,10 @@ backup_directory <- function(source_dir, backup_dir, confirm = TRUE, allow_overw
     stop("❌ Source directory is empty")
   }
   
-  cat("Files/directories to backup: ", length(all_files), "\n\n")
+  # Files only, so this matches the summary's count at the end. Directories are
+  # still created as needed; they are just not counted as things to back up.
+  n_files <- sum(!dir.exists(file.path(source_dir, all_files)))
+  cat("Files to backup: ", n_files, "\n\n", sep = "")
   
   # Confirmation
   if (confirm) {
@@ -109,18 +112,34 @@ backup_directory <- function(source_dir, backup_dir, confirm = TRUE, allow_overw
   }
   
   # Verify backup
-  backup_files <- list.files(backup_dir, recursive = TRUE, full.names = FALSE, all.files = TRUE)
-  backup_files <- backup_files[!backup_files %in% c(".", "..")]
-  
+  #
+  # By NAME rather than by count. The two lists were previously built
+  # differently - the source with include.dirs = TRUE, the destination without -
+  # so a source containing any directory produced an off-by-one and warned that
+  # files were missing when none were. A warning that cries wolf gets ignored
+  # when it matters.
+  #
+  # Comparing names also answers the real question: did every file arrive?
+  rel_source <- sub(paste0("^", normalizePath(source_dir, winslash = "/"), "/?"), "",
+                    normalizePath(all_items, winslash = "/"))
+  source_files <- rel_source[!dir.exists(all_items)]
+
+  backup_files <- list.files(backup_dir, recursive = TRUE, full.names = FALSE)
+
+  missing <- setdiff(source_files, backup_files)
+
   cat("\n============================================\n")
   cat("Backup Summary:\n")
-  cat("  Source files:    ", length(all_files), "\n")
+  cat("  Source files:    ", length(source_files), "\n")
   cat("  Backed up files: ", length(backup_files), "\n")
   cat("  Location:        ", backup_dir, "\n")
   cat("============================================\n\n")
   
-  if (length(backup_files) != length(all_files)) {
-    warning("⚠️  File count mismatch - some files may not have been backed up")
+  if (length(missing) > 0) {
+    cat("Not backed up:\n")
+    for (f in head(missing, 10)) cat("  ", f, "\n", sep = "")
+    if (length(missing) > 10) cat("  ... and ", length(missing) - 10, " more\n", sep = "")
+    warning("⚠️  ", length(missing), " file(s) were not backed up")
   }
   
   cat("✓ Backup complete!\n\n")
