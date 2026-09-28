@@ -501,11 +501,19 @@ validate_metadata <- function(verbose = TRUE, stop_on_error = FALSE) {
       }
     }
     
-    # CHECK: every station in the download log exists in metadata
+    # CHECK: every station NAMED in the download log exists in metadata
+    #
+    # A blank station is not an error. Product 1 downloads are keyed by device
+    # and deliberately carry no station - attribution happens at Product 2,
+    # where it can be corrected without touching the archive. Only a row that
+    # names a station has one to verify.
+    blank_station <- is.na(dlog$station) | trimws(as.character(dlog$station)) == ""
+    
     if (!is.null(metadata) && "station" %in% names(dlog)) {
-      unknown <- !dlog$station %in% metadata$station_id
+      named <- which(!blank_station)
+      unknown <- named[!dlog$station[named] %in% metadata$station_id]
       
-      if (any(unknown)) {
+      if (length(unknown) > 0) {
         problem_rows <- dlog[unknown, c("timestamp", "station", "filepath")]
         record_violation(
           "UNKNOWN_DOWNLOAD_STATION",
@@ -515,6 +523,28 @@ validate_metadata <- function(verbose = TRUE, stop_on_error = FALSE) {
         )
       } else {
         record_pass("download log station_ids exist")
+      }
+    }
+    
+    # CHECK: a row with no station must at least name a device
+    #
+    # Product 1 rows identify their data by serial. One with neither a station
+    # nor a serial names nothing at all, and the file it points at could never
+    # be attributed.
+    if ("device_serial" %in% names(dlog)) {
+      blank_serial <- is.na(dlog$device_serial) |
+                      trimws(as.character(dlog$device_serial)) == ""
+      orphan <- which(blank_station & blank_serial)
+      
+      if (length(orphan) > 0) {
+        record_violation(
+          "DOWNLOAD_ROW_UNIDENTIFIED",
+          paste(length(orphan),
+                "download row(s) name neither a station nor a device"),
+          dlog[orphan, c("timestamp", "filepath")]
+        )
+      } else {
+        record_pass("download rows identify a station or a device")
       }
     }
   }

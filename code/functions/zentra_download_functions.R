@@ -79,8 +79,8 @@ zentra_last_held <- function(device_sn) {
 #'
 #' @param devices Character vector of serials, or NULL for all
 #' @param end POSIXct or date string. Latest reading to fetch, default now
-#' @param max_active Integer. Devices fetched concurrently. The readings rate
-#'   limit is per device, so above 1 is substantially faster
+#' @param max_active Integer. Retained for compatibility; fetching is now
+#'   sequential, which costs little for the incremental windows this handles
 #' @param dry_run Logical. Report the plan without fetching
 #' @param key Character. API key, for a second ZentraCloud account
 #' @return Invisible data frame, one row per device
@@ -161,10 +161,22 @@ zentra_download <- function(devices = NULL, end = NULL, max_active = 4L,
     # A second past the last held reading, so nothing is fetched twice
     from <- todo$from[i] + 1
 
+    # zc_get_readings rather than zc_sync. zc_sync returned nothing for
+    # windows where zc_get_readings returned thousands of readings, and it did
+    # so SILENTLY - reporting success while fetching nothing. For a job that
+    # will run unattended that is disqualifying: the archive would go stale
+    # and every run would claim to have worked.
+    #
+    # Dates are passed as plain "YYYY-MM-DD HH:MM:SS" strings. ZentraCloud
+    # compares the timezones of start and end and rejects a mismatch with a
+    # 422, so both are formatted the same way from UTC.
+    from_str <- format(from, "%Y-%m-%d %H:%M:%S", tz = "UTC")
+    end_str  <- format(if (is.null(end)) Sys.time() else as.POSIXct(end),
+                       "%Y-%m-%d %H:%M:%S", tz = "UTC")
+
     data <- tryCatch(
-      zentraR::zc_sync(device_id = sn, store = NULL, start = from, end = end,
-                       max_active = 1L, quiet = TRUE, progress = FALSE,
-                       key = key),
+      zentraR::zc_get_readings(device_id = sn, start = from_str, end = end_str,
+                               key = key),
       error = function(e) {
         cat("  X ", sn, ": ", conditionMessage(e), "\n", sep = "")
         NULL

@@ -2,7 +2,7 @@
 
 Backend data and code engine for the Virgin Islands Freshwater and Landscapes Observatory (VI-FLO).
 
-**Status:** v1.0.0
+**Status:** v2.0.0
 
 ---
 
@@ -38,6 +38,65 @@ one person at a time should be writing metadata. See CHANGELOG for the plan.
 
 **Processing.** Water level to discharge, quality control tiers, and the
 published archive are not part of this release.
+
+---
+
+## Data products
+
+Data moves through numbered products. Each is derived from the one below and
+can be rebuilt from it, so a mistake anywhere is corrected by fixing the cause
+and regenerating rather than by editing files.
+
+### Product 0 - source artifacts
+
+Exactly what came off the instrument or out of the vendor's export, kept
+permanently and never edited.
+
+```
+internal/raw/device-data/hobo/shuttle_readouts/     .hobo files
+internal/raw/device-data/zentra/backfill/exports/   ZentraCloud export zips
+```
+
+### Product 1 - device-keyed readings
+
+One row per measurement, identified by device serial and port number. No
+station, no depth, no interpretation.
+
+```
+internal/raw/device-data/zentra/
+    z6-12874_20260925_20260928_20260928T090359_raw.rds
+    serial _ first record _ last record _ when fetched
+
+internal/raw/device-data/hobo/
+    21352826_20250903_20260201_raw.rds
+```
+
+A station name in a filename is an ATTRIBUTION, and attributions can be wrong:
+a logger swapped between stations and logged late leaves files filed under the
+wrong one. The device serial never needs correcting, so Product 1 is keyed by
+it and station attribution is deferred.
+
+Files are written once and never rewritten. Each is exactly what one fetch or
+one offload returned, with a matching row in `download_log.csv`.
+
+### Product 2 - station-attributed and labelled
+
+Metadata applied: which station a device served over which period, and what
+depth each port sat at. This is the first product a researcher would want -
+`vwc_10cm` rather than `port_3`.
+
+```
+internal/raw/vwc/          station-attributed soil moisture
+internal/raw/streamflow/   station-attributed water level
+internal/raw/weather/
+```
+
+Because depth is applied here rather than stored at Product 1, correcting a
+port's recorded depth is a metadata edit plus a regeneration - the archive
+itself is never wrong and never needs editing.
+
+Products above 2 - quality control, and derived quantities such as discharge -
+are not yet defined.
 
 ---
 
@@ -136,17 +195,20 @@ and goes straight to the menu.
 │       ├── metadata_functions.R     # Loaders and metadata operations
 │       ├── ui_prompt_functions.R    # Shared interactive prompts
 │       ├── metadata_manager_functions.R  # Workflows and the menu
-│       ├── api_functions.R          # ZentraCloud downloads
+│       ├── zentra_download_functions.R   # ZentraCloud v5 downloads
+│       ├── elevation_functions.R    # USGS 3DEP and global elevation lookup
 │       ├── local_ingest_functions.R # HOBO and cable offload archiving
 │       ├── file_naming_functions.R  # Raw file naming, shared by both paths
 │       ├── pending_ingest_functions.R    # Unfinished field tasks
 │       ├── validation_functions.R   # Metadata consistency checks
+│       ├── api_functions.R          # Legacy v4 downloads, superseded
 │       └── backup_restore_functions.R
 ├── data/         # Data dictionary and sample metadata
 ├── docs/         # Additional documentation and notes
 ├── tools/
 │   ├── launcher/     # Double-click entry to the metadata manager
 │   ├── migrations/   # One-off schema and data migrations, with a README
+│   ├── backfill/     # One-time ZentraCloud export parser, kept for audit
 │   ├── setup_win.py  # Setup routine, built to setup_win.exe
 │   └── datamapper.py
 ├── .gitignore    # Ignores api_tokens.csv for security, do not delete!

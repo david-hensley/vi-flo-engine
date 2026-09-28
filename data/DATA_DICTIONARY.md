@@ -68,13 +68,24 @@ Generally stored in a top-level directory alongside raw and processed databases.
 
 ### `download_log.csv`
 
-* `timestamp`: Timestamp when download occurred in project timezone
-* `station`: Same as station_id in `device_metadata.csv`
-* `start_date`: Datetime of download record start
-* `end_date`: Datetime of download record end
-* `n_records`: Number of rows in downloaded record
-* `filepath`: Relative filepath of data stored in data root folder
-* `download_type`: How the data was obtained - `automatic` (pulled through the Zentra API) or `manual` (offloaded by hand from a logger in the field)
+One row per download. Files are written once and never rewritten, so each row
+points at exactly what one fetch or one offload returned.
+
+* `timestamp`: When the download occurred, in project timezone. Matches the fetch stamp in the filename
+* `station`: Same as station_id in `device_metadata.csv`. BLANK for Product 1 downloads, which are keyed by device - attribution happens at Product 2, and recording a station here would bake in an assumption the archive exists to avoid
+* `device_serial`: The logger the data came from. This is what identifies a Product 1 file
+* `start_date`: Datetime of the first record in the file
+* `end_date`: Datetime of the last record in the file
+* `n_records`: Number of rows in the file
+* `filepath`: Relative filepath within the data root
+* `download_type`: How the data was obtained:
+
+  * `automatic`: pulled through the ZentraCloud API
+  * `manual`: offloaded by hand from a logger in the field
+
+Two downloads can overlap - a run repeated the same day, or a catch-up after a
+failure. That is expected and is not corrected here: Product 1 records what
+each fetch returned, and deduplication on timestamp happens at Product 2.
 
 ### `maintenance_log.csv`
 

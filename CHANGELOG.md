@@ -3,6 +3,79 @@ All notable changes to the VI-FLO Engine project are documented here.
 
 ---
 
+## [v2.0.0] - 2026-09-28
+
+Data products. Raw readings are now organised by DEVICE rather than by station,
+and move through numbered products that are each derivable from the one below.
+
+BREAKING: the raw data layout, filenames and `download_log` schema have all
+changed. Anything written against the previous structure will need updating.
+
+### Added
+- `zentra_download_functions.R` - ZentraCloud v5 downloads producing Product 1
+  - Devices are discovered from the API, not from metadata. A logger reporting
+    to ZentraCloud that VI-FLO does not yet know about is still downloaded -
+    an admin oversight should not become data loss
+  - Each device resumes from the latest reading already held: its Product 1
+    files, then the parsed backfill exports, then its first measurement. This
+    is how the backfill and the API meet without a gap or an overlap
+  - Takes a `key` throughout, so a second ZentraCloud account is a second call
+    rather than a redesign
+- `tools/backfill/parse_zentra_exports.R` - reads the September 2026
+  full-history exports, 26 devices and 2.3 million timestamps reaching back to
+  2021. Kept for audit: the exports are the source of record and this is how
+  they were read
+  - Configuration numbers are not chronological, and each configuration has a
+    different column layout - so the output is long rather than wide
+  - Timestamps are local EXCEPT where the logger had no timezone set, which
+    the export records as `UTC Offset = Not Set`. Those are UTC. Read as local
+    they land four hours out and appear to overlap the configuration that
+    follows. Confirmed on z6-13388, where correcting it turns an impossible
+    overlap into a smooth battery decline across an afternoon's installation
+- `device_serial` in `download_log.csv`. A Product 1 download has no station,
+  so the serial is what identifies it
+- Validation: a download row must name a station or a device. A blank station
+  is no longer an error - it is what a Product 1 row looks like
+- `area` on the UVI soil moisture stations groups them as one experiment.
+  Campus work is many and short-lived where field stations are few and
+  long-lived, so numbering alone would give `uvi_vwc27` within a few years
+
+### Changed
+- Raw data reorganised into `internal/raw/device-data/`, split by manufacturer,
+  with each instrument's source artifacts beside the readings derived from them
+- Product 1 filenames carry the serial, the data range and when it was fetched:
+  `z6-12874_20260925_20260928_20260928T090359_raw.rds`. A station name in a
+  filename is an attribution, and attributions can be wrong
+- `build_raw_filename()`, `parse_raw_filename()`, `list_raw_files()` and
+  `check_raw_overlap()` all work by device or by station. Overlap is checked
+  against the DEVICE's own record, which is the more correct question anyway
+- HOBO ingest writes Product 1: serial-only filenames into `device-data/hobo/`,
+  with the temp export named for the device rather than the station
+- `zc_get_readings()` rather than `zc_sync()`. zc_sync returned nothing for
+  windows where zc_get_readings returned thousands of readings, and did so
+  SILENTLY - reporting success while fetching nothing. For a job that will run
+  unattended that is disqualifying
+
+### Removed
+- The seventeen station files downloaded through the v4 API in January 2026.
+  They baked port depths into column names, so a correction to a port's
+  recorded depth silently invalidated them - which had already happened at
+  uvi_vwc1, where two ports both claimed 10 cm and one overwrote the other.
+  Every station they covered is covered by the exports, eight months later
+
+### Fixed
+- `zentra_ports.csv` for z6-13368 (UVI): four depths were shifted by one
+  position and every port carried the wrong installation date. Corrected from
+  the export's configuration history and from response lag to 49 rainfall
+  events - port 6 wets within the hour, port 5 responds to three events out of
+  49 and then a day late. The sensors are buried and cannot be checked by hand
+- Adding a device to an existing station inherited coordinates from the
+  station's FIRST row rather than its current one, so a device added after a
+  relocation landed at the old position
+- `elev` is correctable, and correcting coordinates offers a fresh lookup
+
+---
+
 ## [v1.1.0] - 2026-09-12
 
 Elevation and paired-logger survey. A stream gauge's hydraulic slope is now
