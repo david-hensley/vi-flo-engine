@@ -181,18 +181,26 @@ set_metadata_approved <- function(device_serial = NULL, station_id = NULL, appro
     rows_to_update <- rep(TRUE, nrow(metadata))
     message("Setting metadata_approved = ", value, " for ALL devices")
   } else if (!is.null(station_id)) {
-    # Approve all devices at this station
-    rows_to_update <- metadata$station_id == station_id
+    # ACTIVE devices at this station only. A terminal row describes a
+    # deployment that has ended - nobody reviewed it today, and re-dating it
+    # would claim they had. Its own approval and date stay as they were when
+    # it was current, which is what makes its archived data attributable.
+    terminal <- c("removed", "replaced", "relocated", "decommissioned")
+    rows_to_update <- metadata$station_id == station_id &
+                      !tolower(metadata$status) %in% terminal
     if (sum(rows_to_update) == 0) {
-      stop("No devices found for station: ", station_id, call. = FALSE)
+      stop("No active devices found for station: ", station_id, call. = FALSE)
     }
     message("Setting metadata_approved = ", value, " for station: ", station_id, 
             " (", sum(rows_to_update), " device(s))")
   } else if (!is.null(device_serial)) {
-    # Approve specific device
-    rows_to_update <- metadata$device_serial == device_serial
+    # Active rows for this serial, for the same reason. A serial can carry a
+    # terminal row plus its successor, or serve two stations at once.
+    terminal <- c("removed", "replaced", "relocated", "decommissioned")
+    rows_to_update <- metadata$device_serial == device_serial &
+                      !tolower(metadata$status) %in% terminal
     if (sum(rows_to_update) == 0) {
-      stop("Device not found: ", device_serial, call. = FALSE)
+      stop("No active row found for device: ", device_serial, call. = FALSE)
     }
     message("Setting metadata_approved = ", value, " for device: ", device_serial)
   } else {
@@ -334,20 +342,79 @@ validate_no_duplicate_ports <- function(port_config) {
 
 #' Get list of all stations
 #' @return Character vector of station IDs with site names
-get_station_list <- function() {
+get_station_list <- function(include_retired = FALSE) {
   metadata <- load_zentra_metadata()
+
+  # A station whose every device has gone terminal is history. It cannot be
+  # maintained, downloaded from or surveyed, so listing it among thirty live
+  # stations is noise in every workflow except 'Correct device details', which
+  # exists partly to reach exactly those rows.
+  terminal_statuses <- c("removed", "replaced", "relocated", "decommissioned")
+
+  if (!include_retired) {
+    live <- metadata$station_id[!tolower(metadata$status) %in% terminal_statuses]
+    metadata <- metadata[metadata$station_id %in% unique(live), , drop = FALSE]
+  }
+
   stations <- sort(unique(metadata$station_id))
-  
-  # Build list with site names for display
+
   station_list <- list()
   for (station in stations) {
-    site_full <- metadata$site_full[metadata$station_id == station][1]
+    rows <- metadata[metadata$station_id == station, , drop = FALSE]
+
+    # Devices that have gone out of service are dropped from the label. A live
+    # station whose logger was swapped last week would otherwise advertise the
+    # old one - sr2_weather reading ("Glynn Weather" / "SR2 weather") when
+    # only the second is there.
+    #
+    # Except when retired stations are being shown, which is the case where
+    # someone is reaching into history deliberately and an old name is what
+    # they would search by.
+    if (!include_retired) {
+      live_rows <- rows[!tolower(rows$status) %in% terminal_statuses, , drop = FALSE]
+      if (nrow(live_rows) > 0) rows <- live_rows
+    }
+
+    # What a menu shows in brackets. The site name is already implied by the
+    # abbreviation and the watershed heading, so it earns nothing there -
+    # whereas vwc1/vwc2/vwc3 are arbitrary and say nothing about which station
+    # is which.
+    #
+    # Area first where it is set, since it was written to group stations that
+    # belong together. Then the device name, which was written to identify a
+    # logger, falling back to the serial where no name was given. Several
+    # devices are joined, so a paired gauge shows both.
+    # Names in quotes, serials not. A device name is a nickname someone typed
+    # into the logger's own software - "RB-standby2", "tr1slope" - and the
+    # quotes say so, keeping it from reading as an identifier the system
+    # assigned.
+    names_here <- rows$device_name
+    blank <- is.na(names_here) | trimws(as.character(names_here)) == ""
+    names_here[!blank] <- paste0('"', trimws(names_here[!blank]), '"')
+    names_here[blank] <- rows$device_serial[blank]
+    names_here <- unique(names_here[!is.na(names_here)])
+
+    area_here <- rows$area[1]
+    has_area <- !is.na(area_here) && nzchar(trimws(as.character(area_here)))
+
+    label <- if (length(names_here) > 0) {
+      paste(names_here, collapse = " / ")
+    } else NA_character_
+
+    if (has_area && !is.na(label)) label <- paste0(area_here, ", ", label)
+    else if (has_area)             label <- area_here
+
     station_list[[station]] <- list(
       station_id = station,
-      site_full = site_full
+      site_full  = rows$site_full[1],
+      # Grouping. Derived from site_full it would mean stripping a trailing
+      # number, which breaks on sites carrying an area - "Bethlehem Adventure 2"
+      # belongs to the Bethlehem watershed.
+      watershed  = rows$watershed[1],
+      label      = if (is.na(label)) rows$site_full[1] else label
     )
   }
-  
+
   return(station_list)
 }
 
@@ -666,15 +733,15 @@ update_device_status <- function(device_serial, new_status, station_id = NULL) {
     
     metadata$status[rows] <- new_status
     
-    # A device out of service cannot be downloaded, so approval stops meaning
-    # anything. Clearing it here covers every terminal transition at once -
-    # replacement, removal, relocation, decommissioning - rather than leaving
-    # each workflow to remember.
-    terminal_statuses <- c("removed", "replaced", "relocated", "decommissioned")
-    if (tolower(new_status) %in% terminal_statuses &&
-        "metadata_approved" %in% names(metadata)) {
-      metadata$metadata_approved[rows] <- FALSE
-    }
+    # The approval is NOT cleared on a terminal transition, though it used to
+    # be. That made sense when the flag gated downloading - a device out of
+    # service cannot be downloaded, so the flag stopped meaning anything.
+    #
+    # It now asserts that the record is accurate, and a terminal row's record
+    # is both accurate and frozen: it describes a deployment that really
+    # happened. More to the point, the data from that deployment is still in
+    # the archive and still has to be attributed. Clearing the flag would
+    # block that, on the strength of the device having since been moved.
     save_device_metadata(metadata)
     
     return(TRUE)
@@ -750,15 +817,9 @@ update_station_status <- function(station_id, new_status,
       metadata$status[metadata$station_id == station_id] <- new_status
     }
     
-    # A station out of service cannot be downloaded. update_device_status()
-    # clears this for device-level transitions; station-level ones come
-    # through here and were being missed.
-    station_terminal <- c("removed", "replaced", "relocated", "decommissioned")
-    if (tolower(new_status) %in% station_terminal &&
-        "metadata_approved" %in% names(metadata)) {
-      metadata$metadata_approved[metadata$station_id == station_id &
-                                 tolower(metadata$status) %in% station_terminal] <- FALSE
-    }
+    # As in update_device_status(), the approval is not cleared here. A
+    # decommissioned station's record still describes what was there, and its
+    # archived data still has to be attributed.
     save_device_metadata(metadata)
     
     return(TRUE)
@@ -1211,6 +1272,12 @@ add_new_device <- function(device_data) {
       last_download_date = NA,
       last_record_date = NA,
       metadata_approved = device_data$metadata_approved,
+      # Written together: the flag says a human confirmed the record, the
+      # timestamp says when. Establishing a station IS that confirmation, so
+      # the row is dated from the moment it is created.
+      last_reviewed_utc = if (isTRUE(device_data$metadata_approved)) {
+        format(Sys.time(), "%Y-%m-%d %H:%M:%S", tz = "UTC")
+      } else NA_character_,
       stringsAsFactors = FALSE
     )
     
@@ -1234,13 +1301,24 @@ add_new_device <- function(device_data) {
 #' @return List with success status and new unique_ids
 relocate_station <- function(station_id, new_lat, new_lon, deploy_datetime,
                             new_status, metadata_approved,
-                            new_elev = NA, new_elev_source = NA) {
+                            new_device = NULL,
+                            new_elev = NA, new_elev_source = NA,
+                            also_moving = character(0),
+                            staying_behind = character(0)) {
   tryCatch({
     metadata <- load_zentra_metadata()
     
-    # Get all devices at this station
-    station_devices <- metadata[metadata$station_id == station_id, ]
-    
+    # One logger can serve several stations, and what physically moves is the
+    # DEVICE. Relocating only the station that was named leaves any companion
+    # sitting at the old coordinates on a box that is no longer there.
+    #
+    # `also_moving` names the companion stations going along; `staying_behind`
+    # names those whose sensors came out and did not travel. The caller asks,
+    # because only a person knows which.
+    moving <- unique(c(station_id, also_moving))
+
+    station_devices <- metadata[metadata$station_id %in% moving, ]
+
     # Filter to active devices only
     active_mask <- !(station_devices$status %in% c("decommissioned", "relocated"))
     active_devices <- station_devices[active_mask, ]
@@ -1251,6 +1329,16 @@ relocate_station <- function(station_id, new_lat, new_lon, deploy_datetime,
     
     # Mark old devices as relocated
     metadata$status[metadata$unique_id %in% active_devices$unique_id] <- "relocated"
+
+    # A station whose sensors came out while the logger went elsewhere. Its
+    # row ends as `removed` - the sensors that constituted the station were
+    # taken out. Not `relocated`, which would claim it moved; not
+    # `decommissioned`, which implies a site nobody returns to.
+    if (length(staying_behind) > 0) {
+      left <- metadata$station_id %in% staying_behind &
+              !metadata$status %in% c("decommissioned", "relocated", "removed", "replaced")
+      metadata$status[left] <- "removed"
+    }
     
     # Create new rows for each device at new location
     new_unique_ids <- character()
@@ -1286,13 +1374,57 @@ relocate_station <- function(station_id, new_lat, new_lon, deploy_datetime,
       new_row$last_update <- old_device$last_update  # Copy from old
       new_row$last_visit <- as.Date(deploy_datetime)
       new_row$metadata_approved <- metadata_approved
+
+      # A station can move AND get a different logger in one field operation.
+      # Logged as two workflows - relocate, then replace - that produces a
+      # third row asserting the OLD device was deployed at the NEW position,
+      # which never happened. Taking the new device here gives two rows and no
+      # fiction.
+      #
+      # The old row keeps status 'relocated': it closed because the station
+      # moved, and the newer row shows both where it went and that the serial
+      # changed.
+      if (!is.null(new_device)) {
+        new_row$device_serial <- new_device$device_serial
+        if (!is.null(new_device$mfger))       new_row$mfger       <- new_device$mfger
+        if (!is.null(new_device$model))       new_row$model       <- new_device$model
+        if (!is.null(new_device$device_name)) new_row$device_name <- new_device$device_name
+
+        # These describe the OLD logger's history and mean nothing for a box
+        # that has just come out of a cupboard.
+        new_row$last_update        <- NA
+        new_row$battery            <- NA
+        new_row$last_download_date <- NA
+        new_row$last_record_date   <- NA
+      }
+      # new_row is a copy of the old device, so without this it would inherit
+      # the review date from BEFORE the move - claiming the record was
+      # confirmed at a position the station has since left.
+      if ("last_reviewed_utc" %in% names(new_row)) {
+        new_row$last_reviewed_utc <- if (isTRUE(metadata_approved)) {
+          format(Sys.time(), "%Y-%m-%d %H:%M:%S", tz = "UTC")
+        } else NA_character_
+      }
       
       metadata <- rbind(metadata, new_row)
       new_unique_ids <- c(new_unique_ids, new_unique_id)
     }
     save_device_metadata(metadata)
-    
-    return(list(success = TRUE, new_unique_ids = new_unique_ids))
+
+    # The old logger's ports describe sensors that came out with it. Leaving
+    # them open would have a device in a cupboard still carrying a live
+    # configuration, and the check for active ports on a terminal device would
+    # rightly complain.
+    if (!is.null(new_device)) {
+      for (sn in unique(active_devices$device_serial)) {
+        if (!identical(sn, new_device$device_serial)) {
+          close_device_ports(sn, deploy_datetime)
+        }
+      }
+    }
+
+    return(list(success = TRUE, new_unique_ids = new_unique_ids,
+                device_changed = !is.null(new_device)))
   }, error = function(e) {
     return(list(success = FALSE, error = paste0("Failed to relocate station: ", e$message)))
   })
@@ -1779,4 +1911,30 @@ get_station_current_row <- function(station_id) {
   if (all(is.na(deployed))) return(rows[nrow(rows), ])
 
   rows[which.max(deployed), ]
+}
+
+
+#' Adds the station label to a set of bare station ids, for a menu
+#'
+#' The viewers build their lists from whatever file they are showing -
+#' metadata, the maintenance log, the download log - so they hold bare ids
+#' where the workflows hold "id (label)". This gives them the same labels
+#' without having to know how one is built.
+#'
+#' Retired stations are included: a viewer is where someone looks at history.
+#' An id with no metadata row is passed through unchanged rather than dropped,
+#' since a log can name a station that no longer exists.
+#'
+#' @param station_ids Character vector
+#' @return Character vector of "id (label)", or the bare id where none exists
+label_station_options <- function(station_ids) {
+  sl <- tryCatch(get_station_list(include_retired = TRUE),
+                 error = function(e) NULL)
+  if (is.null(sl)) return(station_ids)
+
+  vapply(station_ids, function(id) {
+    entry <- sl[[id]]
+    if (is.null(entry) || is.null(entry$label) || is.na(entry$label)) id
+    else paste0(id, " (", entry$label, ")")
+  }, character(1), USE.NAMES = FALSE)
 }

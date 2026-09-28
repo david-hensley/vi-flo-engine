@@ -57,14 +57,19 @@ Generally stored in a top-level directory alongside raw and processed databases.
   * `defunct`: Broken or assumed lost, but still deployed
   * `nonresponsive`: Should be communicating with the cloud but is not, for an unknown reason (>2 weeks since uplink)
 
-  Terminal statuses are historical markers and are excluded from active workflows: `removed` (taken out of the field), `replaced` (swapped for a new device), `relocated` (moved, see newer row), `decommissioned` (station shut down).
+  Terminal statuses are historical markers and are excluded from active workflows:
+
+  * `removed`: The device was taken out of the field. DEVICE-level and reversible - the station stands, and something may go back in. Use this when a logger comes out for repair, or when a position is left empty for now. Also covers a station whose sensors came out while the logger went elsewhere: when one ZL6 serves a weather and a vwc station and only the weather station relocates, the vwc station's sensors were removed even though the logger was not
+  * `replaced`: Swapped for a new device at the same station. See the newer row for what took over
+  * `relocated`: The station moved. See the newer row for where it went
+  * `decommissioned`: STATION-level. Monitoring at this site has ended with no intention of resuming - in some cases its exact position is no longer known. Reactivation is possible and the workflow exists, because nobody knows the future; but a station expected to return should be `removed` instead. The distinction is intent, not permanence: `removed` means the position is waiting, `decommissioned` means it is not
 * `last_update`: Date-time of last remote contact with the device. NA by design for `local` and `manual` devices, which have no over-the-air link - this is what distinguishes a self-reporting device from one that does not
 * `battery`: Percentage of battery life of device at last known
 * `last_visit`: Date of last human field visit
 * `expiry_date`: For Zentra loggers, date of Zentra Cloud subscription expiration. NA for `manual` devices, which have no cloud subscription
 * `last_download_date`: Datetime of last successful download
 * `last_record_date`: Datetime of last actual logged observation now held in the archive. For `local` and `manual` devices `last_update` is NA, so this is the only record of how current the data is. Comparing it against `last_visit` is how gaps are detected for those devices
-* `metadata_approved`: Whether a human has confirmed that everything known about this station is recorded. This does NOT gate downloading - raw data is archived whatever the record says, because a Product 1 file applies no metadata at all. It gates ATTRIBUTION: readings are only assigned to a station whose configuration is known to be current. Applies to `manual` devices too, since their readings get attributed like any other
+* `metadata_approved`: Whether a human has confirmed that everything known about this station is recorded. This does NOT gate downloading - raw data is archived whatever the record says, because a Product 1 file applies no metadata at all. It gates ATTRIBUTION: readings are only assigned to a station whose configuration is known to be current. Applies to `manual` devices too, since their readings get attributed like any other. On a terminal row the value is frozen: it records what was confirmed while that deployment was current, which is what makes its archived data attributable
 * `last_reviewed_utc`: When a human last answered that question, in UTC. The flag alone says someone once confirmed the record; it does not say whether that was this morning or in March, and a stale confirmation is worth less than a recent one. Updated whether the answer was yes or no - "I looked and something is missing" is as much a review as "I looked and it is fine". Blank means nobody has been asked yet
 
 ### `download_log.csv`

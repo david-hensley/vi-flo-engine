@@ -3,6 +3,93 @@ All notable changes to the VI-FLO Engine project are documented here.
 
 ---
 
+## [v2.1.0] - 2026-09-28
+
+The metadata review. `download_approved` is renamed and given a meaning it can
+actually keep, plus a round of workflow polish driven by using the manager for
+real field work.
+
+### Added
+- `metadata_approved` and `last_reviewed_utc` replace `download_approved`
+  - The old flag was named for a job it no longer does. It was meant to stop
+    an automated download filing data against a stale record - but a Product 1
+    download applies no metadata at all, so the same file arrives whether the
+    record is current or hopelessly out of date. Blocking it would forfeit
+    data and protect nothing
+  - What it actually asserts is that a HUMAN has confirmed the record matches
+    what is physically out there. That matters at Product 2, where station
+    identity and sensor depth get applied
+  - The flag alone was never enough. TRUE says someone once confirmed the
+    record; it does not say whether that was this morning or in March. The
+    pair answers the question - how long since a human looked
+  - The timestamp updates whether the answer is yes or no. "I looked and
+    something is missing" is as much a review as "I looked and it is fine"
+- Relocation handles a station moving AND its logger changing as ONE event.
+  Logged as two workflows it produced a third row asserting the OLD device was
+  deployed at the NEW position, which never happened
+- Relocation asks about every station on the logger. What physically moves is
+  a DEVICE, so relocating only the station that was named left a companion
+  recorded at coordinates its own logger had left - one box in two places. A
+  companion that did not travel is recorded as `removed`: its sensors came out
+  while the logger went elsewhere
+- Relocation asks whether every sensor moved with the logger, rather than
+  assuming. A weather station can relocate while the soil profile it also
+  served stays in the ground
+- Establishing a station on a logger whose ports carry a type no station covers
+  offers to set that station up too, inheriting the site, type and serial
+  rather than asking for them again
+- Watershed headings and station labels in every menu. `bta2_hydro (Adventure,
+  "bta2a" / "bta2b")` - area, then device names in quotes, serial where a
+  device is unnamed. vwc1/vwc2/vwc3 are arbitrary and say nothing about which
+  station is which
+
+### Changed
+- The metadata review is asked LAST, after ports and any survey. Asking before
+  them had someone confirm a record that was knowably incomplete
+- Every Y/N prompt validates. Anything that was not `Y` or `1` used to mean no,
+  so `15` typed at a port prompt silently skipped port configuration. `yes`,
+  `no` and the spelled-out forms are accepted; anything else re-asks
+- "Keep same status?" replaces "Change status?", so Y means nothing happened -
+  matching the rest of the manager
+- Stations whose every device is terminal are hidden from selection lists,
+  except in 'Correct device details', which exists partly to reach those rows.
+  Terminal devices are dropped from station labels for the same reason
+- The port change summary shows the whole configuration, not only the lines
+  that changed. What is being saved is the state of a device, and a list of
+  three edits leaves the reader holding the other three ports in their head
+- The role prompt explains what a role means per station type and no longer
+  calls it "recommended", which is what invited `primary` when unsure
+- Decommissioning says the distinction from `removed` is INTENT, not
+  permanence: monitoring ends with no intention of resuming, and reactivation
+  stays possible because nobody knows the future
+- Port initialisation says to configure every port on the logger whatever
+  station each sensor belongs to - the workflow runs inside a question about
+  one station while configuring a device that may serve two
+- Backup verification compares file NAMES rather than counts, and names what
+  is missing. The two lists were built differently, so a source containing any
+  directory warned that files were missing when none were
+- `download_log.csv`: `timestamp` becomes `timestamp_utc`, and reading times
+  are project-local. A reading belongs to a place with a recorded timezone; a
+  run timestamp belongs to a moment and could be triggered from anywhere
+
+### Fixed
+- A terminal transition no longer clears the approval. That was right when the
+  flag gated downloading, but a relocated row's record is accurate and frozen -
+  and its archived data still has to be attributed. Clearing it would block
+  that on the strength of the device having since moved
+- Approving a station no longer touches its terminal rows, which would re-date
+  a relocated deployment's review to today
+- `relocate_station()` did not date the review it recorded, so a relocated row
+  inherited a review date from before the move
+- The companion station created after a shared-logger setup was left
+  unapproved while the station that led there was approved twice
+- Device roles cleared where they carry no meaning. `primary` means the
+  downstream logger of a hydro pair, or the vwc station sharing a weather
+  station's logger - ten rows had one that meant neither, including three
+  separate stations at Limetree labelled primary, secondary and tertiary
+
+---
+
 ## [v2.0.0] - 2026-09-28
 
 Data products. Raw readings are now organised by DEVICE rather than by station,

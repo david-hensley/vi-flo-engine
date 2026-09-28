@@ -18,11 +18,14 @@ ui_yes_no <- function(prompt, allow_quit = TRUE) {
     
     response <- toupper(trimws(readline()))
     
-    # Accept 1 for Y, 2 for N
-    if (response == "1") response <- "Y"
-    if (response == "2") response <- "N"
+    # The spelled-out word and the menu number as well as the letter. Someone
+    # answering a question reaches for whichever is natural, and rejecting
+    # "yes" on a yes/no question is the kind of pedantry that makes a tool
+    # feel hostile.
+    if (response %in% c("1", "YES", "YE")) response <- "Y"
+    if (response %in% c("2", "NO", "NOPE")) response <- "N"
     
-    if (allow_quit && tolower(response) == "q") {
+    if (allow_quit && response %in% c("Q", "QUIT")) {
       return("Q")
     }
     
@@ -30,7 +33,8 @@ ui_yes_no <- function(prompt, allow_quit = TRUE) {
       return(response)
     }
     
-    cat("⚠️  Please enter Y or N\n")
+    cat("\u26a0\ufe0f  Please enter Y, N, yes, no, 1 or 2",
+        if (allow_quit) ", or q to quit" else "", "\n", sep = "")
   }
 }
 
@@ -49,15 +53,57 @@ ui_select_from_menu <- function(prompt, options, allow_quit = TRUE) {
   # the nine callers that build these lists: a station option looks like
   # "sr1_hydro (Salt River 1)". A device option - "21652379 (Adventure)" -
   # starts with digits and has no underscore, so it is left alone.
-  is_station_list <- length(options) > 3 &&
-    all(grepl("^[a-z][a-z0-9]*_[a-z0-9]+ \\(.+\\)$", options))
+  # Two shapes are treated as station lists: "sr1_hydro (Salt River 1)" from
+  # the workflows, and a bare "sr1_hydro" from the viewers. Both group by
+  # watershed; only the first can also separate by site.
+  with_site <- all(grepl("^[a-z][a-z0-9]*_[a-z0-9]+ \\(.+\\)$", options))
+  bare_ids  <- all(grepl("^[a-z][a-z0-9]*_[a-z0-9]+$", options))
+  is_station_list <- length(options) > 3 && (with_site || bare_ids)
 
-  groups <- if (is_station_list) sub("^.*\\((.+)\\)$", "\\1", options) else NULL
+  # Site grouping is looked up, not taken from the brackets. The brackets used
+  # to hold the site name; they now hold whatever identifies the station, so
+  # reading them would put a blank line between every entry.
+  groups <- NULL
+
+  # A watershed header above each block. Sites alone leave nearly thirty
+  # entries reading as one list; the watershed is the level someone actually
+  # navigates by.
+  #
+  # Looked up rather than derived from the site name, which would mean
+  # stripping a trailing number and would break on sites carrying an area -
+  # "Bethlehem Adventure 2" belongs to the Bethlehem watershed.
+  watersheds <- NULL
+  if (is_station_list) {
+    lookup <- tryCatch({
+      meta <- load_zentra_metadata()
+      ids <- sub(" \\(.*$", "", options)
+      field <- function(col) vapply(ids, function(id) {
+        v <- meta[[col]][meta$station_id == id]
+        if (length(v) == 0 || is.na(v[1])) NA_character_ else as.character(v[1])
+      }, character(1), USE.NAMES = FALSE)
+      list(watershed = field("watershed"), site = field("site_full"))
+    }, error = function(e) NULL)
+
+    if (!is.null(lookup)) {
+      watersheds <- lookup$watershed
+      groups     <- lookup$site
+    }
+  }
 
   repeat {
     cat(prompt, "\n", sep = "")
     for (i in seq_along(options)) {
-      if (!is.null(groups) && i > 1 && groups[i] != groups[i - 1]) cat("\n")
+      new_watershed <- !is.null(watersheds) && !is.na(watersheds[i]) &&
+                       (i == 1 || !identical(watersheds[i], watersheds[i - 1]))
+
+      if (new_watershed) {
+        if (i > 1) cat("\n")
+        cat("  === ", watersheds[i], " ", strrep("=", max(2, 34 - nchar(watersheds[i]))),
+            "\n", sep = "")
+      } else if (!is.null(groups) && i > 1 && groups[i] != groups[i - 1]) {
+        cat("\n")
+      }
+
       cat("  ", i, ". ", options[i], "\n", sep = "")
     }
     
@@ -243,13 +289,15 @@ ui_prompt_status_change <- function(current_status, allow_quit = TRUE, restrict_
   
   cat("\n")
   
-  change_response <- ui_yes_no("Change status?", allow_quit = allow_quit)
+  # Phrased so that Y means "nothing happened", matching the rest of the
+  # manager - where yes is the answer when things are as expected.
+  keep_response <- ui_yes_no("Keep same status?", allow_quit = allow_quit)
   
-  if (is.null(change_response) || change_response == "Q") {
+  if (is.null(keep_response) || keep_response == "Q") {
     return(NULL)
   }
   
-  if (change_response == "N") {
+  if (keep_response == "Y") {
     return(current_status)
   }
   
@@ -360,30 +408,25 @@ ui_prompt_device_status <- function(allow_quit = TRUE) {
 #' places is how one of them ends up out of date.
 #'
 #' @param station_id Character
-#' @param device_row One row of device metadata, for the status check
 #' @param apply Logical. Write the answer immediately (default TRUE). Pass
 #'   FALSE where the row being approved does not exist yet - relocation
 #'   collects values for a row it creates later, and writing here would set
 #'   the flag on the row about to go terminal, before the user has even
 #'   confirmed the move
 #' @return TRUE if approved, FALSE otherwise
-ui_prompt_metadata_approval <- function(station_id, device_row, apply = TRUE) {
+ui_prompt_metadata_approval <- function(station_id, apply = TRUE) {
 
   # Manual stations are NOT skipped. The old flag gated automatic downloads,
   # which a manual device cannot have - but this one asserts that the record is
   # complete enough to attribute data to, and a HOBO's readings get attributed
   # like any other.
 
-  cat("\n--- METADATA REVIEW ---\n\n")
-  cat("Does the record match what is physically out there?\n\n")
-  cat("Say NO if a device was swapped, a station moved, or a sensor was\n")
-  cat("plugged into a different port and none of it has been logged yet.\n")
-  cat("Those make the record describe a station that no longer exists,\n")
-  cat("and readings would be attributed to the wrong thing.\n\n")
-  cat("A broken logger is NOT a reason to say no. A device recorded as\n")
-  cat("defunct and still in the field is an accurate record. Faulty\n")
-  cat("readings are a quality question, handled in processing.\n\n")
-  cat("This does not affect downloading - raw data is archived either way.\n")
+  # Named, because two stations on one logger produce two of these in a row
+  # and nothing else distinguishes them.
+  cat("\n--- METADATA REVIEW: ", station_id, " ---\n\n", sep = "")
+  cat("Has anything changed in the field that is not yet logged?\n")
+  cat("A device swapped, a station moved, a sensor on a different port.\n")
+  cat("(A broken logger or sensor, correctly recorded as broken, is fine.)\n")
 
   response <- ui_yes_no("\nDoes the record match reality?", allow_quit = FALSE)
 

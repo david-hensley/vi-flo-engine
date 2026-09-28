@@ -111,14 +111,23 @@ set_named_path <- function(name, path){
     cat("⚠️  WARNING: This will overwrite an existing named path:\n")
     cat("  Name:", name, "\n")
     cat("  Current path:", existing_path_full, "\n")
-    response <- readline("Do you want to continue? (Y/N): ")
-    if (toupper(trimws(response)) == "Y") {
+    # Looped rather than fatal on a typo. Aborting the whole operation because
+    # someone mistyped a single letter is a poor trade when re-asking costs
+    # nothing. ui_yes_no lives in ui_prompt_functions.R, which may not be
+    # loaded this early, so the same acceptance is done here.
+    repeat {
+      response <- toupper(trimws(readline("Do you want to continue? (Y/N): ")))
+      if (response %in% c("1", "YES", "YE")) response <- "Y"
+      if (response %in% c("2", "NO", "NOPE")) response <- "N"
+      if (response %in% c("Y", "N")) break
+      cat("\u26a0\ufe0f  Please enter Y, N, yes, no, 1 or 2\n")
+    }
+
+    if (response == "Y") {
       message("Overwriting...")
       default_datamap$path[default_datamap$named_path == name] <- relative_path
-    } else if (toupper(trimws(response)) == "N") {
-      stop("Operation cancelled by user", call. = FALSE)
     } else {
-      stop("Invalid input. Please enter Y or N", call. = FALSE)
+      stop("Operation cancelled by user", call. = FALSE)
     }
   } else {
     # No existing path - add a new one to the default datamap

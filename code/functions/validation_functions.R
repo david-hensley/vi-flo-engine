@@ -277,7 +277,14 @@ validate_metadata <- function(verbose = TRUE, stop_on_error = FALSE) {
   if (all(c("metadata_approved", "last_reviewed_utc") %in% names(metadata))) {
     blank_date <- is.na(metadata$last_reviewed_utc) |
                   trimws(as.character(metadata$last_reviewed_utc)) == ""
-    undated <- which(metadata$metadata_approved %in% TRUE & blank_date)
+
+    # ACTIVE rows only. A terminal row's approval is frozen history, and
+    # set_metadata_approved() deliberately skips terminal rows - so flagging
+    # one here would raise a violation nobody could ever resolve.
+    terminal <- c("removed", "replaced", "relocated", "decommissioned")
+    active <- !tolower(metadata$status) %in% terminal
+
+    undated <- which(active & metadata$metadata_approved %in% TRUE & blank_date)
 
     if (length(undated) > 0) {
       record_violation(
