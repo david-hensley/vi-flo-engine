@@ -94,6 +94,13 @@ zentra_download <- function(devices = NULL, end = NULL, max_active = 4L,
   out_dir <- wds("device_zentra")
   if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE)
 
+  # The run identifies itself before anything is attempted, so a run that
+  # fails before fetching still has an id to log itself under. Same form as
+  # the filename stamp and UTC for the same reason - a run can be triggered
+  # from anywhere.
+  run_started <- Sys.time()
+  run_id <- format(run_started, "%Y%m%dT%H%M%S", tz = "UTC")
+
   cat("\n============================================\n")
   cat("  ZentraCloud download\n")
   if (dry_run) cat("  DRY RUN - nothing will be fetched\n")
@@ -106,7 +113,17 @@ zentra_download <- function(devices = NULL, end = NULL, max_active = 4L,
       cat("X Could not list devices: ", conditionMessage(e), "\n\n", sep = "")
       NULL
     })
-  if (is.null(known)) return(invisible(NULL))
+  if (is.null(known)) {
+    # Logged even though nothing was attempted. A run that cannot reach the
+    # service is precisely the silence a run log exists to break.
+    if (!dry_run) {
+      zentra_log_run(run_id, run_started, Sys.time(),
+                     seen = 0, fetched = 0, current = 0, errored = 0, rows = 0,
+                     status = "failed",
+                     message = "could not list devices")
+    }
+    return(invisible(NULL))
+  }
 
   if (!is.null(devices)) known <- known[known$device_id %in% devices, ]
 
@@ -145,14 +162,27 @@ zentra_download <- function(devices = NULL, end = NULL, max_active = 4L,
   if (dry_run || nrow(todo) == 0) {
     if (nrow(todo) > 0) cat("\nRe-run with dry_run = FALSE to fetch.\n\n")
     else cat("\nEverything is up to date.\n\n")
+
+    # A real run where everything was current is a correct outcome and logs as
+    # ok. It is distinguishable from a run that fetched nothing because it
+    # could not: devices_up_to_date carries the difference.
+    if (!dry_run) {
+      zentra_log_run(run_id, run_started, Sys.time(),
+                     seen = nrow(plan), fetched = 0,
+                     current = sum(plan$skip, na.rm = TRUE), errored = 0,
+                     rows = 0, status = "ok")
+    }
     return(invisible(plan))
   }
 
   #### Fetch ####
   cat("\n--------------------------------------------\n\n")
 
-  fetched_at <- Sys.time()
-  stamp <- format(fetched_at, "%Y%m%dT%H%M%S")
+  # One stamp for the whole run: the file, its download_log row and the
+  # run_log row all carry it, so "which run produced this file" and "what did
+  # that run produce" are both answerable.
+  fetched_at <- run_started
+  stamp <- run_id
   results <- list()
 
   for (i in seq_len(nrow(todo))) {
@@ -179,13 +209,28 @@ zentra_download <- function(devices = NULL, end = NULL, max_active = 4L,
                                key = key),
       error = function(e) {
         cat("  X ", sn, ": ", conditionMessage(e), "\n", sep = "")
-        NULL
+        structure(list(), class = "zentra_fetch_error",
+                  message = conditionMessage(e))
       })
+
+    # An error and an empty result are different outcomes. Both fetch nothing,
+    # but one means the device has nothing new and the other means we could not
+    # ask - and a run log that conflates them would report a broken service as
+    # a quiet week.
+    if (inherits(data, "zentra_fetch_error")) {
+      results[[length(results) + 1]] <- data.frame(
+        device_sn = sn, rows = 0L, file = NA_character_,
+        errored = TRUE,
+        error = paste0(sn, ": ", attr(data, "message")),
+        stringsAsFactors = FALSE)
+      next
+    }
 
     if (is.null(data) || nrow(data) == 0) {
       cat("  - ", format(sn, width = 10), "nothing new\n", sep = "")
       results[[length(results) + 1]] <- data.frame(
         device_sn = sn, rows = 0L, file = NA_character_,
+        errored = FALSE, error = NA_character_,
         stringsAsFactors = FALSE)
       next
     }
@@ -200,7 +245,7 @@ zentra_download <- function(devices = NULL, end = NULL, max_active = 4L,
 
     saveRDS(data, file.path(out_dir, fname))
 
-    zentra_log_download(sn, first, last, nrow(data), fname, fetched_at)
+    zentra_log_download(sn, first, last, nrow(data), fname, fetched_at, run_id)
 
     cat("  + ", format(sn, width = 10),
         format(nrow(data), width = 8, big.mark = ","), " rows   ",
@@ -209,6 +254,7 @@ zentra_download <- function(devices = NULL, end = NULL, max_active = 4L,
 
     results[[length(results) + 1]] <- data.frame(
       device_sn = sn, rows = nrow(data), file = fname,
+      errored = FALSE, error = NA_character_,
       stringsAsFactors = FALSE)
   }
 
@@ -217,6 +263,23 @@ zentra_download <- function(devices = NULL, end = NULL, max_active = 4L,
   cat("\n--------------------------------------------\n")
   cat("Fetched ", format(sum(res$rows), big.mark = ","), " reading(s) across ",
       sum(res$rows > 0), " device(s)\n\n", sep = "")
+
+  n_errored <- sum(res$errored, na.rm = TRUE)
+  status <- if (n_errored == 0) "ok" else "partial"
+
+  if (n_errored > 0) {
+    cat(n_errored, " device(s) errored - see run_log.csv\n\n", sep = "")
+  }
+
+  zentra_log_run(run_id, run_started, Sys.time(),
+                 seen = nrow(plan),
+                 fetched = sum(res$rows > 0),
+                 current = sum(plan$skip, na.rm = TRUE),
+                 errored = n_errored,
+                 rows = sum(res$rows),
+                 status = status,
+                 message = paste(head(res$error[!is.na(res$error)], 2),
+                                 collapse = "; "))
 
   invisible(res)
 }
@@ -230,7 +293,8 @@ zentra_download <- function(devices = NULL, end = NULL, max_active = 4L,
 #'
 #' @param device_sn,first,last,n,fname,fetched_at Download details
 #' @return Invisible TRUE
-zentra_log_download <- function(device_sn, first, last, n, fname, fetched_at) {
+zentra_log_download <- function(device_sn, first, last, n, fname, fetched_at,
+                                run_id = NA_character_) {
 
   log_file <- file.path(wds("meta_internal"), "download_log.csv")
 
@@ -249,6 +313,7 @@ zentra_log_download <- function(device_sn, first, last, n, fname, fetched_at) {
 
   entry <- data.frame(
     timestamp_utc = format(fetched_at, "%Y-%m-%d %H:%M:%S", tz = "UTC"),
+    run_id        = run_id,
     station       = NA_character_,
     device_serial = device_sn,
     start_date    = format(first, "%Y-%m-%d %H:%M:%S", tz = project_tz),
@@ -261,6 +326,56 @@ zentra_log_download <- function(device_sn, first, last, n, fname, fetched_at) {
 
   if (file.exists(log_file)) {
     existing <- read.csv(log_file, stringsAsFactors = FALSE, nrows = 1)
+    entry <- entry[, names(existing), drop = FALSE]
+    write.table(entry, log_file, sep = ",", append = TRUE,
+                row.names = FALSE, col.names = FALSE, qmethod = "double")
+  } else {
+    write.csv(entry, log_file, row.names = FALSE)
+  }
+
+  invisible(TRUE)
+}
+
+
+#' Appends one row per invocation to run_log.csv
+#'
+#' download_log records what was FETCHED. A run that fetched nothing leaves no
+#' row there at all - which is exactly the failure worth catching, since a job
+#' that silently stops working looks identical to a quiet week.
+#'
+#' This records that the run happened, whatever it found. `devices_seen` is
+#' worth as much as the rest: if it drops from 27 to 23 one week, something
+#' changed in the account and nothing else would say so.
+#'
+#' @param run_id,started,finished Identify the run
+#' @param seen,fetched,current,errored Device counts
+#' @param rows Readings fetched
+#' @param status "ok", "partial" or "failed"
+#' @param message First error, or blank
+#' @return Invisible TRUE
+zentra_log_run <- function(run_id, started, finished, seen, fetched, current,
+                           errored, rows, status, message = "") {
+
+  log_file <- file.path(wds("meta_internal"), "run_log.csv")
+
+  entry <- data.frame(
+    run_id             = run_id,
+    started_utc        = format(started,  "%Y-%m-%d %H:%M:%S", tz = "UTC"),
+    finished_utc       = format(finished, "%Y-%m-%d %H:%M:%S", tz = "UTC"),
+    job                = "zentra_download",
+    devices_seen       = seen,
+    devices_fetched    = fetched,
+    devices_up_to_date = current,
+    devices_errored    = errored,
+    rows_fetched       = rows,
+    status             = status,
+    message            = substr(message, 1, 300),
+    stringsAsFactors   = FALSE
+  )
+
+  if (file.exists(log_file)) {
+    existing <- read.csv(log_file, stringsAsFactors = FALSE, nrows = 1)
+    for (col in setdiff(names(existing), names(entry))) entry[[col]] <- NA
     entry <- entry[, names(existing), drop = FALSE]
     write.table(entry, log_file, sep = ",", append = TRUE,
                 row.names = FALSE, col.names = FALSE, qmethod = "double")
