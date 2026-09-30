@@ -53,8 +53,8 @@ load_all_functions <- function(quiet = FALSE) {
 
 #' Reads the datamap_engine.csv in the data root and lists the named_paths for the user
 read_datamap <- function(){
-  setwd(Sys.getenv("VI_FLO_DATA_ROOT"))
-  datamap <- read.csv("datamap_engine.csv")
+  datamap <- read.csv(file.path(Sys.getenv("VI_FLO_DATA_ROOT"),
+                                "datamap_engine.csv"))
   cat("Available named paths:\n")  
   cat(paste0("  - ", unique(datamap$named_path)), sep = "\n")
 }
@@ -70,8 +70,12 @@ wds <- function(name){
   if (name == "engine"){
     return(Sys.getenv("VI_FLO_ENGINE_ROOT"))
   }
-  setwd(Sys.getenv("VI_FLO_DATA_ROOT"))
-  datamap <- read.csv("datamap_engine.csv")
+  # Read by full path rather than setwd()-ing there. wds() is called by almost
+  # everything, so a working directory change here moved the session's
+  # directory on every path lookup - which is how .Rhistory files ended up
+  # being written into metadata/internal.
+  datamap <- read.csv(file.path(Sys.getenv("VI_FLO_DATA_ROOT"),
+                                "datamap_engine.csv"))
   result <- datamap$absolute_path[datamap$named_path == name][1]
   if (is.na(result)) {
     stop("Named path '", name, "' not found in datamap.\n",
@@ -101,8 +105,11 @@ set_named_path <- function(name, path){
   relative_path <- sub(paste0("^", prefix_with_slash), "", path)
   
   # ========== UPDATE DEFAULT DATAMAP (TEMPLATE) ==========
-  setwd(paste0(Sys.getenv("VI_FLO_ENGINE_ROOT"), "/data"))
-  default_datamap <- read.csv("default_datamap.csv", stringsAsFactors = FALSE)
+  # Full paths throughout. This function used to leave the working directory
+  # wherever it last wrote, which surprises whatever runs next.
+  default_path <- file.path(Sys.getenv("VI_FLO_ENGINE_ROOT"), "data",
+                            "default_datamap.csv")
+  default_datamap <- read.csv(default_path, stringsAsFactors = FALSE)
   if (name %in% default_datamap$named_path){
     # Record the existing path
     existing_path <- default_datamap$path[default_datamap$named_path == name][1]
@@ -137,13 +144,11 @@ set_named_path <- function(name, path){
   }
   # Write updated default datamap back to CSV
   default_datamap <- default_datamap[order(default_datamap$named_path), ]
-  write.csv(default_datamap, "default_datamap.csv", row.names = FALSE)
+  write.csv(default_datamap, default_path, row.names = FALSE)
   message("✓ Updated default_datamap.csv (template)")
   
   # ========== UPDATE ACTUAL DATAMAP (WORKING) ==========
-  setwd(data_root)
-  # Load actual datamap (or create empty if doesn't exist)
-  datamap_file <- "datamap_engine.csv"
+  datamap_file <- file.path(data_root, "datamap_engine.csv")
   if (file.exists(datamap_file)) {
     actual_datamap <- read.csv(datamap_file, stringsAsFactors = FALSE)
   } else {

@@ -9,8 +9,14 @@
 #' Handles both R and Excel date formats automatically
 #' @return Data.frame. Zentra device metadata with formatted dates/timezone
 load_zentra_metadata <- function(){
-  setwd(wds("meta_internal"))
-  metadata <- read.csv("device_metadata.csv", stringsAsFactors = FALSE)
+  metadata <- read.csv(file.path(wds("meta_internal"), "device_metadata.csv"),
+                       stringsAsFactors = FALSE)
+
+  # What the file looked like when this session read it. save_device_metadata()
+  # refuses to write over anything else.
+  if (exists("remember_file_hash")) {
+    remember_file_hash(file.path(wds("meta_internal"), "device_metadata.csv"))
+  }
   timezone <- metadata$timezone[1] # This assumes all the time zones are the same!
   # Parse datetime columns (handles both R and Excel formats)
   metadata$deploy_datetime <- parse_datetime_flexible(metadata$deploy_datetime, timezone)
@@ -31,8 +37,7 @@ load_zentra_metadata <- function(){
 #' Handles both R and Excel date formats automatically
 #' @return Data.frame. Zentra port configuration history with formatted dates
 load_zentra_ports_data <- function(){
-  setwd(wds("meta_internal"))
-  ports <- read.csv("zentra_ports.csv", stringsAsFactors = FALSE)
+  ports <- read.csv(file.path(wds("meta_internal"), "zentra_ports.csv"), stringsAsFactors = FALSE)
   # Get timezone from device metadata (assuming all same timezone)
   metadata <- load_zentra_metadata()
   timezone <- metadata$timezone[1] # Assumes the same time zone!
@@ -48,8 +53,7 @@ load_zentra_ports_data <- function(){
 #' Parses datetime columns appropriately
 #' @return Data.frame. Download log with formatted dates
 load_download_log <- function() {
-  setwd(wds("meta_internal"))
-  log <- read.csv("download_log.csv", stringsAsFactors = FALSE)
+  log <- read.csv(file.path(wds("meta_internal"), "download_log.csv"), stringsAsFactors = FALSE)
   # Get timezone from device metadata for consistency
   metadata <- load_zentra_metadata()
   timezone <- metadata$timezone[1]
@@ -66,8 +70,7 @@ load_download_log <- function() {
 #' Parses datetime columns appropriately
 #' @return Data.frame. Maintenance log with formatted dates
 load_maintenance_log <- function() {
-  setwd(wds("meta_internal"))
-  log <- read.csv("maintenance_log.csv", stringsAsFactors = FALSE)
+  log <- read.csv(file.path(wds("meta_internal"), "maintenance_log.csv"), stringsAsFactors = FALSE)
   # Get timezone from device metadata for consistency
   metadata <- load_zentra_metadata()
   timezone <- metadata$timezone[1]
@@ -649,9 +652,7 @@ delete_last_maintenance_entry <- function(device_serial) {
     # Remove that row
     maint_log <- maint_log[-last_entry_index, ]
     
-    # Save
-    setwd(wds("meta_internal"))
-    
+    # Save    
     # Format datetime columns before saving
     if ("field_visit_date" %in% names(maint_log)) {
       maint_log$field_visit_date <- as.character(maint_log$field_visit_date)
@@ -660,7 +661,9 @@ delete_last_maintenance_entry <- function(device_serial) {
       maint_log$timestamp <- format_datetime_safe(maint_log$timestamp)
     }
     
-    write.csv(maint_log, "maintenance_log.csv", row.names = FALSE)
+    
+    write.csv(maint_log, file.path(wds("meta_internal"), "maintenance_log.csv"),
+              row.names = FALSE)
     
     return(TRUE)
   }, error = function(e) {
@@ -1049,11 +1052,12 @@ initialize_ports <- function(device_serial, port_config) {
     }
     
     # Save
-    setwd(wds("meta_internal"))
     ports$valid_from <- format_datetime_safe(ports$valid_from)
     ports$valid_to <- format_datetime_safe(ports$valid_to)
     
-    write.csv(ports, "zentra_ports.csv", row.names = FALSE)
+    
+    write.csv(ports, file.path(wds("meta_internal"), "zentra_ports.csv"),
+              row.names = FALSE)
     
     return(TRUE)
   }, error = function(e) {
@@ -1173,11 +1177,12 @@ update_ports <- function(device_serial, port_config, change_datetime) {
     }
     
     # Save
-    setwd(wds("meta_internal"))
     ports$valid_from <- format_datetime_safe(ports$valid_from)
     ports$valid_to <- format_datetime_safe(ports$valid_to)
     
-    write.csv(ports, "zentra_ports.csv", row.names = FALSE)
+    
+    write.csv(ports, file.path(wds("meta_internal"), "zentra_ports.csv"),
+              row.names = FALSE)
     
     return(TRUE)
   }, error = function(e) {
@@ -1463,11 +1468,11 @@ remove_device <- function(device_serial, removal_datetime) {
     if (grepl("^z", device_serial, ignore.case = TRUE)) {
       ports <- load_zentra_ports_data()
       ports$valid_to[ports$sn == device_serial & is.na(ports$valid_to)] <- removal_datetime
-      
-      setwd(wds("meta_internal"))
       ports$valid_from <- format_datetime_safe(ports$valid_from)
       ports$valid_to <- format_datetime_safe(ports$valid_to)
-      write.csv(ports, "zentra_ports.csv", row.names = FALSE)
+
+      write.csv(ports, file.path(wds("meta_internal"), "zentra_ports.csv"),
+                row.names = FALSE)
     }
     
     # 4. Update last_visit
@@ -1509,11 +1514,13 @@ remove_device <- function(device_serial, removal_datetime) {
 #' @param metadata Data.frame. Full device metadata to write
 #' @param path Character. Destination (default: device_metadata.csv in meta_internal)
 #' @return Invisible TRUE
-save_device_metadata <- function(metadata, path = NULL) {
+save_device_metadata <- function(metadata, path = NULL, intent = NULL,
+                                 guard = TRUE) {
 
   if (is.null(path)) {
     path <- file.path(wds("meta_internal"), "device_metadata.csv")
   }
+
 
   # Datetimes: format_datetime_safe handles POSIXct, character and all-NA
   # logical columns alike
@@ -1529,7 +1536,31 @@ save_device_metadata <- function(metadata, path = NULL) {
     metadata[[col]] <- as.character(metadata[[col]])
   }
 
+  # Refuse to overwrite a file that changed since this session read it.
+  #
+  # Checked HERE rather than on entry, because the comparison in
+  # report_write_conflict() reads the file as text - and until the datetimes
+  # above are formatted, every row would differ from its own stored form and
+  # the report would claim the whole file had changed.
+  #
+  # Skipped only where the caller means to replace the file wholesale - a
+  # migration, a restore - and says so.
+  if (guard && exists("remembered_file_hash") && file.exists(path)) {
+    expected <- remembered_file_hash(path)
+    if (!is.na(expected)) {
+      actual <- unname(tools::md5sum(path))
+      if (!identical(expected, actual)) {
+        report_write_conflict(path, metadata, intent)
+        return(invisible(FALSE))
+      }
+    }
+  }
+
   write.csv(metadata, path, row.names = FALSE)
+
+  # What this session now holds is what is on disk
+  if (exists("remember_file_hash")) remember_file_hash(path)
+
   invisible(TRUE)
 }
 

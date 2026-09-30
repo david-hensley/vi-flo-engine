@@ -270,20 +270,31 @@ print_session_status <- function(status) {
     if (pull + push + diff == 0) {
       label("Box:"); cat("in sync\n")
     } else {
+      # Stated, not interpreted. A file on one side and not the other means
+      # either that it was added there or removed here, and rclone cannot tell
+      # which - so neither can this. Saying "PULL before working" would be
+      # wrong half the time, and a warning that is wrong half the time is one
+      # nobody reads.
       label("Box:")
-      cat("out of sync\n")
-      if (pull > 0) {
-        cat("                   ", pull, " file", if (pull != 1) "s" else "",
-            " on Box that you do not have - PULL before working\n", sep = "")
+      cat("differs\n")
+
+      show <- function(heading, files, n) {
+        if (n == 0) return(invisible(NULL))
+        cat("                   ", heading, "\n", sep = "")
+        for (f in head(files, 6)) cat("                     ", f, "\n", sep = "")
+        if (length(files) > 6) {
+          cat("                     ... and ", length(files) - 6, " more\n", sep = "")
+        }
+        # Counted but unnamed means rclone said how many without saying which
+        if (length(files) == 0) {
+          cat("                     (", n, " file", if (n != 1) "s" else "",
+              ", not named by rclone)\n", sep = "")
+        }
       }
-      if (diff > 0) {
-        cat("                   ", diff, " file", if (diff != 1) "s" else "",
-            " differ between here and Box\n", sep = "")
-      }
-      if (push > 0) {
-        cat("                   ", push, " file", if (push != 1) "s" else "",
-            " here that Box does not have - push when you finish\n", sep = "")
-      }
+
+      show("on Box, not here:", b$files_on_box, pull)
+      show("here, not on Box:", b$files_here, push)
+      show("on both but different:", b$files_differ, diff)
     }
   }
 
@@ -340,14 +351,19 @@ box_data_state <- function(timeout = 60) {
   local_root <- Sys.getenv("VI_FLO_DATA_ROOT")
   if (!nzchar(local_root)) return(none("VI_FLO_DATA_ROOT not set"))
 
-  # datamap_*.csv is machine-specific by design and is never synced
+  # datamap_*.csv is machine-specific by design and is never synced. The rest
+  # is editor and OS litter - not data, and a sync warning driven by a stray
+  # .Rhistory is a warning that stops being read.
+  ignore <- c("datamap_*.csv", ".Rhistory", ".RData", ".Rproj.user/**",
+              "Thumbs.db", ".DS_Store", "~$*")
+
   check <- function(src, dst) {
+    args <- c("check", shQuote(src), shQuote(dst), "--one-way")
+    for (pat in ignore) args <- c(args, "--exclude", shQuote(pat))
+
     out <- tryCatch(
       suppressWarnings(
-        system2("rclone",
-                c("check", shQuote(src), shQuote(dst), "--one-way",
-                  "--exclude", shQuote("datamap_*.csv")),
-                stdout = TRUE, stderr = TRUE, timeout = timeout)),
+        system2("rclone", args, stdout = TRUE, stderr = TRUE, timeout = timeout)),
       error = function(e) NULL)
 
     if (is.null(out)) return(NULL)
@@ -358,7 +374,19 @@ box_data_state <- function(timeout = 60) {
       as.integer(sub(paste0(".*?(\\d+) ", pattern, ".*"), "\\1", hit[1]))
     }
 
-    list(missing = grab("files missing"), differing = grab("differences found"))
+    # The filenames, not only the counts. rclone names each one on an ERROR
+    # line; discarding them meant the report could say how many differed but
+    # not which, leaving the reader to go and run something to find out.
+    detail <- function(marker) {
+      hits <- grep(paste0("ERROR : .*: ", marker), out, value = TRUE)
+      if (length(hits) == 0) return(character(0))
+      trimws(sub("^.*ERROR : (.*?): .*$", "\\1", hits))
+    }
+
+    list(missing   = grab("files missing"),
+         differing = grab("differences found"),
+         missing_files   = detail("file not in"),
+         differing_files = detail("sizes differ|md5 differ|modification time"))
   }
 
   # What Box has that we do not
@@ -372,5 +400,8 @@ box_data_state <- function(timeout = 60) {
        missing_here  = from_box$missing,
        missing_there = if (is.null(from_here)) NA_integer_ else from_here$missing,
        differing     = from_box$differing,
+       files_on_box  = from_box$missing_files,
+       files_here    = if (is.null(from_here)) character(0) else from_here$missing_files,
+       files_differ  = from_box$differing_files,
        reason        = "")
 }
