@@ -324,14 +324,28 @@ zentra_log_download <- function(device_sn, first, last, n, fname, fetched_at,
     stringsAsFactors = FALSE
   )
 
-  if (file.exists(log_file)) {
-    existing <- read.csv(log_file, stringsAsFactors = FALSE, nrows = 1)
-    entry <- entry[, names(existing), drop = FALSE]
-    write.table(entry, log_file, sep = ",", append = TRUE,
-                row.names = FALSE, col.names = FALSE, qmethod = "double")
-  } else {
+  if (!file.exists(log_file)) {
     write.csv(entry, log_file, row.names = FALSE)
+    return(invisible(TRUE))
   }
+
+  existing <- read.csv(log_file, stringsAsFactors = FALSE)
+  new_cols <- setdiff(names(entry), names(existing))
+
+  # As in zentra_log_run(): a column the file lacks means the schema grew, and
+  # an append cannot carry it. Rewriting is the only way the value survives.
+  if (length(new_cols) > 0) {
+    for (col in new_cols) existing[[col]] <- NA
+    for (col in setdiff(names(existing), names(entry))) entry[[col]] <- NA
+    entry <- entry[, names(existing), drop = FALSE]
+    write.csv(rbind(existing, entry), log_file, row.names = FALSE)
+    return(invisible(TRUE))
+  }
+
+  for (col in setdiff(names(existing), names(entry))) entry[[col]] <- NA
+  entry <- entry[, names(existing), drop = FALSE]
+  write.table(entry, log_file, sep = ",", append = TRUE,
+              row.names = FALSE, col.names = FALSE, qmethod = "double")
 
   invisible(TRUE)
 }
@@ -363,6 +377,10 @@ zentra_log_run <- function(run_id, started, finished, seen, fetched, current,
     started_utc        = format(started,  "%Y-%m-%d %H:%M:%S", tz = "UTC"),
     finished_utc       = format(finished, "%Y-%m-%d %H:%M:%S", tz = "UTC"),
     job                = "zentra_download",
+    # Which computer ran it. One machine is meant to hold the scheduled job;
+    # two hostnames alternating in this column is the quickest way to notice
+    # that a task was installed somewhere and never removed.
+    machine            = unname(Sys.info()[["nodename"]]),
     devices_seen       = seen,
     devices_fetched    = fetched,
     devices_up_to_date = current,
@@ -373,15 +391,32 @@ zentra_log_run <- function(run_id, started, finished, seen, fetched, current,
     stringsAsFactors   = FALSE
   )
 
-  if (file.exists(log_file)) {
-    existing <- read.csv(log_file, stringsAsFactors = FALSE, nrows = 1)
+  if (!file.exists(log_file)) {
+    write.csv(entry, log_file, row.names = FALSE)
+    return(invisible(TRUE))
+  }
+
+  existing <- read.csv(log_file, stringsAsFactors = FALSE)
+
+  # A column the entry has and the file does not means the schema grew. A
+  # plain append cannot carry it - the row would be reshaped to the old header
+  # and the new value dropped, silently, every run. So the file is rewritten
+  # wide enough to hold it, with the older rows blank in that column.
+  new_cols <- setdiff(names(entry), names(existing))
+
+  if (length(new_cols) > 0) {
+    for (col in new_cols) existing[[col]] <- NA
     for (col in setdiff(names(existing), names(entry))) entry[[col]] <- NA
     entry <- entry[, names(existing), drop = FALSE]
-    write.table(entry, log_file, sep = ",", append = TRUE,
-                row.names = FALSE, col.names = FALSE, qmethod = "double")
-  } else {
-    write.csv(entry, log_file, row.names = FALSE)
+    write.csv(rbind(existing, entry), log_file, row.names = FALSE)
+    return(invisible(TRUE))
   }
+
+  # Same shape - append, which is cheaper and leaves the existing rows alone
+  for (col in setdiff(names(existing), names(entry))) entry[[col]] <- NA
+  entry <- entry[, names(existing), drop = FALSE]
+  write.table(entry, log_file, sep = ",", append = TRUE,
+              row.names = FALSE, col.names = FALSE, qmethod = "double")
 
   invisible(TRUE)
 }
