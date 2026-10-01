@@ -3,6 +3,72 @@ All notable changes to the VI-FLO Engine project are documented here.
 
 ---
 
+## [v2.2.0] - 2026-10-01
+
+The download runs itself. A scheduled job keeps the archive current without
+anyone remembering to fetch, and the session reports what it found rather than
+leaving it to be asked.
+
+### Added
+- `code/jobs/download_job.R` - pull from Box, fetch what ZentraCloud has that
+  the archive does not, push back
+  - Pulls FIRST. Box carries whole files, so appending to a stale
+    download_log.csv and pushing would overwrite the other machine's rows. This
+    narrows the window in which that can happen from a week to the job's own
+    runtime - it does not close it, which is why the prompts say not to run it
+    while somebody is working elsewhere
+  - Exits 0 or 1, so a scheduler can tell. A failed push says plainly that this
+    machine now holds data no other copy has
+- `tools/download/run_download.bat` - the same job on a double-click, for when
+  you want the data now rather than on Monday
+- `tools/download/check_download_due.ps1` - at logon, if the last successful
+  download is more than 7 days 2 hours old, a dialog offers to run one
+  - Deliberately NOT Task Scheduler's own catch-up, which fires at an
+    unpredictable moment - possibly while somebody is writing metadata on the
+    other machine, which is the collision the job exists to avoid. A prompt
+    fires when a person is at the keyboard and can answer
+- `tools/download/SCHEDULING.md` - setting up both tasks, and moving them to
+  another machine
+- `run_log.csv` - one row per invocation, whether or not anything was fetched
+  - download_log.csv records what was FETCHED. A run that fetched nothing
+    leaves no row there at all, which is exactly the failure worth catching:
+    a job that silently stops working looks identical to a quiet week
+  - `devices_seen` is worth as much as the rest. If it drops from 17 to 13 one
+    week, something changed in the account and nothing else would say so
+  - `machine` records which computer ran it. Two names alternating means a
+    scheduled task was installed somewhere and never removed - the one
+    configuration that loses data
+- `run_id` joins the three records: a Product 1 file, its download_log row and
+  its run_log row all carry the same UTC stamp
+- Session status on start.R - uncommitted work and unpushed commits, metadata
+  changed since the last savepoint, how the data root differs from Box, and
+  when the last download ran. Every category reports, including when it has
+  nothing to say: silence is ambiguous between "checked and fine" and "never
+  ran", and after waiting for the Box check the difference matters
+- A concurrent write guard. Every read records the file's hash; a write that
+  finds the hash changed is refused and names the rows that differ. It catches
+  a change made DURING a session - the scheduled job appending while the
+  manager is open - not a session that started from a stale copy, which is what
+  the session status is for
+
+### Changed
+- `wds()` no longer changes the working directory. It is called by almost
+  everything, so a setwd() there moved the session's directory on every path
+  lookup - which is how .Rhistory files ended up written into metadata/internal
+- Both logs widen when a column is added. An append reshapes the new row to the
+  existing header, so a new column was dropped silently on every run - `machine`
+  would never have appeared
+
+### Fixed
+- The download resume point broke ties by end DATE alone, so every file fetched
+  on one day looked equally recent and an arbitrary one was chosen. A second
+  run in the same hour resumed from hours earlier and refetched readings
+  already held. Ordered by the fetch stamp too, which has seconds in it
+- Backup verification compares file names rather than counts, and names what is
+  missing
+
+---
+
 ## [v2.1.0] - 2026-09-28
 
 The metadata review. `download_approved` is renamed and given a meaning it can

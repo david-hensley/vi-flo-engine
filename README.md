@@ -2,7 +2,7 @@
 
 Backend data and code engine for the Virgin Islands Freshwater and Landscapes Observatory (VI-FLO).
 
-**Status:** v2.1.0
+**Status:** v2.2.0
 
 ---
 
@@ -176,8 +176,14 @@ excluded from sync - re-run setup on each computer rather than copying it.
 source(file.path(Sys.getenv("VI_FLO_ENGINE_ROOT"), "code/start.R"))
 ```
 
-This sources `setup_functions.R`, loads every other function file, and reports
-any unfinished data tasks.
+This sources `setup_functions.R`, loads every other function file, reports the
+state of the session - uncommitted work, metadata changed since the last
+savepoint, how the data root differs from Box, when the last download ran - and
+raises any unfinished data tasks.
+
+**To download the latest data**, double-click `tools/download/run_download.bat`.
+The same job runs weekly on whichever machine holds the scheduled task; see
+`tools/download/SCHEDULING.md`.
 
 **To use the metadata manager**, double-click
 `tools/launcher/metadata-manager.Rproj`. It opens RStudio, loads everything,
@@ -201,14 +207,19 @@ and goes straight to the menu.
 │       ├── file_naming_functions.R  # Raw file naming, shared by both paths
 │       ├── pending_ingest_functions.R    # Unfinished field tasks
 │       ├── validation_functions.R   # Metadata consistency checks
+│       ├── session_functions.R      # What to know at session start
+│       ├── guard_functions.R        # Refuses writes over a changed file
 │       ├── api_functions.R          # Legacy v4 downloads, superseded
 │       └── backup_restore_functions.R
+│   └── jobs/
+│       └── download_job.R           # Pull, fetch, push - scheduled or on demand
 ├── data/         # Data dictionary and sample metadata
 ├── docs/         # Additional documentation and notes
 ├── tools/
 │   ├── launcher/     # Double-click entry to the metadata manager
 │   ├── migrations/   # One-off schema and data migrations, with a README
 │   ├── backfill/     # One-time ZentraCloud export parser, kept for audit
+│   ├── download/     # Double-click launcher, logon prompt, scheduling notes
 │   ├── setup_win.py  # Setup routine, built to setup_win.exe
 │   └── datamapper.py
 ├── .gitignore    # Ignores api_tokens.csv for security, do not delete!

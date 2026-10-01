@@ -62,12 +62,24 @@ $age = (Get-Date).ToUniversalTime() - $lastRun
 if ($age.TotalHours -lt $ThresholdHours) { exit 0 }
 
 # --- Ask ---------------------------------------------------------------------
-$days  = [math]::Floor($age.TotalDays)
-$hours = [math]::Floor($age.TotalHours) - ($days * 24)
+# Read in whatever units make sense at that distance. "0 days ago" is how a
+# naive day count reads for anything under 24 hours, which is both wrong and
+# faintly absurd.
+$days    = [math]::Floor($age.TotalDays)
+$hours   = [math]::Floor($age.TotalHours) - ($days * 24)
+$minutes = [math]::Floor($age.TotalMinutes) - ([math]::Floor($age.TotalHours) * 60)
 
-$ageText = if ($days -eq 1) { "1 day" } else { "$days days" }
-if ($hours -eq 1) { $ageText += " and 1 hour" }
-elseif ($hours -gt 0) { $ageText += " and $hours hours" }
+$plural = { param($n, $word) if ($n -eq 1) { "1 $word" } else { "$n ${word}s" } }
+
+if ($days -ge 1) {
+    $ageText = & $plural $days "day"
+    if ($hours -gt 0) { $ageText += " and " + (& $plural $hours "hour") }
+} elseif ($hours -ge 1) {
+    $ageText = & $plural $hours "hour"
+    if ($minutes -gt 0) { $ageText += " and " + (& $plural $minutes "minute") }
+} else {
+    $ageText = & $plural ([math]::Max($minutes, 1)) "minute"
+}
 
 Add-Type -AssemblyName System.Windows.Forms | Out-Null
 
