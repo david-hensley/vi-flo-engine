@@ -77,7 +77,8 @@ The weekly download last ran $ageText ago.
 Run it now?
 
 Do NOT run this if you or anyone else is currently writing
-to the database on this or any other machine.
+data on this or any other machine - metadata, an ingested
+file, a station photo.
 "@
 
 $answer = [System.Windows.Forms.MessageBox]::Show(

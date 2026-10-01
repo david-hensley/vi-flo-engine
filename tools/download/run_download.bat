@@ -8,9 +8,10 @@ REM
 REM  The same job the weekly scheduled task runs. Safe to run whenever you
 REM  want the current data - it only fetches what is missing.
 REM
-REM  DO NOT run it while you or anyone else is writing metadata on another
-REM  machine. Box carries whole files, so two machines writing the same file
-REM  means one version is kept and the other lost.
+REM  DO NOT run it while you or anyone else is writing data on another
+REM  machine - metadata, an ingested file, a station photo. Box carries whole
+REM  files, so two machines writing the same file means one version is kept
+REM  and the other lost.
 REM ===========================================================================
 
 setlocal
@@ -26,7 +27,9 @@ echo    2. Fetch new readings from ZentraCloud
 echo    3. Push the result back to Box
 echo.
 echo  Do NOT continue if you or anyone else is currently
-echo  writing metadata on this or another machine.
+echo  writing data on this or another machine - metadata,
+echo  an ingested file, a station photo. This pushes the whole
+echo  data root, and Box keeps one version of a file.
 echo.
 
 set /p CONFIRM="  Continue? (Y/N): "
@@ -74,8 +77,20 @@ if "%VI_FLO_ENGINE_ROOT%"=="" (
   exit /b 1
 )
 
+set JOB_SCRIPT=%VI_FLO_ENGINE_ROOT%\code\jobs\download_job.R
+
+if not exist "%JOB_SCRIPT%" (
+  echo.
+  echo  X The job script is missing:
+  echo    %JOB_SCRIPT%
+  echo    Pull the latest engine repo, then try again.
+  echo.
+  pause
+  exit /b 1
+)
+
 echo.
-"%RSCRIPT%" "%VI_FLO_ENGINE_ROOT%\code\jobs\download_job.R"
+"%RSCRIPT%" "%JOB_SCRIPT%"
 set JOB_STATUS=%ERRORLEVEL%
 
 echo.

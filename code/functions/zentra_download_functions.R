@@ -51,14 +51,26 @@ zentra_last_held <- function(device_sn) {
   mine <- p1[startsWith(basename(p1), paste0(device_sn, "_"))]
 
   if (length(mine) > 0) {
-    # The newest file's last record - reading only one file rather than all
-    ends <- vapply(basename(mine), function(f) {
+    # Ordered by end date AND fetch stamp, then the last one read.
+    #
+    # End date alone is not enough: every file fetched on one day carries the
+    # same end DATE, so ties were broken arbitrarily and a resume point could
+    # come from a file fetched hours earlier - refetching readings already
+    # held. The fetch stamp has seconds in it and never ties.
+    parsed <- lapply(basename(mine), function(f) {
       parts <- strsplit(sub("_raw\\.rds$", "", f), "_")[[1]]
-      if (length(parts) < 3) return(NA_character_)
-      parts[3]                      # the end date segment
-    }, character(1), USE.NAMES = FALSE)
+      stamp <- grep("^[0-9]{8}T[0-9]{6}$", parts, value = TRUE)
+      list(end   = if (length(parts) >= 3) parts[3] else NA_character_,
+           stamp = if (length(stamp) == 1) stamp else NA_character_)
+    })
 
-    newest <- mine[which.max(as.Date(ends, format = "%Y%m%d"))]
+    ends   <- vapply(parsed, function(p) p$end,   character(1))
+    stamps <- vapply(parsed, function(p) p$stamp, character(1))
+
+    # Both sort correctly as text - zero-padded, fixed width
+    ord <- order(ends, stamps, na.last = FALSE)
+    newest <- mine[ord[length(ord)]]
+
     d <- readRDS(newest)
     if (nrow(d) > 0) return(max(d$datetime, na.rm = TRUE))
   }
