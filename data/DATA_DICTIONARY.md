@@ -95,6 +95,32 @@ Two downloads can overlap - a run repeated the same day, or a catch-up after a
 failure. That is expected and is not corrected here: Product 1 records what
 each fetch returned, and deduplication on timestamp happens at Product 2.
 
+
+### `record_confirmed.csv`
+
+From when each station's record can be trusted - meaning: from when do we know
+which logger was serving it, as a contemporaneous log rather than a
+reconstruction from notes.
+
+The ZentraCloud exports reach back to 2021, but device-level history of that
+era was not systematically recorded. Attribution needs to know which station a
+device served; before some point per station, that is weaker knowledge.
+
+Where exactly is a judgement. It cannot be derived - the obvious rule, that an
+entry written long after the visit it describes was reconstructed, fails
+because some real entries were logged from field notes six months late.
+
+* `station_id`: The station, or `(default)` for the backstop row
+* `confirmed_from`: Date from which the record is trusted
+* `reason`: Why that date - what makes it the boundary
+
+A station absent from this file is confirmed from the default. The file holds
+exceptions only; an entry for every station would be a list of rows saying
+"yes, this one is fine".
+
+Written through `review_station_records()`, which shows what is known about a
+station before asking.
+
 ### `maintenance_log.csv`
 
 * `timestamp`: Timestamp when maintenance was logged in project timezone

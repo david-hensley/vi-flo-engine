@@ -1641,9 +1641,16 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL,
       } else NA_character_
       interval        <- shared_row$interval_min
       timezone        <- shared_row$timezone
-      deploy_datetime <- shared_row$deploy_datetime
       status          <- shared_row$status
       expiry_date     <- shared_row$expiry_date
+
+      # deploy_datetime is NOT inherited. The logger's location, model and
+      # elevation are genuinely shared - it is one box - but a station begins
+      # when ITS sensors go in, which can be years later. sr1_vwc3 inherited
+      # 2021 from the weather logger it shares when its TEROS went in on
+      # 2026-09-04, which would have attributed five years of readings to a
+      # station that did not exist.
+      deploy_datetime <- NULL
 
       cat("\n--- DEVICE DETAILS (inherited) ---\n\n")
       cat("  Manufacturer: ", mfger, "\n", sep = "")
@@ -1654,10 +1661,30 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL,
           if (!is.na(elev_source)) paste0(" (", elev_source, ")") else "",
           "\n", sep = "")
       cat("  Interval:     ", interval, " minutes\n", sep = "")
-      cat("  Deployed:     ", blank_or_value(deploy_datetime), "\n", sep = "")
       cat("  Status:       ", status, "\n\n", sep = "")
       cat("  Taken from ", shared_row$station_id,
           " - it is the same physical logger.\n", sep = "")
+
+      ## When did THIS station start?
+      cat("\n--- WHEN THIS STATION STARTED ---\n\n")
+      cat("The logger has been at this site since ",
+          blank_or_value(shared_row$deploy_datetime), ", but this station\n",
+          sep = "")
+      cat("begins when its own sensors went in - which may be the same day or\n")
+      cat("years later.\n\n")
+
+      if (ui_yes_no("Did this station's sensors go in on the same day as the logger?",
+                    allow_quit = FALSE) == "Y") {
+        deploy_datetime <- shared_row$deploy_datetime
+        cat("\u2713 Deployed: ", blank_or_value(deploy_datetime), "\n", sep = "")
+      } else {
+        deploy_datetime <- ui_prompt_datetime(
+          "When did this station's sensors go in?")
+        if (is.null(deploy_datetime)) {
+          cat("\u274c Cancelled\n")
+          return(NULL)
+        }
+      }
       cat("  Correct any of it later with 'Correct device details'.\n")
 
       ## Device role is the one thing that is per-station, not per-device

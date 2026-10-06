@@ -1969,3 +1969,84 @@ label_station_options <- function(station_ids) {
     else paste0(id, " (", entry$label, ")")
   }, character(1), USE.NAMES = FALSE)
 }
+
+
+################################################################################
+#                   WHEN A STATION'S RECORD BECAME TRUSTWORTHY                 #
+#                                                                              #
+# The ZentraCloud exports reach back to 2021, but device-level history of that #
+# era was not systematically recorded. Attribution needs to know which station #
+# a device was serving; before some point per station, that is a               #
+# reconstruction from notes rather than a contemporaneous log.                 #
+#                                                                              #
+# Where exactly is a judgement, recorded in record_confirmed.csv. It cannot be #
+# derived - the obvious rule, that an entry written long after the visit it    #
+# describes was reconstructed, fails because some real entries were logged     #
+# from field notes six months late.                                            #
+#                                                                              #
+# The file holds exceptions plus a default row. A station absent from it is    #
+# confirmed from the default, so it does not grow into a list of rows saying   #
+# "yes, this one is fine". Written through review_station_records() in tools/. #
+################################################################################
+
+RECORD_CONFIRMED_DEFAULT <- "2026-09-01"
+
+
+#' Reads record_confirmed.csv, creating it with its default row if absent
+#'
+#' @return Data frame: station_id, confirmed_from, reason
+load_record_confirmed <- function() {
+
+  f <- file.path(wds("meta_internal"), "record_confirmed.csv")
+
+  if (!file.exists(f)) {
+    seed <- data.frame(
+      station_id     = "(default)",
+      confirmed_from = RECORD_CONFIRMED_DEFAULT,
+      reason         = paste("metadata manager in routine use from this date;",
+                             "any station not listed is confirmed from here"),
+      stringsAsFactors = FALSE)
+    write.csv(seed, f, row.names = FALSE)
+    return(seed)
+  }
+
+  read.csv(f, stringsAsFactors = FALSE)
+}
+
+
+#' The date from which a station's record is considered trustworthy
+#'
+#' @param station_id Character
+#' @return Date
+record_confirmed_from <- function(station_id) {
+  rc <- load_record_confirmed()
+  hit <- rc$confirmed_from[rc$station_id == station_id]
+  if (length(hit) == 1 && !is.na(hit)) return(as.Date(hit))
+
+  d <- rc$confirmed_from[rc$station_id == "(default)"]
+  as.Date(if (length(d) == 1) d else RECORD_CONFIRMED_DEFAULT)
+}
+
+
+#' Records a judgement about one station
+#'
+#' @param station_id,confirmed_from,reason The judgement
+#' @return Invisible TRUE
+set_record_confirmed <- function(station_id, confirmed_from, reason) {
+
+  f <- file.path(wds("meta_internal"), "record_confirmed.csv")
+  rc <- load_record_confirmed()
+
+  row <- data.frame(station_id = station_id,
+                    confirmed_from = as.character(confirmed_from),
+                    reason = reason, stringsAsFactors = FALSE)
+
+  rc <- rc[rc$station_id != station_id, , drop = FALSE]
+  rc <- rbind(rc, row)
+
+  # The default first, then stations alphabetically
+  rc <- rc[order(rc$station_id != "(default)", rc$station_id), , drop = FALSE]
+
+  write.csv(rc, f, row.names = FALSE)
+  invisible(TRUE)
+}
