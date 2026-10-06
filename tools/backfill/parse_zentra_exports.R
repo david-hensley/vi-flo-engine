@@ -12,7 +12,7 @@
 # re-run it against the same zips and get the same output, which is the point:
 # the exports are the source of record, this is how they were read.
 #
-#     internal/raw/zentra-backfill/
+#     internal/device-data/zentra/backfill/
 #         exports/   the zips exactly as downloaded - KEPT PERMANENTLY
 #         parsed/    output of this script
 #
@@ -76,7 +76,7 @@ ZENTRA_EXPORT_TZ <- "America/Puerto_Rico"
 
 #' Root of the backfill area
 zentra_backfill_root <- function() {
-  file.path(wds("internal_raw_vwc"), "..", "zentra-backfill")
+  wds("device_zentra_backfill")
 }
 
 zentra_exports_dir <- function() {

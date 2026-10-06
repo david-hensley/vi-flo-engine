@@ -2,7 +2,7 @@
 
 Backend data and code engine for the Virgin Islands Freshwater and Landscapes Observatory (VI-FLO).
 
-**Status:** v2.2.0
+**Status:** v2.3.0
 
 ---
 
@@ -43,9 +43,19 @@ published archive are not part of this release.
 
 ## Data products
 
-Data moves through numbered products. Each is derived from the one below and
-can be rebuilt from it, so a mistake anywhere is corrected by fixing the cause
-and regenerating rather than by editing files.
+The data root divides on the property that governs everything else: what is
+held, and what is made from it.
+
+```
+internal/
+    device-data/     what instruments gave us
+    products/        what we derived from it
+    discrete/        what people measured by hand
+```
+
+One side is written once and never touched. The other is thrown away and
+rebuilt whenever a parameter changes. That decides what is backed up carefully,
+what is versioned, and what a migration has to preserve.
 
 ### Product 0 - source artifacts
 
@@ -53,8 +63,8 @@ Exactly what came off the instrument or out of the vendor's export, kept
 permanently and never edited.
 
 ```
-internal/raw/device-data/hobo/shuttle_readouts/     .hobo files
-internal/raw/device-data/zentra/backfill/exports/   ZentraCloud export zips
+internal/device-data/hobo/shuttle_readouts/     .hobo files
+internal/device-data/zentra/backfill/exports/   ZentraCloud export zips
 ```
 
 ### Product 1 - device-keyed readings
@@ -63,11 +73,11 @@ One row per measurement, identified by device serial and port number. No
 station, no depth, no interpretation.
 
 ```
-internal/raw/device-data/zentra/
+internal/device-data/zentra/
     z6-12874_20260925_20260928_20260928T090359_raw.rds
     serial _ first record _ last record _ when fetched
 
-internal/raw/device-data/hobo/
+internal/device-data/hobo/
     21352826_20250903_20260201_raw.rds
 ```
 
@@ -79,24 +89,58 @@ it and station attribution is deferred.
 Files are written once and never rewritten. Each is exactly what one fetch or
 one offload returned, with a matching row in `download_log.csv`.
 
-### Product 2 - station-attributed and labelled
+RDS, because a faithful copy is the point and type fidelity is what faithful
+means - a datetime stays a datetime rather than becoming a string somebody has
+to parse correctly forever.
 
-Metadata applied: which station a device served over which period, and what
-depth each port sat at. This is the first product a researcher would want -
-`vwc_10cm` rather than `port_3`.
+### Products 2 and up - station-attributed series
+
+Every variable has its own ladder:
+
+| | |
+|---|---|
+| **P2** | attributed, regularly spaced, gaps inventoried |
+| **P3** | automatic quality control, declared parameters |
+| **P4** | human decisions applied |
 
 ```
-internal/raw/vwc/          station-attributed soil moisture
-internal/raw/streamflow/   station-attributed water level
-internal/raw/weather/
+internal/products/hydro/level/p2/sr1_hydro_2026.csv.gz
+internal/products/weather/precip/p3/uvi_weather_2025.csv.gz
+internal/products/vwc/vwc_30cm/p4/bta2_vwc1_2024.csv.gz
 ```
 
-Because depth is applied here rather than stored at Product 1, correcting a
-port's recorded depth is a metadata edit plus a regeneration - the archive
-itself is never wrong and never needs editing.
+Station-year files, one variable each, `.csv.gz` - a format anything can open,
+compressed because a station-variable-year is about 1.3 MB as plain text.
 
-Products above 2 - quality control, and derived quantities such as discharge -
-are not yet defined.
+A DERIVED variable starts its ladder from the top of its input's. Discharge P2
+is computed from level P4 and a rating curve, not from level P2 - otherwise
+every correction made to level would have to be made again to discharge, and
+inconsistently.
+
+A rating curve is a PARAMETER SET, not data. A new curve produces a new version
+of the discharge series, recording which curve built it; the product does not
+change and both versions stay reproducible.
+
+### Discrete measurements
+
+```
+internal/discrete/hydro/flowtracker2/
+internal/discrete/sediment/ssc/
+internal/discrete/soil/saturo/  ksat/  hyprop2/  wp4c/
+```
+
+A FlowTracker gauging measures discharge. So does the series under
+`products/hydro/discharge`. The difference is not the quantity but how it was
+arrived at - one logged by an instrument on a schedule, one measured by a
+person standing in the stream. So the two sit beside each other, and someone
+asking what discharge data exists finds both in parallel places.
+
+No product stages here. A gauging is what it is.
+
+Named for the instrument, because one HYPROP run yields retention and
+unsaturated conductivity together and naming the folder after either would
+leave the other homeless. `ssc` is the exception: there is no instrument,
+bottles go to whichever lab has capacity.
 
 ---
 
@@ -209,7 +253,7 @@ and goes straight to the menu.
 │       ├── validation_functions.R   # Metadata consistency checks
 │       ├── session_functions.R      # What to know at session start
 │       ├── guard_functions.R        # Refuses writes over a changed file
-│       ├── api_functions.R          # Legacy v4 downloads, superseded
+│       ├── network_status_functions.R  # What needs attention across the network
 │       └── backup_restore_functions.R
 │   └── jobs/
 │       └── download_job.R           # Pull, fetch, push - scheduled or on demand

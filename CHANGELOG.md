@@ -3,6 +3,85 @@ All notable changes to the VI-FLO Engine project are documented here.
 
 ---
 
+## [v2.3.0] - 2026-10-06
+
+The data root is reorganised around the distinction that governs everything
+else: what is held, and what is made from it. `internal/raw` is gone.
+
+```
+internal/
+    device-data/     what instruments gave us - immutable, device-keyed, RDS
+    products/        what we derived - regenerable, station-keyed, csv.gz
+    discrete/        what people measured by hand
+```
+
+BREAKING for anything that resolved a path through the datamap:
+`internal_raw_hydro`, `internal_raw_vwc` and `internal_raw_weather` no longer
+exist. Nothing outside the engine consumed them, which is why this is a minor
+bump rather than a major one.
+
+### Added
+- `internal/products/<domain>/<variable>/p<n>/` - station-year files, one
+  variable each
+  - Every variable has its own ladder. P2 attributed and regularly spaced with
+    gaps inventoried, P3 automatic quality control with declared parameters,
+    P4 human decisions applied
+  - A DERIVED variable starts its ladder from the top of its input's: discharge
+    P2 is computed from level P4, not from level P2. Otherwise every correction
+    made to level would have to be made again to discharge, and inconsistently
+  - Which splits the old `streamflow` folder in two. Once a rating curve stands
+    between level and discharge they are series with separate histories, and a
+    new curve regenerates one without touching the other
+- `internal/discrete/<domain>/<instrument>/` - what a person measured rather
+  than what an instrument logged
+  - A FlowTracker gauging measures discharge. So does the series. The
+    difference is not the quantity but how it was arrived at, so the two sit
+    beside each other rather than one above the other
+  - Named for the instrument, because one HYPROP run yields retention and
+    unsaturated conductivity together and naming the folder after either would
+    leave the other homeless. `ssc` is the exception: there is no instrument,
+    bottles go to whichever lab has capacity
+- `product_path()` and `discrete_path()`. The structure is composed in code
+  rather than enumerated in the datamap, so changing it later means changing
+  one function instead of an entry per stage
+- First-pass network status - devices gone quiet, low battery, HOBOs filling,
+  subscriptions, stations with no ports configured, stale reviews, paired
+  gauges with no survey. Printed after a download, when the API has just been
+  asked about every device and the answers are as fresh as they get
+
+### Changed
+- Products 2 and up are `.csv.gz`, not RDS. RDS is right for Products 0 and 1 -
+  a faithful copy nobody reads by hand, where type fidelity is the point. From
+  P2 the audience changes: a researcher asking for a station's rainfall should
+  get a file that opens in anything
+- `external/raw` and `external/processed` are gone. External data is somebody
+  else's, taken as given, and the processing discipline those names imply does
+  not apply to it. Grouped by source instead
+
+### Removed
+- The v4 ZentraCloud path - `api_functions.R` and the scratch file that drove
+  it. Nothing outside itself called any of its twelve functions
+- Seventeen applied migrations, their record kept in `tools/migrations/README.md`.
+  A migration changes DATA, which syncs through Box, so a second machine
+  already has the result and never needs to run the script
+- Build artefacts that should never have been committed - compiled Python and
+  PyInstaller intermediates - now in `.gitignore` so they stay out
+- Spent plans: a roadmap for a v0.2.0 reached differently, v0.0.2 checklists
+  long done, a TODO list of functions that exist. The two naming rules worth
+  keeping were moved into the data dictionary
+
+### Fixed
+- `rclone copy` never deletes, so Box held every path that had ever existed and
+  a pull restored them - which is how `internal/raw/streamflow` came back full
+  of station-prefixed files months after they were moved. Retired paths are now
+  purged from Box too, narrowly and with a preview. Never `rclone sync`, which
+  would mirror deletions in both directions and make one bad local state enough
+  to lose the archive
+- The migration pushes to the new path and verifies the count before purging
+  the old one, so there are never fewer than two copies of 650 MB
+
+---
+
 ## [v2.2.0] - 2026-10-01
 
 The download runs itself. A scheduled job keeps the archive current without

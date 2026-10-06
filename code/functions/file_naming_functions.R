@@ -274,13 +274,12 @@ list_raw_files <- function(station = NULL, dir = NULL, device_serial = NULL) {
       # Product 2 - resolve station_type from metadata, NOT by string-munging
       # the station ID. Stripping the last underscore segment gives "hydro" for
       # "sr1_hydro" but "vwc2" for "uvi_vwc2", which is wrong.
-      metadata <- load_zentra_metadata()
-      station_type <- metadata$station_type[metadata$station_id == station][1]
-      if (is.na(station_type)) {
-        stop("Station '", station, "' not found in device_metadata - cannot ",
-             "resolve its raw data directory.", call. = FALSE)
-      }
-      dir <- wds(paste0("internal_raw_", station_type))
+      # Product 2 and above live under products/, keyed by variable rather
+      # than by the station type that used to name a folder. A caller wanting
+      # one should use product_path(); this path is here for the older
+      # station-keyed callers that have not moved yet.
+      stop("Station-keyed raw directories are retired. Use product_path() ",
+           "for Product 2 and above, or pass dir explicitly.", call. = FALSE)
     }
   }
 
@@ -414,4 +413,130 @@ check_raw_overlap <- function(station = NULL, start, end, dir = NULL,
   }
 
   return(result)
+}
+
+
+################################################################################
+#                            PRODUCT PATHS                                     #
+################################################################################
+
+#' Which domain a variable belongs to
+#'
+#' Kept in one place so that a variable's home is a fact about the variable,
+#' not something each caller decides. A variable not listed is returned under
+#' "other" rather than refused - a new sensor should not break a write.
+#'
+#' @param variable Character
+#' @return Character domain
+variable_domain <- function(variable) {
+  domains <- list(
+    hydro   = c("level", "discharge", "stage", "velocity"),
+    weather = c("precip", "temp", "rh", "wind_speed", "wind_direction",
+                "gust_speed", "solar_radiation", "pressure", "vapor_pressure",
+                "lightning_count", "lightning_distance"),
+    vwc     = c("vwc_10cm", "vwc_30cm", "vwc_50cm", "vwc_100cm",
+                "soil_temp", "soil_ec")
+  )
+
+  for (d in names(domains)) if (variable %in% domains[[d]]) return(d)
+
+  # A depth-suffixed soil variable we have not met before
+  if (grepl("^(vwc|soil)_", variable)) return("vwc")
+  "other"
+}
+
+
+#' Where a product file lives
+#'
+#' The structure is composed here rather than spread across the datamap, so
+#' that changing it later means changing this function and nothing else.
+#'
+#'     internal/products/<domain>/<variable>/p<n>/<station>_<year>.csv.gz
+#'
+#' Station-year files, one variable each. Small enough to open, large enough
+#' not to be a thousand files a year, and the unit somebody asks for.
+#'
+#' Compressed because a station-variable-year is about 1.3 MB as plain text and
+#' a tenth of that gzipped. read.csv() opens a .csv.gz directly, and the query
+#' tool hands out plain CSV for anyone who would rather not deal with it.
+#'
+#' @param product Integer. 2, 3 or 4
+#' @param variable Character. "level", "precip", "vwc_10cm"
+#' @param station Character. Station id, or NULL for the directory
+#' @param year Integer, or NULL for the directory
+#' @param create Logical. Create the directory if it does not exist
+#' @return Character path
+product_path <- function(product, variable, station = NULL, year = NULL,
+                         create = FALSE) {
+
+  if (!product %in% 2:9) {
+    stop("product must be 2 or above - products 0 and 1 are device-keyed and ",
+         "live under device-data", call. = FALSE)
+  }
+
+  dir <- file.path(wds("products"), variable_domain(variable), variable,
+                   paste0("p", product))
+
+  if (create && !dir.exists(dir)) dir.create(dir, recursive = TRUE)
+
+  if (is.null(station) || is.null(year)) return(dir)
+
+  file.path(dir, paste0(station, "_", year, ".csv.gz"))
+}
+
+
+#' Every product file for a variable, optionally narrowed
+#'
+#' @param product Integer
+#' @param variable Character
+#' @param station Character, or NULL for all
+#' @param years Integer vector, or NULL for all
+#' @return Character vector of paths that exist
+list_product_files <- function(product, variable, station = NULL,
+                               years = NULL) {
+
+  dir <- product_path(product, variable)
+  if (!dir.exists(dir)) return(character(0))
+
+  files <- list.files(dir, pattern = "\\.csv\\.gz$", full.names = TRUE)
+  if (length(files) == 0) return(files)
+
+  parsed <- sub("\\.csv\\.gz$", "", basename(files))
+  file_year <- suppressWarnings(as.integer(sub("^.*_([0-9]{4})$", "\\1", parsed)))
+  file_station <- sub("_[0-9]{4}$", "", parsed)
+
+  keep <- rep(TRUE, length(files))
+  if (!is.null(station)) keep <- keep & file_station %in% station
+  if (!is.null(years))   keep <- keep & file_year %in% years
+
+  files[keep]
+}
+
+
+#' Where a discrete measurement file lives
+#'
+#' Mirrors product_path(), because a gauging measures the same quantity as the
+#' series does - the difference is that a person made it rather than an
+#' instrument on a schedule. So the two sit beside each other:
+#'
+#'     products/hydro/discharge/p2/   the series
+#'     discrete/hydro/discharge/      gaugings
+#'
+#' No product stages. A gauging is what it is - there is nothing to derive from
+#' it that would make a second version of the same measurement.
+#'
+#' Named for the instrument where there is one - a single HYPROP run yields
+#' retention and unsaturated conductivity together, and naming the folder after
+#' one would leave the other homeless. `ssc` is the exception: bottles go to
+#' whichever lab has capacity, so there is no instrument to name.
+#'
+#' @param domain Character. "hydro", "sediment", "soil"
+#' @param instrument Character. "flowtracker2", "ssc", "saturo", "ksat",
+#'   "hyprop2", "wp4c"
+#' @param create Logical. Create the directory if it does not exist
+#' @return Character path
+discrete_path <- function(domain, instrument, create = FALSE) {
+  dir <- file.path(wds("discrete"), domain, instrument)
+  if (create && !dir.exists(dir)) dir.create(dir, recursive = TRUE)
+  dir
 }
