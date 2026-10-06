@@ -541,6 +541,35 @@ validate_metadata <- function(verbose = TRUE, stop_on_error = FALSE) {
       }
     }
     
+    # CHECK: every raw file has a row naming it
+    #
+    # The reverse of "archived files exist". A file with no row is one the
+    # system does not know about - it will not be attributed, will not appear
+    # in any accounting of the archive, and is invisible to everything except
+    # a directory listing.
+    #
+    # They arise from renames: rclone copy never deletes, so Box holds every
+    # path that has ever existed, and a pull restores the old name beside the
+    # new one with no row to its name.
+    if (exists("find_orphan_raw_files")) {
+      orphans <- tryCatch(find_orphan_raw_files(verify_duplicates = FALSE),
+                          error = function(e) NULL)
+
+      if (!is.null(orphans)) {
+        if (nrow(orphans) > 0) {
+          record_violation(
+            "ORPHANED_RAW_FILES",
+            paste(nrow(orphans),
+                  "raw file(s) have no download_log row -",
+                  "see print_orphan_raw_files()"),
+            head(orphans[, c("file", "directory", "device")], 20)
+          )
+        } else {
+          record_pass("every raw file has a log row")
+        }
+      }
+    }
+
     # CHECK: a row with no station must at least name a device
     #
     # Product 1 rows identify their data by serial. One with neither a station

@@ -208,6 +208,17 @@ parse_raw_filename <- function(filename) {
   parts <- strsplit(stem, "_", fixed = TRUE)[[1]]
   if (length(parts) < 3) return(NULL)
 
+  # A trailing fetch stamp, if there is one, comes off before the dates are
+  # read. Product 1 files written since v2.2.0 carry it - serial, start, end,
+  # THEN when the fetch happened - so taking the last two segments as dates
+  # would read the stamp as an end date and reject the whole name.
+  fetched <- NA_character_
+  if (grepl("^[0-9]{8}T[0-9]{6}$", parts[length(parts)])) {
+    fetched <- parts[length(parts)]
+    parts <- parts[-length(parts)]
+    if (length(parts) < 3) return(NULL)
+  }
+
   n <- length(parts)
   start_str <- parts[n - 1]
   end_str   <- parts[n]
@@ -245,7 +256,7 @@ parse_raw_filename <- function(filename) {
   }
 
   list(station = station, device_serial = device_serial,
-       start = start, end = end, ext = ext)
+       start = start, end = end, fetched = fetched, ext = ext)
 }
 
 
