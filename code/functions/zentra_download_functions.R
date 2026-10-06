@@ -241,6 +241,7 @@ zentra_download <- function(devices = NULL, end = NULL, max_active = 4L,
         device_sn = sn, rows = 0L, file = NA_character_,
         errored = TRUE,
         error = paste0(sn, ": ", attr(data, "message")),
+        battery = NA_real_, last_reading = as.POSIXct(NA),
         stringsAsFactors = FALSE)
       next
     }
@@ -250,6 +251,7 @@ zentra_download <- function(devices = NULL, end = NULL, max_active = 4L,
       results[[length(results) + 1]] <- data.frame(
         device_sn = sn, rows = 0L, file = NA_character_,
         errored = FALSE, error = NA_character_,
+        battery = NA_real_, last_reading = as.POSIXct(NA),
         stringsAsFactors = FALSE)
       next
     }
@@ -271,9 +273,19 @@ zentra_download <- function(devices = NULL, end = NULL, max_active = 4L,
         format(first, "%Y-%m-%d"), " to ", format(last, "%Y-%m-%d"), "\n",
         sep = "")
 
+    # Battery and the newest reading, from what was just fetched. Port 7 is the
+    # logger's own battery; a device whose fetch carried none leaves the stored
+    # value alone rather than blanking it.
+    batt <- NA_real_
+    if (all(c("port_num", "measurement") %in% names(data))) {
+      b <- data[data$port_num %in% 7 & data$measurement == "Battery Percent", ]
+      if (nrow(b) > 0) batt <- b$value[which.max(b$datetime)][1]
+    }
+
     results[[length(results) + 1]] <- data.frame(
       device_sn = sn, rows = nrow(data), file = fname,
       errored = FALSE, error = NA_character_,
+      battery = batt, last_reading = last,
       stringsAsFactors = FALSE)
   }
 
@@ -282,6 +294,17 @@ zentra_download <- function(devices = NULL, end = NULL, max_active = 4L,
   cat("\n--------------------------------------------\n")
   cat("Fetched ", format(sum(res$rows), big.mark = ","), " reading(s) across ",
       sum(res$rows > 0), " device(s)\n\n", sep = "")
+
+  #### What the download revealed about each device ####
+  facts <- res[!is.na(res$last_reading), c("device_sn", "battery", "last_reading")]
+  names(facts)[1] <- "device_serial"
+  if (nrow(facts) > 0) {
+    n_meta <- zentra_update_device_facts(facts)
+    if (n_meta > 0) {
+      cat("Updated battery and last reading on ", n_meta, " metadata row(s)\n\n",
+          sep = "")
+    }
+  }
 
   n_errored <- sum(res$errored, na.rm = TRUE)
   status <- if (n_errored == 0) "ok" else "partial"
@@ -438,4 +461,70 @@ zentra_log_run <- function(run_id, started, finished, seen, fetched, current,
               row.names = FALSE, col.names = FALSE, qmethod = "double")
 
   invisible(TRUE)
+}
+
+
+#' Records what a download revealed about each device
+#'
+#' `battery`, `last_update` and `last_record_date` are facts about the data,
+#' and the download has just fetched it - so they come free, with no extra API
+#' call, and are as current as the readings themselves.
+#'
+#' They had been going stale. A device could sit at a battery value from
+#' January while the network status tried to warn about low batteries, which is
+#' the kind of silence that makes a check worthless.
+#'
+#'   battery           port 7, Battery Percent, at the newest timestamp
+#'   last_update       when the device last reached the cloud - the newest
+#'                     reading's time, since a reading only arrives by being
+#'                     uploaded
+#'   last_record_date  the newest reading now in the archive
+#'
+#' Only ACTIVE rows for the device are touched. A terminal row records what was
+#' true when that deployment ended.
+#'
+#' The write goes through save_device_metadata(), so the concurrent-write guard
+#' applies: if somebody is mid-workflow in the manager, this is refused rather
+#' than overwriting them, and the run log records that it happened.
+#'
+#' @param updates Data frame: device_serial, battery, last_reading
+#' @return Invisible number of rows changed
+zentra_update_device_facts <- function(updates) {
+
+  if (is.null(updates) || nrow(updates) == 0) return(invisible(0L))
+
+  meta <- tryCatch(load_zentra_metadata(), error = function(e) NULL)
+  if (is.null(meta)) {
+    cat("  ! could not read device_metadata - battery not updated\n")
+    return(invisible(0L))
+  }
+
+  terminal <- c("removed", "replaced", "relocated", "decommissioned")
+  changed <- 0
+
+  for (i in seq_len(nrow(updates))) {
+    sn <- updates$device_serial[i]
+    rows <- which(meta$device_serial == sn & !tolower(meta$status) %in% terminal)
+    if (length(rows) == 0) next
+
+    if (!is.na(updates$battery[i]) && "battery" %in% names(meta)) {
+      meta$battery[rows] <- updates$battery[i]
+    }
+    if (!is.na(updates$last_reading[i])) {
+      if ("last_update" %in% names(meta))      meta$last_update[rows]      <- updates$last_reading[i]
+      if ("last_record_date" %in% names(meta)) meta$last_record_date[rows] <- updates$last_reading[i]
+    }
+    changed <- changed + length(rows)
+  }
+
+  if (changed == 0) return(invisible(0L))
+
+  ok <- save_device_metadata(meta, intent = "recording battery and last reading from a download")
+
+  if (!isTRUE(ok)) {
+    cat("  ! device_metadata was not updated - see the refusal above\n")
+    return(invisible(0L))
+  }
+
+  invisible(changed)
 }

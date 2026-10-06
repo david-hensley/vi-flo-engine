@@ -448,6 +448,44 @@ ui_prompt_metadata_approval <- function(station_id, apply = TRUE) {
   }
 
   cat("\u2713 Record confirmed complete\n")
+
+  #### Other stations on the same logger ####
+  #
+  # One ZL6 can serve a weather station and a vwc station, and whoever is
+  # answering has just looked at the box that serves both. Without this, a
+  # visit logged under one of them leaves the other reading "never reviewed"
+  # months later - which is exactly what happened to uvi_weather, dated March
+  # while the September work on its own logger went under uvi_vwc1.
+  #
+  # Offered rather than applied: the record being correct for one station does
+  # not make it correct for the other. Depths and roles differ.
+  companions <- tryCatch({
+    meta <- load_zentra_metadata()
+    terminal <- c("removed", "replaced", "relocated", "decommissioned")
+
+    sn <- meta$device_serial[meta$station_id == station_id &
+                             !tolower(meta$status) %in% terminal]
+    sn <- unique(sn[!is.na(sn)])
+    if (length(sn) == 0) character(0) else {
+      others <- meta$station_id[meta$device_serial %in% sn &
+                                !tolower(meta$status) %in% terminal &
+                                meta$station_id != station_id]
+      unique(others[!is.na(others)])
+    }
+  }, error = function(e) character(0))
+
+  for (cs in companions) {
+    cat("\n", cs, " is on the same logger.\n", sep = "")
+    if (ui_yes_no(paste0("Does its record match reality too?"),
+                  allow_quit = FALSE) == "Y") {
+      update_metadata_approval(cs, TRUE)
+      cat("\u2713 ", cs, " confirmed\n", sep = "")
+    } else {
+      update_metadata_approval(cs, FALSE)
+      cat("\u2713 ", cs, " noted as incomplete\n", sep = "")
+    }
+  }
+
   invisible(TRUE)
 }
 

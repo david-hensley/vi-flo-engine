@@ -65,7 +65,7 @@ Generally stored in a top-level directory alongside raw and processed databases.
   * `relocated`: The station moved. See the newer row for where it went
   * `decommissioned`: STATION-level. Monitoring at this site has ended with no intention of resuming - in some cases its exact position is no longer known. Reactivation is possible and the workflow exists, because nobody knows the future; but a station expected to return should be `removed` instead. The distinction is intent, not permanence: `removed` means the position is waiting, `decommissioned` means it is not
 * `last_update`: Date-time of last remote contact with the device. NA by design for `local` and `manual` devices, which have no over-the-air link - this is what distinguishes a self-reporting device from one that does not
-* `battery`: Percentage of battery life of device at last known
+* `battery`: Percentage of battery remaining, from port 7 of the most recent download. Written by the scheduled job, so it is as fresh as the data - for `manual` devices, which never download automatically, it is only as fresh as the last hand ingest
 * `last_visit`: Date of last human field visit
 * `expiry_date`: For Zentra loggers, date of Zentra Cloud subscription expiration. NA for `manual` devices, which have no cloud subscription
 * `last_download_date`: Datetime of last successful download
