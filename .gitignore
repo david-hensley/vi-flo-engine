@@ -1,2 +1,21 @@
+# API keys - never publish these
 api_tokens.csv
+
+# RStudio
 .Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+
+# Python build artefacts
+# setup_win.exe is committed deliberately; what PyInstaller generates on the
+# way to building it is not. These regenerate on every build and were only ever
+# in the repo by accident.
+__pycache__/
+*.pyc
+tools/build/
+tools/dist/
+
+# OS litter
+Thumbs.db
+.DS_Store

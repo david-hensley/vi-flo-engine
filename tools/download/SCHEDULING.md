@@ -42,7 +42,7 @@ Open **Task Scheduler** → **Create Task** (not "Basic Task").
 
 **Triggers** → New
 - Begin the task: **On a schedule**
-- **Weekly**, Monday, **8:00 AM**
+- **Weekly**, Monday, **7:00 AM**
 - Leave "Stop task if it runs longer than" at its default
 
 **Actions** → New

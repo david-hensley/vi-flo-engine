@@ -13,13 +13,14 @@ Generally stored in a top-level directory alongside raw and processed databases.
 * `unique_id`: Identifies unique combination of device, station deployment, and location
 
   * Initial letter 'z' for Zentra data loggers, 'h' for Hobo data loggers
-* `watershed`: Name of broad watershed area, usually literal. Named after main gut or bay, normally (e.g. Caledonia, Salt River, Dorothea)
+* `watershed`: Name of broad watershed area, usually literal. Named after the largest DOWNSTREAM gut or the bay it reaches (e.g. Caledonia, Salt River, Dorothea) - so that a watershed is identified by where its water goes rather than by whichever tributary was instrumented first
 * `area`: Sub-watershed area name if applicable. Often a tributary basin name (e.g. for Adventure Gut in Bethlehem watershed).
 * `site_full`: Full English name of the site including numeric. Lower numbers indicate a higher topographic position in the watershed.
 
   * If new sites are established between two integers, decimals must be used e.g. Salt River 0.5
   * Sites are theoretically unified areas of several station deployments e.g. stream gauge, weather station, soil moisture
   * A number is required. Some sites may be established in a downstream area with the possibility of upstream sites in the future, in such cases a Site Name 2 with no Site Name 1 may exist.
+  * A site established alone, with no others in its watershed yet, takes 1 if it sits in an upland area and 2 if lowland - leaving room on whichever side the network is likely to grow
 * `site`: Standard abbreviation of full site name.
 
   * This is two or three letters for the watershed plus one letter for area if necessary.
