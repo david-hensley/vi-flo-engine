@@ -72,7 +72,14 @@ zentra_last_held <- function(device_sn) {
     newest <- mine[ord[length(ord)]]
 
     d <- readRDS(newest)
-    if (nrow(d) > 0) return(max(d$datetime, na.rm = TRUE))
+    # Two shapes live here. An API download names its time column `datetime`;
+    # a parsed export names it `timestamp_utc`. Product 1 is a faithful
+    # transcription of whatever the source gave, so the reader accommodates
+    # both rather than the files being bent into one shape.
+    tcol <- if ("datetime" %in% names(d)) "datetime" else
+            if ("timestamp_utc" %in% names(d)) "timestamp_utc" else NA
+
+    if (nrow(d) > 0 && !is.na(tcol)) return(max(d[[tcol]], na.rm = TRUE))
   }
 
   #### Parsed backfill exports ####

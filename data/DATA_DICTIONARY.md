@@ -89,6 +89,7 @@ points at exactly what one fetch or one offload returned.
 
   * `automatic`: pulled through the ZentraCloud API
   * `manual`: offloaded by hand from a logger in the field
+  * `export`: parsed from a ZentraCloud full-history export. These reach back before the API serves data, to 2021 in places - but the device-level history of that era was not systematically recorded, so attributing them rests on reconstruction rather than on a logged deployment. A user who wants nothing to do with that can filter on this column
 
 Two downloads can overlap - a run repeated the same day, or a catch-up after a
 failure. That is expected and is not corrected here: Product 1 records what
