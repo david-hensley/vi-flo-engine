@@ -96,30 +96,81 @@ get_network_status <- function(devices = NULL) {
   }
 
   #### 4. HOBO memory ####
-  # TO CONFIRM: 21,700 is a figure for the U20 family taken from memory, not
-  # from the datasheet. At 15 minutes it works out to ~226 days, which matches
-  # what the St. Thomas gauges actually do - but the number should be checked
-  # against Onset's specification and corrected here, since every percentage
-  # below rests on it.
+  #
+  # A U20 stops when its memory is full, and says nothing about it. Three
+  # loggers have been observed stopping at 21,693 to 21,695 readings, so 21,600
+  # is used - a warning that fires a few days early costs nothing, one that
+  # fires late costs the data.
+  #
+  # Two loggers filled TWICE before this existed: 21352826 and 21652375 were
+  # launched at 10 minutes while metadata declared 15, so they filled in 151
+  # days rather than 225. August to September 2025 and February to March 2026
+  # are gone at Salt River and La Grange because of it.
+  #
+  # Which is why the interval comes from the DATA where there is any. The
+  # declared value is what someone meant to set; the timestamps are what the
+  # logger did, and when they disagree it is the logger that fills the memory.
+  HOBO_CAPACITY <- 21600
+
   hobo <- active[!grepl("^z6", active$device_serial), , drop = FALSE]
-  HOBO_CAPACITY <- 21700
 
   for (i in seq_len(nrow(hobo))) {
-    interval <- hobo$interval_min[i]
-    since <- hobo$last_download_date[i]
+    sn <- hobo$device_serial[i]
+
+    # What it actually recorded, from the most recent file held
+    interval <- NA_real_
+    basis <- "declared"
+    held <- tryCatch(
+      list.files(wds("device_hobo"), pattern = paste0("^", sn, "_"),
+                 full.names = TRUE),
+      error = function(e) character(0))
+
+    if (length(held) > 0) {
+      newest <- held[which.max(file.mtime(held))]
+      obs <- tryCatch({
+        d <- readRDS(newest)
+        l <- hobo_to_long(d, sn)
+        u <- sort(unique(l$datetime))
+        if (length(u) > 2) {
+          g <- as.numeric(diff(u), units = "mins"); g <- g[g > 0]
+          if (length(g)) as.numeric(names(which.max(table(round(g, 3)))))
+          else NA_real_
+        } else NA_real_
+      }, error = function(e) NA_real_)
+
+      if (!is.na(obs) && obs > 0) { interval <- obs; basis <- "observed" }
+    }
+
+    if (is.na(interval)) interval <- hobo$interval_min[i]
     if (is.na(interval) || interval <= 0) next
-    if (is.na(since)) since <- hobo$deploy_datetime[i]
+
+    # Memory fills from the launch, which is the last offload - or, for a
+    # logger nobody has read yet, the deployment
+    since <- hobo$last_download_date[i]
+    from_deploy <- is.na(since)
+    if (from_deploy) since <- hobo$deploy_datetime[i]
     if (is.na(since)) next
 
     readings <- as.numeric(difftime(now, since, units = "mins")) / interval
     pct <- readings / HOBO_CAPACITY
 
+    # Named so the reason is visible: a logger running faster than metadata
+    # says is the thing that caused this twice already
+    note <- paste0("memory ~", round(pct * 100), "% full",
+                   if (basis == "observed" && !is.na(hobo$interval_min[i]) &&
+                       abs(interval - hobo$interval_min[i]) > 0.001)
+                     paste0(" - logging at ", interval, " min, metadata says ",
+                            hobo$interval_min[i])
+                   else if (basis == "declared" && from_deploy)
+                     " - never offloaded, interval unverified"
+                   else if (from_deploy) " - since deployment, never offloaded"
+                   else "")
+
     if (pct > 0.9) {
-      add(hobo$station_id[i], hobo$device_serial[i], "high",
-          paste0("memory ~", round(pct * 100), "% full - offload soon"), "memory")
+      add(hobo$station_id[i], sn, "high", paste0(note, " - offload soon"),
+          "memory")
     } else if (pct > 0.75) {
-      add(hobo$station_id[i], hobo$device_serial[i], "medium",
-          paste0("memory ~", round(pct * 100), "% full"), "memory")
+      add(hobo$station_id[i], sn, "medium", note, "memory")
     }
   }
 

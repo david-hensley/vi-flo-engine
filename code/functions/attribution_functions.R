@@ -445,3 +445,155 @@ hobo_to_long <- function(data, device_serial = NULL) {
 
   do.call(rbind, out)
 }
+
+
+################################################################################
+#                        EVEN SPACING AND GAPS                                 #
+#                                                                              #
+# A logger records on a schedule, so its readings should arrive at a fixed     #
+# interval. In practice they do not always: a reading can be duplicated by a   #
+# re-download, lost to a flat battery, or shifted by a clock reset.            #
+#                                                                              #
+# Product 2 is regular. Every expected moment has a row - with a value where   #
+# one was recorded, and flagged `missing` where none was. A gap then reads as  #
+# a gap rather than as two rows that happen to be far apart, which is what     #
+# makes it countable.                                                          #
+#                                                                              #
+# No filling here. P2 says what was recorded and what was not; P3 decides      #
+# what, if anything, to do about it.                                           #
+################################################################################
+
+
+#' The logging interval for a device over a period
+#'
+#' Metadata declares it and the timestamps show it, and they can disagree -
+#' a logger reconfigured in the field and not logged, most obviously. The
+#' declared value is used, and a disagreement is reported rather than silently
+#' resolved: a mismatch means the metadata is wrong or the logger is, and
+#' either is worth knowing.
+#'
+#' @param device_serial Character
+#' @param when POSIXct vector of the readings actually present
+#' @param metadata Data frame, or NULL to load
+#' @return List with declared, observed, agree
+logging_interval <- function(device_serial, when, metadata = NULL) {
+
+  if (is.null(metadata)) metadata <- load_zentra_metadata()
+
+  declared <- metadata$interval_min[metadata$device_serial == device_serial]
+  declared <- unique(declared[!is.na(declared)])
+  declared <- if (length(declared) == 1) declared else NA_real_
+
+  observed <- NA_real_
+  u <- sort(unique(when))
+  if (length(u) > 2) {
+    d <- as.numeric(diff(u), units = "mins")
+    d <- d[d > 0]
+    # The mode rather than the mean or median: a run of readings at the real
+    # interval, however many gaps surround them, is what the logger was set to.
+    if (length(d) > 0) {
+      tab <- table(round(d, 3))
+      observed <- as.numeric(names(tab)[which.max(tab)])
+    }
+  }
+
+  list(declared = declared,
+       observed = observed,
+       agree    = !is.na(declared) && !is.na(observed) &&
+                  abs(declared - observed) < 0.001)
+}
+
+
+#' One row per expected moment, over a period
+#'
+#' Duplicates dropped, missing moments inserted. The grid runs from the first
+#' reading to the last, on the interval given - not from the deployment dates,
+#' because a station deployed in March whose logger only started in April
+#' should not carry a month of rows asserting it recorded nothing.
+#'
+#' @param when POSIXct vector
+#' @param value Numeric vector, same length
+#' @param interval_min Numeric. The expected interval
+#' @param from,to POSIXct. Grid bounds, or NULL for the data's own extent
+#' @return Data frame: datetime, value, flag
+regularise <- function(when, value, interval_min, from = NULL, to = NULL) {
+
+  if (is.na(interval_min) || interval_min <= 0) {
+    stop("A logging interval is required to regularise", call. = FALSE)
+  }
+
+  keep <- !is.na(when)
+  when <- when[keep]; value <- value[keep]
+
+  if (length(when) == 0) {
+    return(data.frame(datetime = as.POSIXct(character(0), tz = "UTC"),
+                      value = numeric(0), flag = character(0),
+                      stringsAsFactors = FALSE))
+  }
+
+  # A duplicated timestamp is a re-download, not two readings. The first is
+  # kept: later copies of the same moment have been through more handling.
+  dup <- duplicated(when)
+  when <- when[!dup]; value <- value[!dup]
+
+  ord <- order(when)
+  when <- when[ord]; value <- value[ord]
+
+  step <- interval_min * 60
+  start <- if (is.null(from)) min(when) else from
+  end   <- if (is.null(to))   max(when) else to
+
+  # Snapped to the interval, so a clock a few seconds out does not shift every
+  # subsequent row onto its own grid
+  start <- as.POSIXct(round(as.numeric(start) / step) * step,
+                      origin = "1970-01-01", tz = "UTC")
+
+  grid <- seq(start, end, by = step)
+
+  nearest <- round((as.numeric(when) - as.numeric(start)) / step)
+  nearest[nearest < 0 | nearest >= length(grid)] <- NA
+
+  out <- data.frame(datetime = grid,
+                    value = rep(NA_real_, length(grid)),
+                    flag = rep("missing", length(grid)),
+                    stringsAsFactors = FALSE)
+
+  placed <- !is.na(nearest)
+  out$value[nearest[placed] + 1] <- value[placed]
+  out$flag[nearest[placed] + 1] <- "observed"
+
+  # A value that is NA in the source is not the same as a moment with no
+  # reading: the logger recorded, and recorded nothing usable.
+  recorded_na <- placed & is.na(value)
+  if (any(recorded_na)) out$flag[nearest[recorded_na] + 1] <- "missing"
+
+  out
+}
+
+
+#' Every gap in a regularised series
+#'
+#' @param regular Data frame from regularise()
+#' @param interval_min Numeric
+#' @return Data frame: starts, ends, n, minutes
+find_gaps <- function(regular, interval_min) {
+
+  miss <- regular$flag == "missing"
+  if (!any(miss)) {
+    return(data.frame(starts = as.POSIXct(character(0), tz = "UTC"),
+                      ends = as.POSIXct(character(0), tz = "UTC"),
+                      n = integer(0), minutes = numeric(0),
+                      stringsAsFactors = FALSE))
+  }
+
+  r <- rle(miss)
+  ends_at <- cumsum(r$lengths)
+  starts_at <- ends_at - r$lengths + 1
+
+  keep <- r$values
+  data.frame(starts  = regular$datetime[starts_at[keep]],
+             ends    = regular$datetime[ends_at[keep]],
+             n       = r$lengths[keep],
+             minutes = r$lengths[keep] * interval_min,
+             stringsAsFactors = FALSE)
+}
