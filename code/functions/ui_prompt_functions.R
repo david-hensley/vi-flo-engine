@@ -43,7 +43,18 @@ ui_yes_no <- function(prompt, allow_quit = TRUE) {
 #' @param options Character vector. Menu options
 #' @param allow_quit Logical. Allow 'q' to quit (default TRUE)
 #' @return Selected option string, or NULL if user quit
-ui_select_from_menu <- function(prompt, options, allow_quit = TRUE) {
+ui_select_from_menu <- function(prompt, options, allow_quit = TRUE,
+                               extra_key = NULL, extra_label = NULL,
+                               extra_options = NULL) {
+
+  # An optional extra keystroke that EXTENDS the list rather than choosing from
+  # it. Retired stations are the case it was built for: wanted occasionally,
+  # and a thirty-nine entry list to reach one of two is a list nobody reads.
+  #
+  # Pressing the key re-renders with extra_options appended; it is not a
+  # selection, so nothing is returned until a number is given.
+  showing_extra <- FALSE
+  base_options <- options
 
   # Station lists run to nearly thirty entries and every station at a site
   # shares a prefix, so they read as one undifferentiated block. Grouping them
@@ -56,41 +67,44 @@ ui_select_from_menu <- function(prompt, options, allow_quit = TRUE) {
   # Two shapes are treated as station lists: "sr1_hydro (Salt River 1)" from
   # the workflows, and a bare "sr1_hydro" from the viewers. Both group by
   # watershed; only the first can also separate by site.
-  with_site <- all(grepl("^[a-z][a-z0-9]*_[a-z0-9]+ \\(.+\\)$", options))
-  bare_ids  <- all(grepl("^[a-z][a-z0-9]*_[a-z0-9]+$", options))
-  is_station_list <- length(options) > 3 && (with_site || bare_ids)
+  # Worked out per render, not once. The extra key can grow the list, and a
+  # lookup computed from the original options would be too short - groups[38]
+  # on a 37-entry lookup is NA, and the comparison below fails outright.
+  describe <- function(opts) {
+    # Two shapes count as a station list: "sr1_hydro (Salt River 1)" from the
+    # workflows, and a bare "sr1_hydro" from the viewers. Both group by
+    # watershed; only the first can also separate by site.
+    #
+    # Detected from the shape rather than switched on by each of the nine
+    # callers. A device option - "21652379 (Adventure)" - starts with digits
+    # and has no underscore, so it is left alone.
+    with_site <- all(grepl("^[a-z][a-z0-9]*_[a-z0-9]+ \\(.+\\)$", opts))
+    bare_ids  <- all(grepl("^[a-z][a-z0-9]*_[a-z0-9]+$", opts))
+    if (!(length(opts) > 3 && (with_site || bare_ids))) {
+      return(list(watersheds = NULL, groups = NULL))
+    }
 
-  # Site grouping is looked up, not taken from the brackets. The brackets used
-  # to hold the site name; they now hold whatever identifies the station, so
-  # reading them would put a blank line between every entry.
-  groups <- NULL
-
-  # A watershed header above each block. Sites alone leave nearly thirty
-  # entries reading as one list; the watershed is the level someone actually
-  # navigates by.
-  #
-  # Looked up rather than derived from the site name, which would mean
-  # stripping a trailing number and would break on sites carrying an area -
-  # "Bethlehem Adventure 2" belongs to the Bethlehem watershed.
-  watersheds <- NULL
-  if (is_station_list) {
-    lookup <- tryCatch({
+    # Looked up rather than derived from the site name, which would mean
+    # stripping a trailing number and would break on sites carrying an area -
+    # "Bethlehem Adventure 2" belongs to the Bethlehem watershed.
+    tryCatch({
       meta <- load_zentra_metadata()
-      ids <- sub(" \\(.*$", "", options)
+      ids <- sub(" \\(.*$", "", opts)
       field <- function(col) vapply(ids, function(id) {
         v <- meta[[col]][meta$station_id == id]
         if (length(v) == 0 || is.na(v[1])) NA_character_ else as.character(v[1])
       }, character(1), USE.NAMES = FALSE)
-      list(watershed = field("watershed"), site = field("site_full"))
-    }, error = function(e) NULL)
-
-    if (!is.null(lookup)) {
-      watersheds <- lookup$watershed
-      groups     <- lookup$site
-    }
+      list(watersheds = field("watershed"), groups = field("site_full"))
+    }, error = function(e) list(watersheds = NULL, groups = NULL))
   }
 
   repeat {
+    options <- if (showing_extra) c(base_options, extra_options) else base_options
+
+    described  <- describe(options)
+    watersheds <- described$watersheds
+    groups     <- described$groups
+
     cat(prompt, "\n", sep = "")
     for (i in seq_along(options)) {
       new_watershed <- !is.null(watersheds) && !is.na(watersheds[i]) &&
@@ -100,13 +114,23 @@ ui_select_from_menu <- function(prompt, options, allow_quit = TRUE) {
         if (i > 1) cat("\n")
         cat("  === ", watersheds[i], " ", strrep("=", max(2, 34 - nchar(watersheds[i]))),
             "\n", sep = "")
-      } else if (!is.null(groups) && i > 1 && groups[i] != groups[i - 1]) {
+      } else if (!is.null(groups) && i > 1 &&
+                 !identical(groups[i], groups[i - 1])) {
+        # identical() rather than != : a station the lookup could not place
+        # gives NA, and NA != NA is NA, which is not a condition
         cat("\n")
       }
 
       cat("  ", i, ". ", options[i], "\n", sep = "")
     }
     
+    offer_extra <- !is.null(extra_key) && !is.null(extra_options) &&
+                   length(extra_options) > 0 && !showing_extra
+
+    if (offer_extra) {
+      cat("\n  ", extra_key, ". ", extra_label, "\n", sep = "")
+    }
+
     if (allow_quit) {
       cat("\nEnter selection (or 'q' to quit): ")
     } else {
@@ -117,6 +141,12 @@ ui_select_from_menu <- function(prompt, options, allow_quit = TRUE) {
     
     if (allow_quit && tolower(selection) == "q") {
       return(NULL)
+    }
+
+    if (offer_extra && tolower(selection) == tolower(extra_key)) {
+      showing_extra <- TRUE
+      cat("\n")
+      next
     }
     
     if (grepl("^[0-9]+$", selection)) {
@@ -145,6 +175,13 @@ ui_select_or_specify <- function(prompt, existing_options, allow_quit = TRUE) {
     }
     cat("  ", length(existing_options) + 1, ". other (specify)\n", sep = "")
     
+    offer_extra <- !is.null(extra_key) && !is.null(extra_options) &&
+                   length(extra_options) > 0 && !showing_extra
+
+    if (offer_extra) {
+      cat("\n  ", extra_key, ". ", extra_label, "\n", sep = "")
+    }
+
     if (allow_quit) {
       cat("\nEnter selection (or 'q' to quit): ")
     } else {
@@ -155,6 +192,12 @@ ui_select_or_specify <- function(prompt, existing_options, allow_quit = TRUE) {
     
     if (allow_quit && tolower(selection) == "q") {
       return(NULL)
+    }
+
+    if (offer_extra && tolower(selection) == tolower(extra_key)) {
+      showing_extra <- TRUE
+      cat("\n")
+      next
     }
     
     if (grepl("^[0-9]+$", selection)) {
@@ -331,7 +374,11 @@ ui_prompt_status_change <- function(current_status, allow_quit = TRUE, restrict_
 #' Terminal statuses (replaced, relocated, decommissioned) are deliberately
 #' absent: those are set by their own workflows, which log the event.
 #'
-#' @param allow_quit Logical. Allow 'q' to cancel (default TRUE)
+#' @param allow_quit Logical. Allow 'q' to cancel
+#' @param extra_key Character. A key that extends the list rather than
+#'   selecting from it - "r" to show retired stations, say
+#' @param extra_label Character. What that key does, shown beneath the list
+#' @param extra_options Character vector. Appended when the key is pressed (default TRUE)
 #' @return Status string, or NULL if cancelled
 ui_prompt_device_status <- function(allow_quit = TRUE) {
 

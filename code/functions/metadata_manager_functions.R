@@ -72,12 +72,31 @@ ui_log_maintenance <- function(prefill_station = NULL, prefill_device = NULL,
   cat("✓ Field visit date:", field_visit_date, "\n\n")
   
   #### 2 - Station selection
-  station_list <- get_station_list()
-  station_options <- sapply(station_list, function(s) {
-    paste0(s$station_id, " (", s$label, ")")
-  })
-  
-  selected <- ui_select_from_menu("Select station:", station_options)
+  # Retired stations included. Offloading a logger that has just come out of a
+  # decommissioned station is ordinary work - the device came out, the data
+  # came with it, and the readings are from when the station existed. Hiding
+  # the station would leave that data with nowhere to go.
+  #
+  # What matters is not whether the station is alive but whether the readings
+  # fall inside its deployment, which is checked below.
+  # Live stations by default, retired behind one key. Offloading a logger that
+  # has just come out of a decommissioned station is ordinary work, but it is
+  # rare - and a list of thirty-nine to reach one of two is a list nobody
+  # reads. What matters is not whether the station is alive but whether the
+  # readings fall inside its deployment, which the ingest checks later.
+  live_list <- get_station_list()
+  all_list  <- get_station_list(include_retired = TRUE)
+
+  as_option <- function(s) paste0(s$station_id, " (", s$label, ")")
+  station_options <- vapply(live_list, as_option, character(1), USE.NAMES = FALSE)
+  retired_options <- vapply(
+    all_list[setdiff(names(all_list), names(live_list))],
+    as_option, character(1), USE.NAMES = FALSE)
+
+  selected <- ui_select_from_menu(
+    "Select station:", station_options,
+    extra_key = "r", extra_label = "Show retired stations",
+    extra_options = retired_options)
   if (is.null(selected)) {
     cat("❌ Cancelled\n")
     return(NULL)
@@ -377,12 +396,31 @@ ui_log_download <- function() {
   cat("✓ Download date:", field_visit_date, "\n\n")
   
   #### 2 - Station selection
-  station_list <- get_station_list()
-  station_options <- sapply(station_list, function(s) {
-    paste0(s$station_id, " (", s$label, ")")
-  })
-  
-  selected <- ui_select_from_menu("Select station:", station_options)
+  # Retired stations included. Offloading a logger that has just come out of a
+  # decommissioned station is ordinary work - the device came out, the data
+  # came with it, and the readings are from when the station existed. Hiding
+  # the station would leave that data with nowhere to go.
+  #
+  # What matters is not whether the station is alive but whether the readings
+  # fall inside its deployment, which is checked below.
+  # Live stations by default, retired behind one key. Offloading a logger that
+  # has just come out of a decommissioned station is ordinary work, but it is
+  # rare - and a list of thirty-nine to reach one of two is a list nobody
+  # reads. What matters is not whether the station is alive but whether the
+  # readings fall inside its deployment, which the ingest checks later.
+  live_list <- get_station_list()
+  all_list  <- get_station_list(include_retired = TRUE)
+
+  as_option <- function(s) paste0(s$station_id, " (", s$label, ")")
+  station_options <- vapply(live_list, as_option, character(1), USE.NAMES = FALSE)
+  retired_options <- vapply(
+    all_list[setdiff(names(all_list), names(live_list))],
+    as_option, character(1), USE.NAMES = FALSE)
+
+  selected <- ui_select_from_menu(
+    "Select station:", station_options,
+    extra_key = "r", extra_label = "Show retired stations",
+    extra_options = retired_options)
   if (is.null(selected)) {
     cat("❌ Cancelled\n")
     return(NULL)

@@ -616,6 +616,49 @@ ui_ingest_local_data <- function(station_id, device_serial, station_type,
     check_raw_overlap(start = parsed$start, end = parsed$end, dir = raw_dir,
                       device_serial = device_serial)
 
+    #### Do the readings fall inside this station's deployment? ####
+    #
+    # The useful check, now that a retired station can be chosen: readings
+    # from before a station existed, or long after it was last seen, mean the
+    # wrong station or the wrong file. Status alone would not catch that, and
+    # blocking on status would refuse the legitimate case - a logger offloaded
+    # after the station it served was decommissioned.
+    #
+    # A warning rather than a refusal. The operator has the file in front of
+    # them and knows things the metadata does not; last_visit in particular is
+    # only as current as the last logged visit.
+    dep <- tryCatch({
+      mm <- load_zentra_metadata()
+      mm[mm$station_id == station_id & mm$device_serial == device_serial, ]
+    }, error = function(e) NULL)
+
+    if (!is.null(dep) && nrow(dep) > 0) {
+      deployed <- min(dep$deploy_datetime, na.rm = TRUE)
+      terminal <- c("removed", "replaced", "relocated", "decommissioned")
+      ended <- if (all(tolower(dep$status) %in% terminal)) {
+        suppressWarnings(max(as.POSIXct(dep$last_visit), na.rm = TRUE))
+      } else as.POSIXct(NA)
+
+      before <- !is.na(deployed) && parsed$start < deployed - 86400
+      after  <- !is.na(ended) && parsed$end > ended + 86400
+
+      if (before || after) {
+        cat("\u26a0\ufe0f  These readings sit outside the recorded deployment\n\n")
+        if (before) {
+          cat("     first record ", format(parsed$start, "%Y-%m-%d"),
+              " is before ", station_id, " was deployed (",
+              format(deployed, "%Y-%m-%d"), ")\n", sep = "")
+        }
+        if (after) {
+          cat("     last record ", format(parsed$end, "%Y-%m-%d"),
+              " is after its last recorded visit (",
+              format(ended, "%Y-%m-%d"), ")\n", sep = "")
+        }
+        cat("\n     Usually this means the wrong station or the wrong file.\n")
+        cat("     It can also mean the deployment dates need correcting.\n\n")
+      }
+    }
+
     #### Does the logger's actual interval match what metadata records? ####
     meta_now <- load_zentra_metadata()
     dev_row <- meta_now[meta_now$device_serial == device_serial &
