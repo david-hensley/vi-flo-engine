@@ -150,7 +150,8 @@ port_windows <- function(ports = NULL) {
 #' calling it per reading.
 #'
 #' @param device_serial Character, length one
-#' @param port Integer vector, one per reading
+#' @param port Integer vector, one per reading - NA throughout for a device
+#'   with no ports, such as a HOBO
 #' @param when POSIXct vector, one per reading
 #' @param windows Data frame from deployment_windows(), or NULL to compute
 #' @param pwindows Data frame from port_windows(), or NULL to compute
@@ -181,12 +182,29 @@ resolve_readings <- function(device_serial, port, when,
                     depth_cm = rep(NA_real_, n),
                     stringsAsFactors = FALSE)
 
-  pw <- pwindows[pwindows$device_serial == device_serial, , drop = FALSE]
   dw <- windows[windows$device_serial == device_serial, , drop = FALSE]
-  if (nrow(pw) == 0 || nrow(dw) == 0) return(out)
+  if (nrow(dw) == 0) return(out)
+  dw$starts <- as_utc(dw$starts); dw$ends <- as_utc(dw$ends)
+
+  #### A device with no ports ####
+  # A HOBO has one sensor assembly and serves one station at a time, so there
+  # is nothing for a port to distinguish. Resolution is device and moment
+  # alone - zentra_ports holds nothing for these serials, and should not.
+  pw <- pwindows[pwindows$device_serial == device_serial, , drop = FALSE]
+
+  if (nrow(pw) == 0) {
+    for (i in seq_len(nrow(dw))) {
+      in_dep <- when >= dw$starts[i] &
+                (is.na(dw$ends[i]) | when < dw$ends[i])
+      in_dep[is.na(in_dep)] <- FALSE
+      if (!any(in_dep)) next
+      out$station_id[in_dep]   <- dw$station_id[i]
+      out$station_type[in_dep] <- dw$station_type[i]
+    }
+    return(out)
+  }
 
   pw$starts <- as_utc(pw$starts); pw$ends <- as_utc(pw$ends)
-  dw$starts <- as_utc(dw$starts); dw$ends <- as_utc(dw$ends)
 
   # Port first: what kind of sensor was on it, and what was it measuring
   for (i in seq_len(nrow(pw))) {
@@ -232,6 +250,10 @@ variable_name <- function(measurement, depth_cm = NA) {
 
   # The names a reading arrives with, and what VI-FLO calls them
   known <- c(
+    "abs pres"              = "abs_pressure",
+    "abs pres, barom. comp" = "level",
+    "temp"                  = "water_temp",
+    "water level"           = "level",
     "water content"         = "vwc",
     "raw vwc"               = "raw_vwc",
     "soil temperature"      = "soil_temp",
@@ -274,4 +296,152 @@ variable_name <- function(measurement, depth_cm = NA) {
   out[has_depth] <- paste0(out[has_depth], "_", depth_cm[has_depth], "cm")
 
   out
+}
+
+
+################################################################################
+#                            HOBO FILES                                        #
+#                                                                              #
+# A third shape again. Where a ZL6 reading names its port and measurement in   #
+# columns, a HOBOware export puts everything in the column HEADER:             #
+#                                                                              #
+#   Abs Pres, kPa (LGR S/N: 21179105, SEN S/N: 21179105, LBL: Pressure)        #
+#   ^^^^^^^^  ^^^           ^^^^^^^^                          ^^^^^^^^        #
+#   measure   unit          serial                            label           #
+#                                                                              #
+# And the datetime column declares its own offset - "Date Time, GMT-04:00" -   #
+# which is better evidence than assuming the project timezone, and is used.    #
+#                                                                              #
+# There is no port. A HOBO serves one station at a time, so resolution needs   #
+# only the device and the moment.                                             #
+#                                                                              #
+# What it measures is ABSOLUTE PRESSURE, not water level. Level is derived     #
+# from this minus a barometric reference, corrected for the elevation          #
+# difference between the gauge and the weather station - which is why level is #
+# a derived series rather than something the logger hands over.               #
+################################################################################
+
+
+#' Pulls apart a HOBOware column header
+#'
+#' @param name Character, one column name
+#' @return List with measurement, unit, serial, label - NA where absent
+parse_hobo_header <- function(name) {
+
+  none <- list(measurement = NA_character_, unit = NA_character_,
+               serial = NA_character_, label = NA_character_)
+
+  # Everything before the first bracket is "Measurement, unit"
+  front <- trimws(sub("\\(.*$", "", name))
+  if (!nzchar(front)) return(none)
+
+  parts <- strsplit(front, ",", fixed = TRUE)[[1]]
+  measurement <- trimws(parts[1])
+  unit <- if (length(parts) > 1) trimws(parts[2]) else NA_character_
+
+  inside <- sub("^[^(]*\\(", "", name)
+  inside <- sub("\\)[^)]*$", "", inside)
+
+  grab <- function(key) {
+    m <- regmatches(inside, regexpr(paste0(key, ":\\s*[^,)]+"), inside))
+    if (length(m) == 0) return(NA_character_)
+    trimws(sub(paste0("^", key, ":\\s*"), "", m))
+  }
+
+  list(measurement = measurement,
+       unit        = unit,
+       serial      = grab("LGR S/N"),
+       label       = grab("LBL"))
+}
+
+
+#' A HOBOware export, in the long shape attribution works with
+#'
+#' One row per reading per measurement, matching what the ZL6 path produces -
+#' not because Product 1 was reshaped, which it was not, but because
+#' attribution has to meet somewhere and this is where.
+#'
+#' @param data Data frame as read from a Product 1 HOBO file
+#' @param device_serial Character. Expected serial, for a cross-check
+#' @return Data frame: device_serial, datetime, measurement, unit, label, value
+hobo_to_long <- function(data, device_serial = NULL) {
+
+  #### The datetime column, and the offset it declares ####
+  dt_col <- grep("date.*time|^date$|timestamp", names(data),
+                 ignore.case = TRUE)[1]
+  if (is.na(dt_col)) {
+    stop("No date/time column found. Columns: ",
+         paste(names(data), collapse = ", "), call. = FALSE)
+  }
+
+  # "Date Time, GMT-04:00" says what the timestamps mean. Taking it is better
+  # than assuming the project timezone - a file exported on a laptop set to
+  # another zone would otherwise be read four hours out, silently.
+  offset <- regmatches(names(data)[dt_col],
+                       regexpr("GMT\\s*[+-]\\s*[0-9]{1,2}:?[0-9]{2}",
+                               names(data)[dt_col]))
+
+  tzspec <- if (length(offset) == 1) {
+    sign <- if (grepl("-", offset)) 1 else -1   # Etc/GMT signs are inverted
+    hours <- as.integer(sub(".*?([0-9]{1,2}):?[0-9]{2}.*", "\\1", offset))
+    paste0("Etc/GMT", if (sign > 0) "+" else "-", hours)
+  } else "America/Puerto_Rico"
+
+  when <- suppressWarnings(as.POSIXct(data[[dt_col]],
+                                      format = "%m/%d/%y %I:%M:%S %p",
+                                      tz = tzspec))
+  if (all(is.na(when))) {
+    when <- suppressWarnings(coerce_datetime_flexible(data[[dt_col]], tzspec))
+  }
+  if (all(is.na(when))) {
+    stop("Could not parse the date column '", names(data)[dt_col], "'",
+         call. = FALSE)
+  }
+  attr(when, "tzone") <- "UTC"
+
+  #### Every column that holds a measurement ####
+  # A column with a parseable header and numeric content - and a name that is
+  # actually a measurement. HOBOware opens every export with a row counter
+  # headed "#", which is numeric and parses perfectly well; without excluding
+  # it a third of every file would be a sequence from 1 upward, attributed to
+  # a station as though it meant something.
+  #
+  # Excluded by name rather than by guessing: a counter is a counter.
+  not_measurements <- c("#", "", "no", "no.", "n", "index", "record")
+
+  out <- list()
+  for (i in seq_along(data)) {
+    if (i == dt_col) next
+
+    h <- parse_hobo_header(names(data)[i])
+    if (is.na(h$measurement) || !nzchar(h$measurement)) next
+    if (tolower(trimws(h$measurement)) %in% not_measurements) next
+
+    v <- suppressWarnings(as.numeric(data[[i]]))
+    if (all(is.na(v))) next
+
+    # The serial is in the header, so a file can say whose it is. Worth
+    # checking against the name it was filed under.
+    if (!is.null(device_serial) && !is.na(h$serial) &&
+        h$serial != device_serial) {
+      warning("Column '", names(data)[i], "' names serial ", h$serial,
+              " but the file is filed under ", device_serial, call. = FALSE)
+    }
+
+    out[[length(out) + 1]] <- data.frame(
+      device_serial = if (!is.na(h$serial)) h$serial else device_serial,
+      datetime      = when,
+      measurement   = h$measurement,
+      unit          = h$unit,
+      label         = h$label,
+      value         = v,
+      stringsAsFactors = FALSE)
+  }
+
+  if (length(out) == 0) {
+    stop("No measurement columns found. Columns: ",
+         paste(names(data), collapse = ", "), call. = FALSE)
+  }
+
+  do.call(rbind, out)
 }

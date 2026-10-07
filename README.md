@@ -36,8 +36,10 @@ devices, download log entries pointing at files that no longer exist.
 nothing prevents two people editing it between syncs. Until that is addressed,
 one person at a time should be writing metadata. See CHANGELOG for the plan.
 
-**Processing.** Water level to discharge, quality control tiers, and the
-published archive are not part of this release.
+**Processing.** The product scheme is defined and the folders exist, but
+nothing is written into them yet. Attribution resolves readings to stations
+and variables; writing Product 2, automatic quality control, the derived
+series and the published archive follow it.
 
 ---
 
@@ -112,14 +114,95 @@ internal/products/vwc/vwc_30cm/p4/bta2_vwc1_2024.csv.gz
 Station-year files, one variable each, `.csv.gz` - a format anything can open,
 compressed because a station-variable-year is about 1.3 MB as plain text.
 
-A DERIVED variable starts its ladder from the top of its input's. Discharge P2
-is computed from level P4 and a rating curve, not from level P2 - otherwise
-every correction made to level would have to be made again to discharge, and
-inconsistently.
+Every value carries a flag: `observed`, `interpolated`, `substituted`,
+`estimated`, `manual`, `missing` or `suspect`. So a decision resting on a
+filled value is distinguishable from one resting on a measurement, and a user
+can see what proportion of a series was actually measured.
 
-A rating curve is a PARAMETER SET, not data. A new curve produces a new version
-of the discharge series, recording which curve built it; the product does not
-change and both versions stay reproducible.
+### Derived series
+
+Some variables are computed rather than measured, and the chain runs deeper
+than it looks. A stream gauge records absolute pressure, not water level:
+
+```
+abs_pressure  +  barometric  ->  level  +  rating curve  ->  discharge
+```
+
+**A derived series takes the product number of its weakest input.** Level
+computed from pressure that has had automatic quality control but no human
+review is level P3, and discharge from that is P3 too. When the underlying
+pressure reaches P4, regeneration produces P4 versions of both.
+
+That matters more than it sounds. Requiring P4 inputs would mean nobody sees a
+hydrograph until two stations had been reviewed by hand - research waiting on
+paperwork. This way discharge exists within days, honestly labelled, and P4
+follows when review catches up.
+
+The gate runs the other way: **P4 of a derived series requires P4 inputs.**
+Reviewing level built on unreviewed pressure means deciding about values that
+will change underneath you.
+
+A **rating curve** and a **barometric pairing** are PARAMETER SETS, not data. A
+new curve produces a new version of the discharge series, recording which curve
+built it; the product does not change and both versions stay reproducible.
+
+### Barometric pairing
+
+Level needs barometric pressure from a weather station, corrected for the
+elevation difference between it and the gauge - which metadata already holds
+for both.
+
+The pairing is DECLARED, per station, with validity periods and a priority
+order. A weather station can die: dor1_weather stopped reporting in October
+2026, and every gauge paired to it needed a fallback.
+
+```csv
+station_id,baro_source,priority,valid_from,valid_to,reason
+dor2_hydro,dor1_weather,1,2025-11-05,,nearest - 1.2 km
+dor2_hydro,uvi_weather,2,2025-11-05,,fallback - 11 km
+```
+
+The rule is then deterministic: the highest-priority source with data at that
+timestamp. Fallback happens automatically but within a declared order, so the
+result is reproducible - the ordering is a parameter, not runtime cleverness.
+Values built on a fallback carry the `substituted` flag and record which source
+was used.
+
+### Regeneration
+
+Products 2 and up are REGENERATED, never edited. There is one file per
+station-year per product, overwritten when rebuilt - so regeneration never adds
+files and nothing accumulates. The manifest records what built it: input
+versions, parameters, decisions, when. An old version is recovered by
+rebuilding from those, not by keeping a copy.
+
+Something upstream changing is what triggers it - new readings, corrected
+metadata, a changed parameter, a new decision, or a dependency regenerating.
+The unit is the station-year, so new data for October 2026 rebuilds that year
+for that station and leaves 2024 alone.
+
+Regeneration is dependency-ordered, because a derived series can depend on
+another station's: a correction at a weather station ripples to every gauge
+paired to it.
+
+**P4 regenerates too.** Decisions are rows, so rebuilding means reapplying them
+- but each records the span of evidence it rested on. A decision whose evidence
+did not change carries forward untouched; one whose evidence moved is flagged
+for re-review rather than silently reapplied. That is why the evidence span is
+recorded when the decision is made and cannot be worked out afterwards.
+
+### Releases
+
+A citation needs more than a version number. The manifest points at parameters
+and decisions in a repository that could be amended; a reviewer in 2030 needs
+the numbers, not a recipe and some trust.
+
+So a release is a frozen snapshot with a DOI - the actual files, plus the
+parameters, decisions and metadata as they stood. Made when something needs
+citing, not on a schedule.
+
+A release carries whatever level each series has reached, labelled. Waiting for
+everything to reach P4 would mean releasing nothing.
 
 ### Discrete measurements
 
