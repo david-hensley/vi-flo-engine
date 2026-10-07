@@ -139,6 +139,14 @@ fall            0.253 m      a gradient of 0.5%
 > **Established.** Declared immediately above `slope.sitename <- "fbslope"` and
 > consumed by `create.slope.model()` with that logger's data. The negative signs
 > fit only a downstream partner, so it cannot describe the earlier pair.
+>
+> **Both figures are metres.** Survey work of this period used metres
+> horizontally and a rod read in feet, and Dorothea's equivalent carries the
+> conversion inline — `(5.3 − 3.58) × 0.3048`. Fish Bay's `-0.253` is a bare
+> number because the conversion was done before it was written down. This
+> matters: `create.slope.model()` adds `height` to a water-level difference
+> already in metres, so a foot reading entered raw would carry through to every
+> discharge value the curve produced.
 
 The 2021–2023 pair has no surveyed geometry.
 
