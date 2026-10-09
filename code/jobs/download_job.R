@@ -138,8 +138,8 @@ pushed <- box_transfer("push")
 #### 4. What needs attention ####
 # The job has just asked the API about every device, so the answers are as
 # fresh as they will ever be. Cheap to say here rather than wait to be asked.
-if (exists("print_network_status")) {
-  try(print_network_status(quiet_if_clean = TRUE), silent = TRUE)
+if (exists("print_network_todo")) {
+  try(print_network_todo(quiet_if_clean = TRUE), silent = TRUE)
 }
 
 cat("\n============================================\n")
