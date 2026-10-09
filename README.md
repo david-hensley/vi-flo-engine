@@ -2,7 +2,7 @@
 
 Backend data and code engine for the Virgin Islands Freshwater and Landscapes Observatory (VI-FLO).
 
-**Status:** v2.4.0
+**Status:** v2.4.1
 
 ---
 
@@ -270,6 +270,14 @@ Regional Studies* 59, 102372.
 Contact the authorized person (David Hensley) for the api_tokens.csv file.
 This file contains all the necessary API keys for automatic downloading.
 Store this file in the VI-FLO Engine `/tools/` folder, then run the setup program.
+
+**Do not open the ZentraCloud integrations page to read the token.** Viewing it
+appears to regenerate the key, which invalidates it on every machine already
+using it. Copy `api_tokens.csv` between machines instead.
+
+After changing a token, run `set_api_tokens.py`, then **close RStudio entirely**
+and reopen - a running session keeps the environment it started with, and
+Session > Restart R is not enough.
 
 DO NOT DELETE THE `.gitignore` FILE - THIS PROTECTS THE API KEY FROM BEING PUBLISHED!
 

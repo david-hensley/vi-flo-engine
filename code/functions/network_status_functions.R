@@ -48,10 +48,24 @@ get_network_todo <- function(devices = NULL) {
   #### 1. Cloud devices that have stopped reporting ####
   # Asked of the API rather than of last_update, which is only as current as
   # the last thing that happened to write it.
+  api_error <- NA_character_
   if (is.null(devices)) {
     devices <- tryCatch(
       zentraR::zc_list_devices(expand = "max_min_timestamp"),
-      error = function(e) NULL)
+      error = function(e) { api_error <<- conditionMessage(e); NULL })
+  }
+
+  # A failed call used to return NULL and the checks below simply found
+  # nothing - so a dead API key read as "every device is fine", which is the
+  # worst way for a check to fail. It took six days of a station being down
+  # before anyone noticed the silence was the tool and not the network.
+  if (is.null(devices)) {
+    add(NA_character_, NA_character_, "high",
+        paste0("could not reach ZentraCloud - reporting, battery and ",
+               "unestablished devices were NOT checked",
+               if (!is.na(api_error)) paste0(" (", substr(api_error, 1, 60), ")")
+               else ""),
+        "error")
   }
 
   if (!is.null(devices) && nrow(devices) > 0) {
@@ -359,8 +373,8 @@ print_network_todo <- function(status = NULL, quiet_if_clean = FALSE) {
   if (n > 0) {
     errs <- status[status$type == "error", , drop = FALSE]
     if (nrow(errs) > 0) {
-      cat("\nERRORS\n")
-      for (i in seq_len(nrow(errs))) cat("   ", errs$issue[i], "\n", sep = "")
+      cat("\nCOULD NOT CHECK\n")
+      for (i in seq_len(nrow(errs))) cat(" ! ", errs$issue[i], "\n", sep = "")
     }
     n_high <- sum(status$severity == "high")
     if (n_high > 0) cat("\n  ! marks the ", n_high, " most urgent\n", sep = "")
@@ -396,9 +410,10 @@ get_station_roster <- function(devices = NULL) {
 
   # Asked of the API rather than of metadata, which is only as current as the
   # last thing that wrote it
+  reached <- TRUE
   if (is.null(devices)) {
     devices <- tryCatch(zentraR::zc_list_devices(expand = "max_min_timestamp"),
-                        error = function(e) NULL)
+                        error = function(e) { reached <<- FALSE; NULL })
   }
 
   last_contact <- as.POSIXct(rep(NA, nrow(active)), tz = "UTC")
@@ -434,6 +449,10 @@ get_station_roster <- function(devices = NULL) {
     # They fail differently and are worth telling apart at a glance.
     reports      = tolower(active$status) %in% c("online", "nonresponsive"),
     stringsAsFactors = FALSE)
+
+  # Carried on the result so the printer can distinguish "no contact recorded"
+  # from "we could not ask". Blank cells look the same either way.
+  attr(out, "api_reached") <- reached
 
   out[order(out$watershed, out$station_id), ]
 }
@@ -490,6 +509,11 @@ print_station_roster <- function(roster = NULL) {
         if (is.na(roster$data_to[i])) "-"
         else format(as.Date(roster$data_to[i]), "%Y-%m-%d"),
         "\n", sep = "")
+  }
+
+  if (identical(attr(roster, "api_reached"), FALSE)) {
+    cat("\n  ! ZentraCloud could not be reached, so every contact time above is\n")
+    cat("    unknown rather than absent. Check the API key.\n")
   }
 
   cat("\n  contact is the last reading ZentraCloud holds; data to is the last\n")

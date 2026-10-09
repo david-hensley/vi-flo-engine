@@ -3,6 +3,34 @@ All notable changes to the VI-FLO Engine project are documented here.
 
 ---
 
+## [v2.4.1] - 2026-10-09
+
+### Fixed
+- The ZentraCloud key was set in `start.R`, which is not the only way in. The
+  metadata manager launcher calls `load_all_functions()` directly, so the
+  manager's network views failed with "no API key found" while the same
+  functions worked from the console. Moved to `connect_zentracloud()`, called
+  from `load_all_functions()` - the path both routes already take
+  - It warns on a missing key even when loading quietly. The launcher loads
+    quietly, and that is precisely where it was being missed
+  - The warning names the trap: a running R session keeps the environment it
+    started with, so updating a token means closing RStudio, not restarting
+    the session
+- A failed `zc_list_devices()` was caught and discarded, so the checks that
+  depend on it found nothing and reported all clear. A dead API key read as
+  "every device is fine" - the worst way for a check to fail, and it hid a
+  station that had been down six days. Both views now say what could not be
+  checked: the to-do list gains a COULD NOT CHECK section, and the roster says
+  its contact times are unknown rather than absent
+
+### Note
+- Viewing the ZentraCloud integrations page appears to regenerate the API
+  token, invalidating it everywhere it is in use. Both machines lost access
+  twice in one afternoon this way. Copy the token between machines by file;
+  do not open that page to read it
+
+---
+
 ## [v2.4.0] - 2026-10-08
 
 The engine answers two different questions now, and says which is which.

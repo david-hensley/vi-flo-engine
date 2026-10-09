@@ -48,7 +48,55 @@ load_all_functions <- function(quiet = FALSE) {
     message("\u2713 ", length(prefixes), " function files loaded")
   }
 
+  # Here rather than in start.R, because start.R is not the only way in. The
+  # metadata manager launcher calls load_all_functions() directly, and without
+  # this the manager's network views failed with "no API key found" while the
+  # same functions worked from the console.
+  # Not passed `quiet`. A missing key is the one thing here a person can act
+  # on, and the launcher - which loads quietly - is exactly where it was being
+  # missed.
+  connect_zentracloud()
+
   invisible(prefixes)
+}
+
+
+#' Hands the ZentraCloud key to zentraR
+#'
+#' Every function that reaches the API needs this done first, and doing it by
+#' hand each session is a step that only ever gets forgotten - the call then
+#' fails with an authentication error rather than saying what is missing.
+#'
+#' Silent on success. A missing token or package always says so, because those
+#' are the two things a person can fix.
+#'
+#' @return Invisible TRUE if the key was set
+connect_zentracloud <- function() {
+
+  token <- Sys.getenv("ZENTRACLOUD_V5_TOKEN")
+
+  if (!nzchar(token)) {
+    cat("  ! ZENTRACLOUD_V5_TOKEN is not set - the API will not work\n")
+    cat("    Check tools/api_tokens.csv, run set_api_tokens.py, then close\n")
+    cat("    and reopen RStudio - a running session keeps the old value\n")
+    return(invisible(FALSE))
+  }
+
+  if (!requireNamespace("zentraR", quietly = TRUE)) {
+    cat("  ! the zentraR package is not installed\n")
+    return(invisible(FALSE))
+  }
+
+  suppressPackageStartupMessages(library(zentraR))
+
+  ok <- tryCatch({ zc_set_key(token); TRUE },
+                 error = function(e) {
+                   cat("  ! could not set the ZentraCloud key: ",
+                       conditionMessage(e), "\n", sep = "")
+                   FALSE
+                 })
+
+  invisible(ok)
 }
 
 #' Reads the datamap_engine.csv in the data root and lists the named_paths for the user
