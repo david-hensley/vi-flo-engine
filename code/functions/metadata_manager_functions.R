@@ -4913,7 +4913,7 @@ ui_correct_device_details <- function() {
   # but note that lat/lon changing because the DEVICE MOVED is an event, and
   # belongs in the relocation or replacement workflow so it leaves a log entry.
   editable <- c("model", "device_name", "device_role", "interval_min",
-                "deploy_datetime", "lat", "lon", "elev")
+                "deploy_datetime", "lat", "lon", "elev", "expiry_date")
   editable <- editable[editable %in% names(metadata)]
 
   # A device already in a terminal state can have that state CORRECTED here -
@@ -5012,6 +5012,45 @@ ui_correct_device_details <- function() {
       # elev_source travels with the value
       metadata$elev_source[idx] <- res$elev_source
 
+    } else if (field == "expiry_date") {
+      # When the device's ZentraCloud subscription runs out. Read off the
+      # account and typed in, because the API's own subscription_status has
+      # proved unreliable - devices reporting daily have shown as inactive
+      # with dates months past.
+      #
+      # A date, not a datetime: nobody knows the hour a subscription lapses
+      # and pretending otherwise would be false precision.
+      cat("\nThe date this device's ZentraCloud subscription runs out.\n")
+      cat("Read it off the account - the API's own status is not reliable.\n\n")
+      cat("Enter expiry date (YYYY-MM-DD), or 'none' to clear it: ")
+      input <- trimws(readline())
+
+      if (input == "") {
+        cat("Not changed\n")
+        next
+      }
+
+      if (tolower(input) == "none") {
+        new_value <- NA
+        cat("\u2713 Expiry date cleared\n")
+      } else {
+        parsed <- suppressWarnings(as.Date(input))
+        if (is.na(parsed)) {
+          cat("Could not read that as a date\n")
+          next
+        }
+        # Worth saying rather than silently accepting - a typo in the year is
+        # the easiest mistake here and the least visible afterwards
+        days <- as.numeric(parsed - Sys.Date())
+        if (days < -3650 || days > 3650) {
+          cat("\u26a0\ufe0f  That is ", abs(round(days / 365)),
+              " years ", if (days < 0) "ago" else "away", " - is it right?\n",
+              sep = "")
+          if (ui_yes_no("Use it anyway?", allow_quit = FALSE) != "Y") next
+        }
+        new_value <- format(parsed, "%Y-%m-%d")
+      }
+
     } else if (field == "deploy_datetime") {
       cat("Enter deploy datetime (YYYY-MM-DD HH:MM:SS): ")
       input <- trimws(readline())
@@ -5077,9 +5116,36 @@ ui_correct_device_details <- function() {
     #### Write ####
     backup_metadata()
 
-    metadata[[field]][idx] <- new_value
+    # Some of these describe the BOX, not the station it serves. One ZL6 can
+    # carry a weather station and a vwc station at once, and its model, name,
+    # logging interval and subscription are the same fact seen from two rows -
+    # correcting one and leaving the other is how metadata ends up
+    # contradicting itself.
+    #
+    # deploy_datetime, device_role, lat, lon and elev stay on the single row.
+    # A co-located station can begin years after its logger arrives, roles
+    # differ by station, and a paired gauge's elevation is derived from its
+    # partner's.
+    per_device <- c("model", "device_name", "interval_min", "expiry_date")
+
+    rows <- idx
+    if (field %in% per_device) {
+      companions <- which(metadata$device_serial == device_serial &
+                          !tolower(metadata$status) %in% terminal_statuses)
+      rows <- union(idx, companions)
+    }
+
+    metadata[[field]][rows] <- new_value
     save_device_metadata(metadata)
-    cat("Updated ", field, "\n", sep = "")
+
+    if (length(rows) > 1) {
+      others <- setdiff(metadata$station_id[rows], station_id)
+      cat("Updated ", field, " on ", length(rows), " rows - ", station_id,
+          " and ", paste(others, collapse = ", "),
+          " share this logger\n", sep = "")
+    } else {
+      cat("Updated ", field, "\n", sep = "")
+    }
 
     #### A rename is an event, not just a correction ####
     # It explains why an old shuttle readout's filenames no longer match the
@@ -5353,7 +5419,8 @@ metadata_manager <- function() {
         cat("  6. Station relocated (moved to new location)\n")
         cat("  7. Station decommissioned (entire station shut down)\n")
         cat("  8. Field surveyed elevation of station or loggers\n")
-        cat("  9. Correct device details (model, name, role, interval, coords)\n")
+        cat("  9. Correct device details (model, name, role, interval, coords,\n")
+        cat("     subscription expiry)\n")
         cat("  q. Back to main menu\n")
         
         work_choice <- trimws(readline())

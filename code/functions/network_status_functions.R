@@ -195,16 +195,24 @@ get_network_todo <- function(devices = NULL) {
   }
 
   #### 5. Subscriptions ####
-  if ("expiry_date" %in% names(active)) {
-    soon <- which(!is.na(active$expiry_date))
-    for (i in soon) {
-      days <- as.numeric(difftime(active$expiry_date[i], now, units = "days"))
+  #
+  # Working devices only. A lapsed subscription on a dead box is not an
+  # oversight - nobody pays to keep a nonresponsive logger on the cloud, and
+  # listing it every week buries the ones that matter. It returns to the list
+  # on its own if the device is ever brought back into service.
+  live <- active[!tolower(active$status) %in% c("defunct", "nonresponsive"), ,
+                 drop = FALSE]
+
+  if ("expiry_date" %in% names(live) && nrow(live) > 0) {
+    for (i in which(!is.na(live$expiry_date))) {
+      days <- as.numeric(difftime(live$expiry_date[i], now, units = "days"))
+
       if (days < 0) {
-        add(active$station_id[i], active$device_serial[i], "high",
+        add(live$station_id[i], live$device_serial[i], "high",
             paste0("subscription expired ", round(-days), " days ago"),
             "subscription")
       } else if (days < 60) {
-        add(active$station_id[i], active$device_serial[i], "medium",
+        add(live$station_id[i], live$device_serial[i], "medium",
             paste0("subscription expires in ", round(days), " days"),
             "subscription")
       }
