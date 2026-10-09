@@ -5310,7 +5310,7 @@ metadata_manager <- function() {
     cat("What happened?\n")
     cat("  1. Worked on existing station/device\n")
     cat("  2. Established new station/device or reactivated old station\n")
-    cat("  3. View/check metadata\n")
+    cat("  3. View metadata and network status\n")
     if (n_pending > 0) {
       cat("  r. Resume an unfinished data task\n")
     }
@@ -5886,12 +5886,15 @@ metadata_manager <- function() {
     
     else if (top_choice == "3") {
       
-      cat("\n--- VIEW METADATA ---\n")
-      cat("What would you like to view?\n")
+      cat("\n--- VIEW ---\n")
+      cat("What would you like to see?\n")
       cat("  1. Device metadata\n")
       cat("  2. Port configurations\n")
       cat("  3. Maintenance log\n")
       cat("  4. Download log\n")
+      cat("\n")
+      cat("  5. Network status - every station and how it is doing\n")
+      cat("  6. What needs attention - by kind of work\n")
       cat("  q. Back to main menu\n")
       cat("\nEnter selection: ")
       
@@ -5909,6 +5912,28 @@ metadata_manager <- function() {
         ui_view_maintenance_log()
       } else if (view_choice == "4") {
         ui_view_download_log()
+
+      # The two network views. Both ask ZentraCloud for the current state of
+      # every device, so they take a few seconds - said in advance, because a
+      # console that sits silent looks like it has hung.
+      } else if (view_choice == "5") {
+        cat("\n  Asking ZentraCloud (a few seconds)...\n")
+        flush.console()
+        if (exists("print_network_status")) {
+          try(print_network_status(), silent = FALSE)
+        } else {
+          cat("\u26a0\ufe0f  network_status_functions.R is not loaded\n")
+        }
+
+      } else if (view_choice == "6") {
+        cat("\n  Asking ZentraCloud (a few seconds)...\n")
+        flush.console()
+        if (exists("print_network_todo")) {
+          try(print_network_todo(), silent = FALSE)
+        } else {
+          cat("\u26a0\ufe0f  network_status_functions.R is not loaded\n")
+        }
+
       } else {
         cat("⚠️  Invalid selection\n")
       }

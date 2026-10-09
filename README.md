@@ -2,7 +2,7 @@
 
 Backend data and code engine for the Virgin Islands Freshwater and Landscapes Observatory (VI-FLO).
 
-**Status:** v2.3.0
+**Status:** v2.4.0
 
 ---
 
@@ -303,10 +303,14 @@ excluded from sync - re-run setup on each computer rather than copying it.
 source(file.path(Sys.getenv("VI_FLO_ENGINE_ROOT"), "code/start.R"))
 ```
 
-This sources `setup_functions.R`, loads every other function file, reports the
-state of the session - uncommitted work, metadata changed since the last
-savepoint, how the data root differs from Box, when the last download ran - and
-raises any unfinished data tasks.
+This sources `setup_functions.R`, loads every other function file, connects to
+ZentraCloud, reports the state of the session - uncommitted work, metadata
+changed since the last savepoint, how the data root differs from Box, when the
+last download ran - and raises any unfinished data tasks.
+
+**To see the network**, `print_network_status()` for every station and how it
+is doing, or `print_network_todo()` for what needs attention. Both are also in
+the metadata manager under option 3.
 
 **To download the latest data**, double-click `tools/download/run_download.bat`.
 The same job runs weekly on whichever machine holds the scheduled task; see

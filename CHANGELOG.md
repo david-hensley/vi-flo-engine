@@ -3,6 +3,60 @@ All notable changes to the VI-FLO Engine project are documented here.
 
 ---
 
+## [v2.4.0] - 2026-10-08
+
+The engine answers two different questions now, and says which is which.
+`print_network_status()` is the roster - every station and how it is doing.
+`print_network_todo()` is what needs attention. The second was previously
+called the first, which made the obvious question unanswerable.
+
+### Added
+- `get_station_roster()` and `print_network_status()` - every active station
+  grouped by watershed, with device, status, battery, last cloud contact and
+  how far the archive reaches
+  - `data_to` comes from download_log rather than a metadata field, because a
+    file arrives without touching metadata. It is the only honest answer to
+    "how current is this station's data"
+  - A manual device shows `offload` rather than a contact time. A cloud
+    timestamp for a logger that has never spoken to the cloud is not missing,
+    it is meaningless
+- Both views reachable from the metadata manager, under option 3. The launcher
+  alone now gets you field recording, the roster and the to-do list
+- `start.R` loads zentraR and sets the ZentraCloud key. Every function that
+  reaches the API needed this done first, and doing it by hand each session is
+  a step that only ever gets forgotten - the download then failed with an
+  authentication error rather than saying what was actually missing
+- `start.R` ends with the handful of commands a session usually starts with.
+  Not a menu, just the spelling
+
+### Changed
+- `get_network_status()` and `print_network_status()` became
+  `get_network_todo()` and `print_network_todo()`
+- Hydro logger memory is reported as a DEADLINE, not a percentage. "88% full"
+  needs arithmetic before it can be acted on; "fills 03 Nov 2026 - 25 days" is
+  a date to plan a trip around. Past the deadline it reads "FULL since 20 Sep
+  2026 - 18 days of readings already lost"
+  - Capacity lowered from 21,700 to 21,600. Three loggers have been observed
+    stopping between 21,693 and 21,695 readings; a warning that fires a few
+    days early costs nothing and one that fires late costs the data
+  - Warns within 60 days, which is roughly the planning horizon for a trip to
+    another island
+- The to-do list is ordered field work first - not reporting, battery, memory,
+  survey, known broken - then what can be answered from a desk
+- Every section prints whether or not it has anything in it. A heading that
+  disappears leaves the reader to notice an absence, which nobody does; a
+  heading saying "no low batteries" is read in a second and believed
+
+### Fixed
+- The memory check took its interval from metadata, which is what someone
+  meant to set rather than what the logger did. 21352826 and 21652375 ran at
+  ten minutes while metadata declared fifteen, so they filled in 150 days
+  rather than 225 - twice, costing a month at Salt River and La Grange on each
+  occasion. The interval now comes from the timestamps of the most recent
+  file, and a disagreement with metadata is named in the warning
+
+---
+
 ## [v2.3.0] - 2026-10-06
 
 The data root is reorganised around the distinction that governs everything
