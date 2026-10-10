@@ -88,8 +88,8 @@ A rise of **19.87 kPa — about 2.03 m**, the largest in the pair's record.
 
 > **Established** from the raw pressure record.
 
-The same day gave Fish Bay 1.497 m and Reef Bay 1.2 m, and is the likely end of
-both the Reef Bay gauge and the Dorothea pair. The Turpentine loggers, installed
+The same day took Fish Bay to about 1.72 m and Reef Bay to 1.2 m, and is the
+likely end of both the Reef Bay gauge and the Dorothea pair. The Turpentine loggers, installed
 three weeks earlier, survived it.
 
 ---
@@ -122,7 +122,11 @@ produce a hydraulic slope.
 bed gradient    0.33%      slopedata.csv, 7 points over 41.6 m
 roughness       0.15       roughness.csv, the network default
 cross sections  3 reps     gutsurveys.csv, 12 points each
+overbank        5.000 m
 ```
+> A round 5.0 m, shared with Turpentine Run 1 and River, which reads as a
+> placeholder rather than a surveyed bank height. Nothing in the record
+> approaches it.
 
 > **Established.** Metres horizontally, rod readings in feet; the gradient
 > applies the 0.3048 conversion.

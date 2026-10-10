@@ -148,11 +148,59 @@ fall            0.253 m      a gradient of 0.5%
 > already in metres, so a foot reading entered raw would carry through to every
 > discharge value the curve produced.
 
+The reach itself was surveyed separately, before the pairs existed:
+
+```
+bed gradient    0.40%      slopedata.csv, 6 points over 55.0 m
+roughness       0.15       roughness.csv
+cross sections  3 reps     gutsurveys.csv
+overbank        1.497 m
+```
+> **The prototype archive is clipped at this value**, as is Salt River 2's. The
+> maximum stage in `fb.hydro.rda` equals the threshold exactly, so peaks above
+> it were truncated when that archive was built.
+>
+> **The raw pressure is intact.** The 11 November 2024 event reads about 1.72 m
+> from the absolute pressure record against a dry baseline — roughly 22 cm above
+> the ceiling. Any peak lost to clipping is recoverable by rebuilding level from
+> Product 1, which is the point of regenerating rather than editing.
+>
+> Whether to clip at all is a Product 3 decision with a declared threshold, not
+> something baked into the archive.
+
+> **Established.** Metres horizontally, rod readings in feet, with the 0.3048
+> conversion applied. `discharge_debug.R` gives 43.749 m with a fall of 0.067 m
+> — 0.15% — which does not reconcile; `slopedata.csv` is the primary survey
+> record and is preferred.
+
+That bed gradient is what the pre-2024 era has to rely on, since Manning takes
+the friction slope and the bed slope is its conventional approximation.
+
 The 2021–2023 pair has no surveyed geometry.
 
 > **Unknown.** The entire codebase holds distance and height for Fish Bay's 2024
 > pair and for Dorothea, and nothing else. Hydraulic slope for the earlier era
 > would have to be reconstructed from an empirical stage relationship.
+
+---
+
+## The slope model
+
+The 2024 pair produced a working hydraulic slope relationship, one of only two
+in the network.
+
+> **Established.** `slope_models.csv` holds fitted models for `fb` and `dor`
+> alone, and `qcurves_meta.csv` records `qcurves8` as *"re-ran FB with slope
+> model, includes FB GZF at 0.255m"*.
+
+A **gauge zero-flow of 0.255 m** is recorded with it — the stage below which
+there is no throughflow, so discharge is zero regardless of what the curve
+would otherwise give.
+
+Fish Bay has never been gauged, so its rating curve rests on geometry,
+roughness and the measured slope, with no measured discharge to check it.
+
+> **Established.** `qfits.csv` carries an empty row for FB.
 
 ---
 
@@ -212,6 +260,6 @@ exists.
 - Whether `FishBay1` recorded anything after 2023-03-31. If stopped at the
   visit, nothing. If it ran on, it filled around 28 August 2023 and the February
   2024 relaunch erased it. No evidence survives either way.
-- Fish Bay's entry in `elevs.csv` is **0** — no elevation correction between the
-  weather station and the gauge. Either they sit at the same height or it was
-  never surveyed.
+- The barometric elevation correction is **-210 m** between the Fish Bay weather
+  station and the gauge, from the 2024 `elevs.csv`. The 2023 version recorded
+  zero, which was a placeholder rather than a measurement.

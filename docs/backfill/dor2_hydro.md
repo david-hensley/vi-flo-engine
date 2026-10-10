@@ -10,9 +10,9 @@ Each claim is graded. **Established** — the data or the code says so directly.
 **Inferred** — the best reading of circumstantial evidence. **Unknown** — not
 recoverable from what survives.
 
-Dorothea is the steepest reach in the network — a bed gradient near 11%, large
-boulders with water pooling among them. That shapes everything here, including
-how its loggers were lost.
+Dorothea is the steepest reach in the network — a bed gradient of 3.4%, large
+boulders with water pooling among them, and 5.8% between the two loggers
+themselves. That shapes everything here, including how they were lost.
 
 ---
 
@@ -74,14 +74,18 @@ gradient    5.8%           between the two loggers
 
 ### And it worked
 
-Dorothea is the only site in the network where a paired slope relationship was
-successfully derived and used.
+Dorothea was the first site where a paired slope relationship was successfully
+derived and used. Fish Bay followed.
 
 > **Established.** The August 2024 script fits a piecewise linear model of
 > level difference against stage, with breakpoints at 0.12 m and 0.4 m, and
 > builds a new rating curve from it. Its own caution is recorded in the source:
 > predictions above roughly 1 m of gauge height are extrapolations and
 > unreliable.
+
+> **Established.** `slope_models.csv` holds fitted models for `dor` and `fb`
+> only, and `qcurves_meta.csv` records `qcurves7` as *"re-ran Dorothea with
+> slope model"* and `qcurves8` as *"re-ran FB with slope model"*.
 
 Reef Bay's pair saw no flow at all in the same period and never produced one.
 
@@ -115,9 +119,9 @@ needed for processing and may simply not have been imported.
 > import till they are replaced."*
 >
 > 11 November 2024 was a major regional storm. Turpentine Run, on the same
-> island, rose **2.03 m**; Reef Bay rose 1.2 m and Fish Bay 1.497 m, the largest
-> event in its four-year record. Dorothea recorded **78.1 mm** of rain that day,
-> following 79 mm on 6 November.
+> island, rose **2.03 m**; Reef Bay rose 1.2 m and Fish Bay about 1.72 m from
+> its raw pressure record, the largest event in its four years. Dorothea
+> recorded **78.1 mm** of rain that day, following 79 mm on 6 November.
 >
 > At Dorothea one logger is known to have been crushed beneath a shifted
 > boulder and never recovered — a steep reach of large boulders and pooled
@@ -165,7 +169,11 @@ bed gradient    3.41%      slopedata.csv, 7 points over 20.2 m around the gauge
 roughness       0.20       roughness.csv — one of only two non-default values
 cross sections  3 reps     gutsurveys.csv, 12 points each
 elevation diff  −148 m     elevs.csv, weather station to gauge
+overbank        5.000 m
 ```
+> A round 5.0 m, shared with Turpentine Run 1 and River, which reads as a
+> placeholder rather than a surveyed bank height. Nothing in the record
+> approaches it.
 
 > **Established.** Roughness is 0.15 at nearly every site; Dorothea at 0.20 and
 > TR2 at 0.017 are the only two that were considered individually, which fits a

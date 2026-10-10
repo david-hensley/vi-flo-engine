@@ -158,7 +158,10 @@ What does exist is the reach itself:
 bed gradient    0.60%      slopedata.csv, 7 points over 35.6 m around the gauge
 roughness       0.15       roughness.csv, Manning's n
 cross sections  3 reps     gutsurveys.csv, 12 points each, ~5 m wide, ~1.2 m relief
+overbank        1.183 m
 ```
+> The maximum observed stage sits below this, so nothing in the record has been
+> clipped.
 
 > **Established.** `slopedata.csv` holds streambed profiles up and down from each
 > gauge, surveyed when there was one logger per site. It is a property of the
@@ -245,9 +248,9 @@ scripts and field notes; see docs/backfill/rb.md*.
 - The separation between `21652380`'s position and the upstream one RB C now
   occupies was never surveyed, so the September 2023 to February 2024 window —
   Philippe included — cannot receive a back-applied slope correction.
-- Reef Bay's entry in `elevs.csv` is **0** — no elevation correction between the
-  Fish Bay weather station and the Reef Bay gauge, two watersheds apart. Either
-  they sit at the same height or it was never surveyed.
-- Roughness of 0.15 is the default across nearly every site. Only TR2 (0.017)
-  and Dorothea (0.2) differ, which suggests those two were considered and the
-  rest inherited a value.
+- The barometric elevation correction is **-215 m** between the Fish Bay weather
+  station and the Reef Bay gauge, from the 2024 `elevs.csv`. The 2023 version
+  recorded zero, which was a placeholder rather than a measurement.
+- Roughness of 0.15 is assumed rather than measured here, as at every site but
+  TR2. Reef Bay has never been gauged, so there is nothing to calibrate it
+  against.

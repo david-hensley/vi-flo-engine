@@ -26,7 +26,10 @@ gauge here.
 bed gradient    0.24%      slopedata.csv, 62.7 m span, 0.152 m fall
 roughness       0.017      finished concrete
 cross sections  3 reps     gutsurveys.csv
+overbank        3.588 m
 ```
+> The maximum observed stage sits below this, so nothing in the record has been
+> clipped.
 
 > **Established.** Horizontal distances are metres and vertical rod readings are
 > feet; the gradient applies the 0.3048 conversion.
