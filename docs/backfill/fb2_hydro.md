@@ -260,6 +260,8 @@ exists.
 - Whether `FishBay1` recorded anything after 2023-03-31. If stopped at the
   visit, nothing. If it ran on, it filled around 28 August 2023 and the February
   2024 relaunch erased it. No evidence survives either way.
-- The barometric elevation correction is **-210 m** between the Fish Bay weather
-  station and the gauge, from the 2024 `elevs.csv`. The 2023 version recorded
-  zero, which was a placeholder rather than a measurement.
+- The barometric correction changed when the weather station moved on
+  2024-02-06, from essentially zero to about -210 m. VI-FLO computes it from
+  station elevations in metadata rather than from the prototype's `elevs.csv`,
+  so the only gap is the weather station's pre-2024 `elev`. See
+  docs/backfill/fb1_weather.md.

@@ -248,9 +248,11 @@ scripts and field notes; see docs/backfill/rb.md*.
 - The separation between `21652380`'s position and the upstream one RB C now
   occupies was never surveyed, so the September 2023 to February 2024 window —
   Philippe included — cannot receive a back-applied slope correction.
-- The barometric elevation correction is **-215 m** between the Fish Bay weather
-  station and the Reef Bay gauge, from the 2024 `elevs.csv`. The 2023 version
-  recorded zero, which was a placeholder rather than a measurement.
+- The barometric correction changed when the Fish Bay weather station moved on
+  2024-02-06, from essentially zero to about -215 m. VI-FLO computes it from
+  station elevations in metadata rather than from the prototype's `elevs.csv`,
+  so the only gap is that station's pre-2024 `elev`. See
+  docs/backfill/fb1_weather.md.
 - Roughness of 0.15 is assumed rather than measured here, as at every site but
   TR2. Reef Bay has never been gauged, so there is nothing to calibrate it
   against.

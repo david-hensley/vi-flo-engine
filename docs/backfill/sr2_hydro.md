@@ -158,11 +158,11 @@ elevation       5.55 m     3DEP lookup - the lowest gauge in the network
 > **Established.** Metres horizontally, rod readings in feet, with the 0.3048
 > conversion applied.
 
-The barometric elevation correction is **-5 m** between the SR2 weather station
-and the gauge — the smallest in the network, and the only one under 26 m.
+The HOBOlink needed no barometric reference, carrying its own barometer. The U20
+that replaced it does, and takes it from the SR2 weather station.
 
-> **Established** from the 2024 `elevs.csv`. The HOBOlink needed none, carrying
-> its own barometer; the U20 does.
+> The correction is computed from the two stations' recorded elevations. The
+> prototype used a fixed -5 m, which VI-FLO does not inherit.
 
 ---
 

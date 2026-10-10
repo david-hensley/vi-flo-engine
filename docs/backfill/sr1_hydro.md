@@ -213,9 +213,13 @@ not reconcile.
 
 > **Unknown**, as at the other sites. `slopedata.csv` is preferred.
 
-`elevs.csv` records **no** elevation difference for SR1 — it was a HOBOlink site
-with its own barometer — but **-65 m** for `SR1_backup`, the U20 that needed an
-external reference.
+The HOBOlink carried its own barometer and needed no external reference. The
+U20s that replaced it do, and take it from the SR1 weather station — which the
+prototype recognised, recording a correction for `SR1_backup` and none for the
+site itself.
+
+> VI-FLO computes that correction from recorded elevations rather than
+> inheriting the prototype's figure.
 
 ---
 

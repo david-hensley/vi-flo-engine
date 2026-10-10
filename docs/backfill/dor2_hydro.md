@@ -168,7 +168,6 @@ the bed-slope assumption.
 bed gradient    3.41%      slopedata.csv, 7 points over 20.2 m around the gauge
 roughness       0.20       roughness.csv — one of only two non-default values
 cross sections  3 reps     gutsurveys.csv, 12 points each
-elevation diff  −148 m     elevs.csv, weather station to gauge
 overbank        5.000 m
 ```
 > A round 5.0 m, shared with Turpentine Run 1 and River, which reads as a
@@ -240,6 +239,6 @@ scripts and field notes; see docs/backfill/dor2_hydro.md*.
 - The current pair is unsurveyed. Until a ranging laser gets to the site, the
   only hydraulic slope Dorothea has ever had belongs to a pair that no longer
   exists.
-- Dorothea's `elevs.csv` entry of **−148 m** is the largest in the network and
-  governs the barometric correction. Worth confirming against the surveyed
-  elevations now in metadata.
+- The barometric correction for this gauge comes from its weather station's
+  elevation and its own, both in metadata. The prototype used a fixed -148 m,
+  which VI-FLO does not inherit.
