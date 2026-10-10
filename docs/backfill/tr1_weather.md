@@ -132,12 +132,18 @@ logged.
 Already complete. The raw export covers deployment to 2026-09-14 in one file,
 with weekly downloads since.
 
-### `record_confirmed`
+### What this reconstruction covers
 
-**2023-06-13**, reason: *one device on one port throughout, no relocation, no
-replacement, complete record; see docs/backfill/tr1_weather.md*.
+`tr1_weather` is reconstructed from **2023-06-13** — its deployment — to the
+present.
 
-The most straightforward confirmation in the network.
+That is the span of this document, not a claim about the metadata. It says how
+far back the history below could be established, not that anyone has stood at
+the station and verified it.
+
+**`record_confirmed` is a different thing** and is not set here. It records a
+visit at which a station was checked against VI-FLO standards, and it is set
+from the maintenance record rather than from reconstruction.
 
 ---
 

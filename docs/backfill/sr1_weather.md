@@ -156,11 +156,18 @@ moisture addition are already recorded.
 
 Already complete. This logger is in the ZentraCloud export set.
 
-### `record_confirmed`
+### What this reconstruction covers
 
-**2022-09-13**, reason: *station's own record begins here; the prototype's
-earlier weather for this site is borrowed from a neighbour and is not SR1's;
-see docs/backfill/sr1_weather.md*.
+`sr1_weather` is reconstructed from **2022-09-13** — its first reading — to the
+present.
+
+That is the span of this document, not a claim about the metadata. It says how
+far back the history below could be established, not that anyone has stood at
+the station and verified it.
+
+**`record_confirmed` is a different thing** and is not set here. It records a
+visit at which a station was checked against VI-FLO standards, and it is set
+from the maintenance record rather than from reconstruction.
 
 ---
 

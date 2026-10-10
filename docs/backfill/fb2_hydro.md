@@ -226,8 +226,8 @@ metadata has no way to express.
 
 Structural events only. Routine visits are not recoverable and inventing them
 would be dishonest. The lag between `field_visit_date` and `timestamp` shows
-these were written later, and `record_confirmed.csv` records that the era was
-kept differently.
+these were written later, and the reconstruction span above says how far back
+the record reaches.
 
 ```
 2021-10-21   station_established   FishBay1 and FishBay2 deployed as a pair
@@ -243,13 +243,18 @@ kept differently.
 21179105    7 files   2021-10-21 → 2023-03-31    (filed under RB-*)
 ```
 
-### `record_confirmed`
+### What this reconstruction covers
 
-**2021-10-21**, reason: *device history reconstructed from launch titles,
-temperature correlation and the 2024 import scripts; see docs/backfill/fb.md*.
+`fb2_hydro` is reconstructed from **2021-10-21** — the first pair's deployment
+— to the present.
 
-Defensible from the beginning of the record — but only because this document
-exists.
+That is the span of this document, not a claim about the metadata. It says how
+far back the history below could be established, not that anyone has stood at
+the station and verified it.
+
+**`record_confirmed` is a different thing** and is not set here. It records a
+visit at which a station was checked against VI-FLO standards, and it is set
+from the maintenance record rather than from reconstruction.
 
 ---
 

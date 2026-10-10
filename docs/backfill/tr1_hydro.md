@@ -180,10 +180,18 @@ TR2 readings will attribute here.
 The HOBOlink export has a different shape again — seventeen columns including
 its own barometric and a computed water level — and needs its own reader.
 
-### `record_confirmed`
+### What this reconstruction covers
 
-**2023-06-13**, reason: *device history reconstructed from import scripts, file
-boundaries and field notes; see docs/backfill/tr1_hydro.md*.
+`tr1_hydro` is reconstructed from **2023-06-13** — the HOBOlink's deployment —
+to the present.
+
+That is the span of this document, not a claim about the metadata. It says how
+far back the history below could be established, not that anyone has stood at
+the station and verified it.
+
+**`record_confirmed` is a different thing** and is not set here. It records a
+visit at which a station was checked against VI-FLO standards, and it is set
+from the maintenance record rather than from reconstruction.
 
 ---
 

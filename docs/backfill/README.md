@@ -22,9 +22,13 @@ for each claim in a quoted block beneath it. Claims are graded:
 - **Unknown** — not recoverable from what survives
 
 Each ends with what follows: metadata rows to add or correct, maintenance
-entries worth reconstructing, files to import as Product 1, and a proposed
-`record_confirmed` date — the boundary past which that station's metadata is
-contemporaneous rather than reconstructed.
+entries worth reconstructing, files to import as Product 1, and a statement of
+how far back the reconstruction reaches.
+
+**That span is not `record_confirmed`.** These documents establish what can be
+known about a station's history; `record_confirmed` records a visit at which
+someone checked a station against VI-FLO standards. A dossier reaching back to
+2021 says the history is recoverable, not that anyone has vouched for it.
 
 ---
 
@@ -155,8 +159,7 @@ The absence is deliberate.
 `uvi_vwc2`, `uvi_vwc3` and `bta2_vwc2` carry six TEROS 10 across all six ports,
 a design that exists nowhere else. Their stations are named in the relevant
 dossiers with what metadata holds, but their history is not reconstructed and
-their `record_confirmed` dates are not set, pending information still to be
-tracked down. Folding them in later touches nothing else — they share no devices
+pending information still to be tracked down. Folding them in later touches nothing else — they share no devices
 with the four-depth stations and appear in no prototype output.
 
 ---

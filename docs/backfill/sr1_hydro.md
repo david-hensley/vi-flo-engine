@@ -280,10 +280,18 @@ The VI-FLO era is recorded. These predate it:
 `SR1_level.csv` in the older downloads folder duplicates the first HOBOlink file
 at five minutes and can be left.
 
-### `record_confirmed`
+### What this reconstruction covers
 
-**2021-11-24**, reason: *device history reconstructed from file headers, base
-unit serials and import scripts; see docs/backfill/sr1_hydro.md*.
+`sr1_hydro` is reconstructed from **2021-11-24** — the HOBOlink's deployment —
+to the present.
+
+That is the span of this document, not a claim about the metadata. It says how
+far back the history below could be established, not that anyone has stood at
+the station and verified it.
+
+**`record_confirmed` is a different thing** and is not set here. It records a
+visit at which a station was checked against VI-FLO standards, and it is set
+from the maintenance record rather than from reconstruction.
 
 ---
 

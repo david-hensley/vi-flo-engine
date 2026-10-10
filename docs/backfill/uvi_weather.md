@@ -100,10 +100,18 @@ place of work rather than by drainage.
 Already complete. This logger is in the ZentraCloud export set and downloads
 weekly, so nothing needs importing.
 
-### `record_confirmed`
+### What this reconstruction covers
 
-**2021-10-08**, reason: *single ATMOS on one port throughout;
-see docs/backfill/uvi_weather.md*.
+`uvi_weather` is reconstructed from **2021-10-08** — its deployment — to the
+present.
+
+That is the span of this document, not a claim about the metadata. It says how
+far back the history below could be established, not that anyone has stood at
+the station and verified it.
+
+**`record_confirmed` is a different thing** and is not set here. It records a
+visit at which a station was checked against VI-FLO standards, and it is set
+from the maintenance record rather than from reconstruction.
 
 ---
 

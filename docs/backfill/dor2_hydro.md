@@ -223,10 +223,18 @@ belong to those two serials and that period — not to the current pair.
 21652372    1 file    2024-02-01 → 2024-06-04
 ```
 
-### `record_confirmed`
+### What this reconstruction covers
 
-**2023-06-14**, reason: *device history reconstructed from launch titles, import
-scripts and field notes; see docs/backfill/dor2_hydro.md*.
+`dor2_hydro` is reconstructed from **2023-06-14** — its first gauge's
+deployment — to the present.
+
+That is the span of this document, not a claim about the metadata. It says how
+far back the history below could be established, not that anyone has stood at
+the station and verified it.
+
+**`record_confirmed` is a different thing** and is not set here. It records a
+visit at which a station was checked against VI-FLO standards, and it is set
+from the maintenance record rather than from reconstruction.
 
 ---
 

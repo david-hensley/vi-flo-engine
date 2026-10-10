@@ -166,13 +166,18 @@ absence of need.
 
 Already complete for both devices.
 
-### `record_confirmed`
+### What this reconstruction covers
 
-**2021-11-04**, reason: *single ATMOS on one port throughout the prototype era,
-position unchanged; see docs/backfill/cal1_weather.md*.
+`cal1_weather` is reconstructed from **2021-11-04** — its deployment as R2R
+Farm — to the present.
 
-The metadata is contemporaneous from deployment. Whether the *data* is sound in
-the unvisited years is a QA question and does not belong in this date.
+That is the span of this document, not a claim about the metadata. It says how
+far back the history below could be established, not that anyone has stood at
+the station and verified it.
+
+**`record_confirmed` is a different thing** and is not set here. It records a
+visit at which a station was checked against VI-FLO standards, and it is set
+from the maintenance record rather than from reconstruction.
 
 ---
 

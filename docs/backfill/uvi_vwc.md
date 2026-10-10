@@ -35,7 +35,7 @@ other place in the network — `bta2_vwc2`.
 
 **Their history is not reconstructed here.** Information needed to interpret
 the six-sensor arrangement has not yet been tracked down, and writing it now
-would mean recording guesses. `record_confirmed` for both waits until that is
+would mean recording guesses. Their reconstruction waits until that is
 resolved.
 
 > Deferred deliberately. `uvi_vwc1` is independent of them — a different device,
@@ -144,16 +144,18 @@ Two events are implied by the port record and have none:
 
 Already complete for all three. All are in the ZentraCloud export set.
 
-### `record_confirmed`
+### What this reconstruction covers
 
-```
-uvi_vwc1   2023-11-06
-uvi_vwc2   deferred
-uvi_vwc3   deferred
-```
+`uvi_vwc1` is reconstructed from **2023-11-06** — its sensors' installation —
+to the present.
 
-Reason: *port configuration reconstructed in 2026 from configuration history and
-rainfall response; see docs/backfill/uvi_vwc.md*.
+That is the span of this document, not a claim about the metadata. It says how
+far back the history below could be established, not that anyone has stood at
+the station and verified it.
+
+**`record_confirmed` is a different thing** and is not set here. It records a
+visit at which a station was checked against VI-FLO standards, and it is set
+from the maintenance record rather than from reconstruction.
 
 ---
 

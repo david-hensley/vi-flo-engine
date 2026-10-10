@@ -236,10 +236,18 @@ where `21652377` stood.
 21652377              2025-06-05 → 2025-11-06   (November 2025 readout)
 ```
 
-### `record_confirmed`
+### What this reconstruction covers
 
-**2023-09-25**, reason: *device history reconstructed from launch titles, import
-scripts and field notes; see docs/backfill/rb.md*.
+`rb2_hydro` is reconstructed from **2023-09-25** — the first gauge's deployment
+— to the present.
+
+That is the span of this document, not a claim about the metadata. It says how
+far back the history below could be established, not that anyone has stood at
+the station and verified it.
+
+**`record_confirmed` is a different thing** and is not set here. It records a
+visit at which a station was checked against VI-FLO standards, and it is set
+from the maintenance record rather than from reconstruction.
 
 ---
 

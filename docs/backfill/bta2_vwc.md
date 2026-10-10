@@ -36,7 +36,7 @@ been tracked down. Reconstructing it now would mean recording guesses.
 > Deferred deliberately. Nothing else in this dossier depends on it: it shares
 > no device with `bta2_vwc1` and appears in no prototype output.
 
-`record_confirmed` for this station waits until that is resolved.
+Its reconstruction waits until that is resolved.
 
 ---
 
@@ -154,15 +154,18 @@ neither is recoverable.
 
 Complete to March 2026, where both records stop.
 
-### `record_confirmed`
+### What this reconstruction covers
 
-```
-bta2_vwc1   2023-10-24
-bta2_vwc2   deferred
-```
+`bta2_vwc1` is reconstructed from **2023-10-24** — its deployment — to the
+present.
 
-Reason: *port configuration as installed, unchanged throughout; see
-docs/backfill/bta2_vwc.md*.
+That is the span of this document, not a claim about the metadata. It says how
+far back the history below could be established, not that anyone has stood at
+the station and verified it.
+
+**`record_confirmed` is a different thing** and is not set here. It records a
+visit at which a station was checked against VI-FLO standards, and it is set
+from the maintenance record rather than from reconstruction.
 
 ---
 

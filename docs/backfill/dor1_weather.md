@@ -117,10 +117,18 @@ The only reconstructed entry needed. The 2026 visit is already logged.
 
 Already complete to 2026-10-02, where the record stops.
 
-### `record_confirmed`
+### What this reconstruction covers
 
-**2023-06-14**, reason: *one device on one port throughout, no relocation, no
-replacement, complete record; see docs/backfill/dor1_weather.md*.
+`dor1_weather` is reconstructed from **2023-06-14** — its deployment — to the
+present.
+
+That is the span of this document, not a claim about the metadata. It says how
+far back the history below could be established, not that anyone has stood at
+the station and verified it.
+
+**`record_confirmed` is a different thing** and is not set here. It records a
+visit at which a station was checked against VI-FLO standards, and it is set
+from the maintenance record rather than from reconstruction.
 
 ---
 

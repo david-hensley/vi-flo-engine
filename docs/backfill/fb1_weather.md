@@ -204,11 +204,18 @@ has both.
 Already complete. The raw export runs 2021-10-21 to 2026-09-14 in one file, with
 weekly downloads since.
 
-### `record_confirmed`
+### What this reconstruction covers
 
-**2021-10-21**, reason: *one device on one port throughout; relocation in 2024
-dated precisely from metadata and corroborated by the prototype's pressure
-correction; see docs/backfill/fb1_weather.md*.
+`fb1_weather` is reconstructed from **2021-10-21** — its deployment — to the
+present.
+
+That is the span of this document, not a claim about the metadata. It says how
+far back the history below could be established, not that anyone has stood at
+the station and verified it.
+
+**`record_confirmed` is a different thing** and is not set here. It records a
+visit at which a station was checked against VI-FLO standards, and it is set
+from the maintenance record rather than from reconstruction.
 
 ---
 

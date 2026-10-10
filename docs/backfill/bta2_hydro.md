@@ -234,13 +234,18 @@ Those two files are `bta2_hydro`'s own — they postdate its deployment and carr
 serial 21652379. They are not the old Adventure's, whatever that site may have
 recorded.
 
-### `record_confirmed`
+### What this reconstruction covers
 
-**2024-11-05**, reason: *station established under the metadata manager era;
-device history complete from deployment; see docs/backfill/bta2_hydro.md*.
+`bta2_hydro` is reconstructed from **2024-11-05** — the station's
+establishment, which postdates the metadata manager — to the present.
 
-Adventure is the one backfill site whose record needs no reconstruction — it
-was established late enough that the log was kept properly from the first day.
+That is the span of this document, not a claim about the metadata. It says how
+far back the history below could be established, not that anyone has stood at
+the station and verified it.
+
+**`record_confirmed` is a different thing** and is not set here. It records a
+visit at which a station was checked against VI-FLO standards, and it is set
+from the maintenance record rather than from reconstruction.
 
 ---
 

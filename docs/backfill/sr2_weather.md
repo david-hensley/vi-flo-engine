@@ -194,16 +194,18 @@ months.
 
 Already complete for both devices.
 
-### `record_confirmed`
+### What this reconstruction covers
 
-**2021-07-13**, reason: *continuous record from deployment, minimal
-substitution, relocation in 2026 fully logged; see docs/backfill/sr2_weather.md*.
+`sr2_weather` is reconstructed from **2021-07-13** — its deployment as Glynn
+Weather — to the present.
 
-The station's own measurements run nearly unbroken from the oldest deployment
-VI-FLO holds. But `record_confirmed` is about whether the metadata is
-contemporaneous, not whether the data is good — and the precipitation series
-from mid-2024 is not good. That belongs in QA, flagged at Product 3, rather than
-in this date.
+That is the span of this document, not a claim about the metadata. It says how
+far back the history below could be established, not that anyone has stood at
+the station and verified it.
+
+**`record_confirmed` is a different thing** and is not set here. It records a
+visit at which a station was checked against VI-FLO standards, and it is set
+from the maintenance record rather than from reconstruction.
 
 ---
 

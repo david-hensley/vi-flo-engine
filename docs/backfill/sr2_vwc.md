@@ -193,16 +193,18 @@ The port record captures it; the log does not.
 
 Complete for all five devices.
 
-### `record_confirmed`
+### What this reconstruction covers
 
-```
-sr2_vwc2   2022-05-17
-sr2_vwc1   2022-06-14
-sr2_vwc3   2026-09-16
-```
+`sr2_vwc1` and `sr2_vwc2` is reconstructed from **2022-05-17** — the first
+pit's deployment — to the present.
 
-Reason: *port configuration as installed; the 2024 device replacement is in the
-port record and the 2026 work is logged; see docs/backfill/sr2_vwc.md*.
+That is the span of this document, not a claim about the metadata. It says how
+far back the history below could be established, not that anyone has stood at
+the station and verified it.
+
+**`record_confirmed` is a different thing** and is not set here. It records a
+visit at which a station was checked against VI-FLO standards, and it is set
+from the maintenance record rather than from reconstruction.
 
 ---
 

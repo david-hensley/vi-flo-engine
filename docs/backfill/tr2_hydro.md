@@ -132,14 +132,18 @@ Station type is `hydro`; the site is retired.
 
 The sixth has never been processed.
 
-### `record_confirmed`
+### What this reconstruction covers
 
-**2023-06-14**, reason: *single gauge, continuous record, device history
-reconstructed from file boundaries and the 2024 import scripts; see
-docs/backfill/tr2_hydro.md*.
+`tr2_hydro` is reconstructed from **2023-06-14** — its deployment — to the
+present.
 
-Of all the backfill sites this is the most straightforward: one logger, one
-position, no pairing, no losses, and a clean close.
+That is the span of this document, not a claim about the metadata. It says how
+far back the history below could be established, not that anyone has stood at
+the station and verified it.
+
+**`record_confirmed` is a different thing** and is not set here. It records a
+visit at which a station was checked against VI-FLO standards, and it is set
+from the maintenance record rather than from reconstruction.
 
 ---
 

@@ -156,10 +156,18 @@ The date is inferred from the St John visit chronology rather than recorded. The
 Complete to the last manual download. Nothing after 2024-06-05 exists in any
 form.
 
-### `record_confirmed`
+### What this reconstruction covers
 
-**2022-09-22**, reason: *single four-depth pit, port configuration unchanged
-throughout; see docs/backfill/fb2_vwc.md*.
+`fb2_vwc1` is reconstructed from **2022-09-22** — its deployment — to the
+present.
+
+That is the span of this document, not a claim about the metadata. It says how
+far back the history below could be established, not that anyone has stood at
+the station and verified it.
+
+**`record_confirmed` is a different thing** and is not set here. It records a
+visit at which a station was checked against VI-FLO standards, and it is set
+from the maintenance record rather than from reconstruction.
 
 ---
 

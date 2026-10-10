@@ -197,13 +197,18 @@ time, because the gap in the archive is otherwise unexplained.
 21652375              2025-03-03 → present      (already in VI-FLO)
 ```
 
-### `record_confirmed`
+### What this reconstruction covers
 
-**2023-08-01**, reason: *single gauge, one position, device history complete
-from deployment; see docs/backfill/lg1_hydro.md*.
+`lg1_hydro` is reconstructed from **2023-08-01** — its deployment — to the
+present.
 
-A straightforward site. The only complications are self-inflicted and both are
-documented — the memory fills and the brief misnaming.
+That is the span of this document, not a claim about the metadata. It says how
+far back the history below could be established, not that anyone has stood at
+the station and verified it.
+
+**`record_confirmed` is a different thing** and is not set here. It records a
+visit at which a station was checked against VI-FLO standards, and it is set
+from the maintenance record rather than from reconstruction.
 
 ---
 
