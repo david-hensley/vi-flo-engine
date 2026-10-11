@@ -49,7 +49,7 @@ Generally stored in a top-level directory alongside raw and processed databases.
 * `reach_length_m`: Distance from this device to its station's primary logger, measured ALONG THE CHANNEL, in metres. Only meaningful for a `secondary` or `tertiary` hydro logger. Hydraulic slope is `(secondary elev - primary elev) / reach_length_m`, so a survey without it cannot produce a slope - which is why the survey workflow requires both together. On a straight reach the along-channel distance and the straight-line distance are the same; where the channel bends the straight line is shorter, and using it overestimates slope and therefore discharge
 * `interval_min`: Data logging interval in minutes
 * `timezone`: Named time zone for R, "America/Puerto_Rico" for the Virgin Islands
-* `deploy_datetime`: Date-time of actual deployment + functionality of sensor (an hour after initialization). For stations established before VI-FLO began in 2026, this may reflect the earliest archived record rather than the installation of that specific device - device-level history from the 2021-2025 Ridge to Reef period was not recorded and is not recoverable. See the provenance section of the README
+* `deploy_datetime`: Date-time of actual deployment + functionality of sensor (an hour after initialization). For a station established before VI-FLO began in 2026 this is reconstructed rather than recorded: the device-level history of the 2021-2025 Ridge to Reef period was not kept at the time, and was recovered afterwards from logger exports, file boundaries and field notes. `record_confirmed.csv` marks the date each station came under VI-FLO's standards, so any deployment before it is reconstruction. The reasoning for each one is in docs/backfill/. See the provenance section of the README
 * `status`: Device status. Active statuses describe how the device works and how its data reaches the archive:
 
   * `online`: Working, reports to the cloud over a cellular connection
@@ -73,12 +73,36 @@ Generally stored in a top-level directory alongside raw and processed databases.
 * `metadata_approved`: Whether a human has confirmed that everything known about this station is recorded. This does NOT gate downloading - raw data is archived whatever the record says, because a Product 1 file applies no metadata at all. It gates ATTRIBUTION: readings are only assigned to a station whose configuration is known to be current. Applies to `manual` devices too, since their readings get attributed like any other. On a terminal row the value is frozen: it records what was confirmed while that deployment was current, which is what makes its archived data attributable
 * `last_reviewed_utc`: When a human last answered that question, in UTC. The flag alone says someone once confirmed the record; it does not say whether that was this morning or in March, and a stale confirmation is worth less than a recent one. Updated whether the answer was yes or no - "I looked and something is missing" is as much a review as "I looked and it is fine". Blank means nobody has been asked yet
 
+### Which times are local, and which are UTC
+
+Two kinds of time appear in this archive and they follow different rules.
+
+A **reading** belongs to a place. Every measurement timestamp, and every field
+derived from one - `deploy_datetime`, `last_visit`, `last_record_date`,
+`start_date`, `end_date` - is in project local time, `America/Puerto_Rico`.
+
+A **machine event** does not. A download can be triggered from anywhere,
+including a cloud runner, so `timestamp_utc` and `last_reviewed_utc` are UTC.
+
+A Product 1 filename carries both: its span dates are reading times and are
+local, while its fetch stamp is a machine event and is UTC.
+
+Two practical traps follow from this.
+
+`as.Date()` on a POSIXct converts to UTC unless given `tz`. A reading at 21:58
+local becomes the following day, which is how two filenames once came to be
+dated a day ahead of their own data.
+
+A POSIXct assigned into a character column becomes its numeric epoch -
+`1791468900` rather than `2026-10-08 10:15:00`. Format before assigning.
+`validate_metadata()` checks for both.
+
 ### `download_log.csv`
 
 One row per download. Files are written once and never rewritten, so each row
 points at exactly what one fetch or one offload returned.
 
-* `timestamp_utc`: When the download occurred, in UTC. Matches the fetch stamp in the filename, which is also UTC. UTC because a run can be triggered from anywhere, including a cloud runner - unlike the reading times below, which belong to a place UTC because a run can be triggered from anywhere, including a cloud runner - unlike the reading times below, which belong to a place
+* `timestamp_utc`: When the download occurred, in UTC. Matches the fetch stamp in the filename, which is also UTC. UTC because a run can be triggered from anywhere, including a cloud runner - unlike the reading times below, which belong to a place
 * `station`: Same as station_id in `device_metadata.csv`. BLANK for Product 1 downloads, which are keyed by device - attribution happens at Product 2, and recording a station here would bake in an assumption the archive exists to avoid
 * `device_serial`: The logger the data came from. This is what identifies a Product 1 file
 * `start_date`: Datetime of the first record in the file, in PROJECT LOCAL time

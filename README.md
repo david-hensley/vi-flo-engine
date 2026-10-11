@@ -239,15 +239,22 @@ The network was first deployed under the Ridge to Reef VI-EPSCoR project
 system was not begun until 2026, so part of the archive predates the system
 that manages it.
 
-The practical consequence is that device-level history from the 2021-2025
-period was not systematically recorded. Where a station's `deploy_datetime`
-predates VI-FLO, it generally reflects the earliest archived record rather
-than the installation of that specific device.
+The practical consequence was that device-level history from that period was
+not systematically recorded. Much of it has since been recovered: in October
+2026 every station was reconstructed from logger exports, file boundaries,
+field notes and photographs, and the reasoning for each is written up in
+`docs/backfill/`. Those documents are the evidence behind any deployment date
+that predates the system.
 
-The data itself is unaffected and remains good to use. Site locations are
-accurate to within 5-10 metres. What is missing is provenance, not
-measurements, and VI-FLO exists so that the gap closes going forward rather
-than widening.
+`record_confirmed.csv` marks the date each station came under VI-FLO's
+standards. A deployment recorded before that date is reconstruction; one after
+it was recorded as it happened. The distinction is deliberate and permanent -
+a user who wants nothing to do with reconstructed history can filter on it.
+
+Some things could not be recovered and are recorded as lost rather than
+guessed. Two logger exports from Fish Bay are missing, one of them covering
+Tropical Storm Philippe. The data itself is unaffected and remains good to
+use, and site locations are accurate to within 5-10 metres.
 
 ### Published literature using VI-EPSCoR data
 

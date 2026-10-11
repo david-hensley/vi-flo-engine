@@ -259,9 +259,12 @@ zentra_download <- function(devices = NULL, end = NULL, max_active = 4L,
     first <- min(data$datetime, na.rm = TRUE)
     last  <- max(data$datetime, na.rm = TRUE)
 
+    # Span dates in PROJECT LOCAL, the fetch stamp in UTC - see the naming
+    # rule in DATA_DICTIONARY.md. Without tz the span would follow whatever
+    # zone the API returned, which need not be either.
     fname <- paste0(sn, "_",
-                    format(first, "%Y%m%d"), "_",
-                    format(last,  "%Y%m%d"), "_",
+                    format(first, "%Y%m%d", tz = "America/Puerto_Rico"), "_",
+                    format(last,  "%Y%m%d", tz = "America/Puerto_Rico"), "_",
                     stamp, "_raw.rds")
 
     saveRDS(data, file.path(out_dir, fname))
@@ -464,31 +467,29 @@ zentra_log_run <- function(run_id, started, finished, seen, fetched, current,
 }
 
 
-#' Records what a download revealed about each device
+#' Record battery, last reading and last download from a completed download
 #'
-#' `battery`, `last_update` and `last_record_date` are facts about the data,
-#' and the download has just fetched it - so they come free, with no extra API
-#' call, and are as current as the readings themselves.
+#' REPLACES the existing function in code/functions/zentra_download_functions.R.
 #'
-#' They had been going stale. A device could sit at a battery value from
-#' January while the network status tried to warn about low batteries, which is
-#' the kind of silence that makes a check worthless.
+#' Two things were wrong with the previous version.
 #'
-#'   battery           port 7, Battery Percent, at the newest timestamp
-#'   last_update       when the device last reached the cloud - the newest
-#'                     reading's time, since a reading only arrives by being
-#'                     uploaded
-#'   last_record_date  the newest reading now in the archive
+#' It assigned `updates$last_reading` straight into a character column. R
+#' coerces a POSIXct that way to its numeric epoch, so eighteen rows came to
+#' read "1791468900" instead of "2026-10-08 10:15:00". The values were right
+#' and nothing could read them.
 #'
-#' Only ACTIVE rows for the device are touched. A terminal row records what was
-#' true when that deployment ended.
+#' It never wrote `last_download_date`, leaving every Zentra row blank in a
+#' field the dictionary defines for all devices.
 #'
-#' The write goes through save_device_metadata(), so the concurrent-write guard
-#' applies: if somebody is mid-workflow in the manager, this is refused rather
-#' than overwriting them, and the run log records that it happened.
+#' On the distinction between the two timestamps it writes: `last_update` is
+#' the last remote contact, `last_record_date` the last logged observation.
+#' For a reporting Zentra these are the same instant - the device uploads what
+#' it has just recorded - so both take the reading time. They are separate
+#' fields because for a `manual` device the first is meaningless and the
+#' second is the only measure of how current the data is.
 #'
-#' @param updates Data frame: device_serial, battery, last_reading
-#' @return Invisible number of rows changed
+#' @param updates Data frame with device_serial, battery, last_reading
+#' @return Invisible count of rows changed
 zentra_update_device_facts <- function(updates) {
 
   if (is.null(updates) || nrow(updates) == 0) return(invisible(0L))
@@ -499,27 +500,44 @@ zentra_update_device_facts <- function(updates) {
     return(invisible(0L))
   }
 
+  TZ       <- "America/Puerto_Rico"
   terminal <- c("removed", "replaced", "relocated", "decommissioned")
-  changed <- 0
+  changed  <- 0
+
+  # When this download ran. Local, because last_download_date is a datetime
+  # in the metadata table, whose times are project local; the UTC form of the
+  # same moment goes in the download log as timestamp_utc.
+  ran_at <- format(Sys.time(), "%Y-%m-%d %H:%M:%S", tz = TZ)
 
   for (i in seq_len(nrow(updates))) {
-    sn <- updates$device_serial[i]
+    sn   <- updates$device_serial[i]
     rows <- which(meta$device_serial == sn & !tolower(meta$status) %in% terminal)
     if (length(rows) == 0) next
 
     if (!is.na(updates$battery[i]) && "battery" %in% names(meta)) {
       meta$battery[rows] <- updates$battery[i]
     }
+
     if (!is.na(updates$last_reading[i])) {
-      if ("last_update" %in% names(meta))      meta$last_update[rows]      <- updates$last_reading[i]
-      if ("last_record_date" %in% names(meta)) meta$last_record_date[rows] <- updates$last_reading[i]
+      # Formatted, never assigned raw: a bare POSIXct becomes an epoch here.
+      lr <- format(as.POSIXct(updates$last_reading[i]),
+                   "%Y-%m-%d %H:%M:%S", tz = TZ)
+      if ("last_update" %in% names(meta))      meta$last_update[rows]      <- lr
+      if ("last_record_date" %in% names(meta)) meta$last_record_date[rows] <- lr
     }
+
+    if ("last_download_date" %in% names(meta)) {
+      meta$last_download_date[rows] <- ran_at
+    }
+
     changed <- changed + length(rows)
   }
 
   if (changed == 0) return(invisible(0L))
 
-  ok <- save_device_metadata(meta, intent = "recording battery and last reading from a download")
+  ok <- save_device_metadata(
+    meta,
+    intent = "recording battery, last reading and last download from a download")
 
   if (!isTRUE(ok)) {
     cat("  ! device_metadata was not updated - see the refusal above\n")
@@ -528,3 +546,4 @@ zentra_update_device_facts <- function(updates) {
 
   invisible(changed)
 }
+

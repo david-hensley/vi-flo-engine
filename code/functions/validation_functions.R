@@ -409,6 +409,85 @@ validate_metadata <- function(verbose = TRUE, stop_on_error = FALSE) {
     }
   }
   
+    # CHECK: datetime fields hold formatted text, not an epoch
+    #
+    # R coerces a POSIXct into a character column as its numeric epoch -
+    # "1791468900" rather than "2026-10-08 10:15:00". The value is not wrong,
+    # but nothing downstream parses it, and it is invisible unless someone
+    # opens the file. zentra_update_device_facts() did this to eighteen rows
+    # by assigning updates$last_reading without formatting it first.
+    #
+    # Any writer can make this mistake. This catches all of them.
+    dt_fields <- intersect(c("deploy_datetime", "last_update", "last_visit",
+                             "expiry_date", "last_download_date",
+                             "last_record_date", "last_reviewed_utc"),
+                           names(metadata))
+
+    if (length(dt_fields) > 0) {
+      epochs <- data.frame()
+
+      for (field in dt_fields) {
+        v <- as.character(metadata[[field]])
+        bad <- which(!is.na(v) & nzchar(v) & grepl("^[0-9]{9,13}$", v))
+        if (length(bad) > 0) {
+          epochs <- rbind(epochs, data.frame(
+            unique_id     = metadata$unique_id[bad],
+            device_serial = metadata$device_serial[bad],
+            field         = field,
+            value         = v[bad],
+            reads_as      = format(as.POSIXct(as.numeric(v[bad]),
+                                              origin = "1970-01-01",
+                                              tz = "America/Puerto_Rico"),
+                                   "%Y-%m-%d %H:%M:%S"),
+            stringsAsFactors = FALSE))
+        }
+      }
+
+      if (nrow(epochs) > 0) {
+        record_violation(
+          "EPOCH_IN_DATETIME_FIELD",
+          paste(nrow(epochs), "datetime value(s) stored as a UNIX epoch"),
+          epochs
+        )
+      } else {
+        record_pass("datetime fields are formatted")
+      }
+    }
+
+    # CHECK: datetime fields parse at all
+    #
+    # A spreadsheet rewrites 2026-03-23 as 3/23/2026 when a file is opened and
+    # saved. Nothing in the pipeline reads that, and it is easy to miss.
+    if (length(dt_fields) > 0) {
+      odd <- data.frame()
+
+      for (field in dt_fields) {
+        v <- as.character(metadata[[field]])
+        has <- !is.na(v) & nzchar(v) & v != "NA"
+        iso <- grepl("^[0-9]{4}-[0-9]{2}-[0-9]{2}( [0-9]{2}:[0-9]{2}(:[0-9]{2})?)?$", v)
+        epoch <- grepl("^[0-9]{9,13}$", v)        # reported by the check above
+        bad <- which(has & !iso & !epoch)
+        if (length(bad) > 0) {
+          odd <- rbind(odd, data.frame(
+            unique_id     = metadata$unique_id[bad],
+            device_serial = metadata$device_serial[bad],
+            field         = field,
+            value         = v[bad],
+            stringsAsFactors = FALSE))
+        }
+      }
+
+      if (nrow(odd) > 0) {
+        record_violation(
+          "UNPARSEABLE_DATETIME",
+          paste(nrow(odd), "datetime value(s) are not in ISO format"),
+          odd
+        )
+      } else {
+        record_pass("datetime fields are ISO")
+      }
+    }
+
   # ==========================================================================
   # MAINTENANCE LOG CHECKS
   # ==========================================================================
@@ -589,6 +668,62 @@ validate_metadata <- function(verbose = TRUE, stop_on_error = FALSE) {
         )
       } else {
         record_pass("download rows identify a station or a device")
+      }
+    }
+
+    # CHECK: a Product 1 filename's span agrees with its log row
+    #
+    # A filename carries two kinds of time, and they follow different rules.
+    # The fetch stamp is a machine event and is UTC, because a run can be
+    # triggered from anywhere. The span dates are reading times and belong to
+    # a place, so they are PROJECT LOCAL - the same as start_date and end_date
+    # in this log.
+    #
+    # Formatting the span in UTC puts a reading taken at 21:58 local into a
+    # file named for the following day. Two files drifted that way before this
+    # check existed.
+    if (all(c("filepath", "start_date", "end_date") %in% names(dlog))) {
+
+      pattern <- "^(.+)_([0-9]{8})_([0-9]{8})(?:_[0-9]{8}T[0-9]{6})?_raw\\.rds$"
+      drift <- data.frame()
+
+      # as.Date() on a POSIXct converts to UTC unless told otherwise, and
+      # load_download_log() returns project-local times. Without tz here this
+      # check turns a local 21:58 into the following day and then agrees with
+      # a filename that made exactly that mistake - the check would pass on
+      # the bug it exists to catch.
+      local_tz <- "America/Puerto_Rico"
+
+      for (i in seq_len(nrow(dlog))) {
+        fn <- basename(as.character(dlog$filepath[i]))
+        m  <- regmatches(fn, regexec(pattern, fn))[[1]]
+        if (length(m) < 4) next
+
+        a <- suppressWarnings(as.Date(dlog$start_date[i], tz = local_tz))
+        b <- suppressWarnings(as.Date(dlog$end_date[i], tz = local_tz))
+        if (is.na(a) || is.na(b)) next
+
+        name_a <- format(as.Date(m[3], "%Y%m%d"), "%Y-%m-%d")
+        name_b <- format(as.Date(m[4], "%Y%m%d"), "%Y-%m-%d")
+
+        if (!identical(name_a, as.character(a)) ||
+            !identical(name_b, as.character(b))) {
+          drift <- rbind(drift, data.frame(
+            file       = fn,
+            name_span  = paste(name_a, "to", name_b),
+            log_span   = paste(a, "to", b),
+            stringsAsFactors = FALSE))
+        }
+      }
+
+      if (nrow(drift) > 0) {
+        record_violation(
+          "FILENAME_SPAN_MISMATCH",
+          paste(nrow(drift), "filename span(s) disagree with the logged dates"),
+          drift
+        )
+      } else {
+        record_pass("filename spans match the log")
       }
     }
   }

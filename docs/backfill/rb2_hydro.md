@@ -76,6 +76,12 @@ appears again — not in the November 2025 shuttle readout, not in VI-FLO.
 
 > **Established** from the file boundaries and every subsequent archive.
 
+**The two had different housings.** The downstream gauge sat in a properly made
+installation; the upstream partner was put in hastily. The hasty one survived
+and the proper one did not.
+
+> **Established** by the person who built them.
+
 It was relaunched and then lost, rather than removed that day.
 
 > **Inferred**, from the field notes of 2025-11-06: *"At the old stream gauge
@@ -137,6 +143,17 @@ proposed in November.
 
 > **Established.** Field notes of that date; its `last_download_date` is blank,
 > consistent with never yet offloaded.
+
+**It could go there because the housing was still standing.** The hasty
+installation that survived the November 2024 flood was still in place sixteen
+months later, which is what made it possible to put a logger back at a known
+former position rather than an approximate one.
+
+> **Established** from the March 2026 notes, which record removing the old
+> housing at that visit and installing RB C in its place.
+
+That is the physical basis of the whole bridging plan: without a surviving
+marker there would be no way to say where the old record was made.
 
 `21652377` subsequently went to `sgm2_hydro`, deployed 2026-09-18.
 

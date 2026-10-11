@@ -179,9 +179,18 @@ build_raw_filename <- function(start, end, ext = "rds", tz = NULL,
     trimws(device_serial)
   }
 
+  # PROJECT LOCAL. A filename's span dates are reading times, and readings
+  # belong to a place - the same rule start_date and end_date follow in the
+  # download log, which these must agree with. Only a fetch stamp is UTC.
+  #
+  # Without tz, format() uses whatever zone the input carries. A reading at
+  # 21:58 local held as UTC then names the file for the following day, which
+  # is how five files came to be dated a day off their own data.
+  tz_local <- "America/Puerto_Rico"
+
   paste0(stem, "_",
-         format(start, "%Y%m%d"), "_",
-         format(end,   "%Y%m%d"),
+         format(start, "%Y%m%d", tz = tz_local), "_",
+         format(end,   "%Y%m%d", tz = tz_local),
          "_raw.", ext)
 }
 

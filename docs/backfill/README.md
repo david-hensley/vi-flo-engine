@@ -110,6 +110,12 @@ Product 1 export wherever possible, not taken from this file.
 | `lg1_hydro` | `lg1_hydro.md` | 2023-08 → |
 | `sr1_hydro` | `sr1_hydro.md` | 2021-11 → |
 | `sr2_hydro` | `sr2_hydro.md` | 2021-11 → |
+| *(none)* | `river_hydro.md` | 2023-08 → 2024-08, destroyed |
+
+**River has no station id and no metadata row**, which is deliberate: its data
+stops at Product 1 because the reach cannot be gauged at any stage that
+matters, so stage can never become discharge. Its dossier exists to say the
+absence is a decision rather than an oversight. See `river_hydro.md`.
 
 ### Weather
 
@@ -217,6 +223,18 @@ cells to alkaline in September 2026.
 
 Four of the eight have been rebuilt. `uvi_vwc3`, `bta2_vwc1`, `bta2_vwc2` and
 `fb2_vwc1` have not been visited since and remain dead.
+
+**Filenames identify nothing.** Fish Bay's upstream logger has eleven exports
+across three folders under three naming conventions, and not one names the site
+correctly: seven begin `RB-`, one is `RB_1.csv`, three are `fbslope_*`. A file
+in the same folder as `RB_1.csv`, called `RB_2.csv`, really is Reef Bay. The
+serial in each header is the only reliable identifier, and the dossiers rest on
+it rather than on names.
+
+**Two of that logger's exports are missing**, bounded by visit days at both
+ends, one of them containing Tropical Storm Philippe. The logger demonstrably
+ran across the first gap - its temperature swings match its neighbour's from
+the first reading - so the exports were made and mislaid, not never taken.
 
 **A device can keep transmitting after it is removed.** `z6-13388` was taken out
 of the Salt River 2 hillside pit on 2024-01-22 and reported for another nineteen

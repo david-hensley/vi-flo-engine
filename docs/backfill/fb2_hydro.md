@@ -38,12 +38,12 @@ Both loggers are at Fish Bay, though seven of `FishBay1`'s files are named
 
 ---
 
-## 2021-10-21 → 2023-03-31 · both recording
+## 2021-10-21 → 2023-09-26 · both recording
 
 Offloaded on every visit — for a stretch roughly monthly, which is unusual for
 St John.
 
-> **Inferred.** Fifteen offloads in eighteen months, at a frequency that implies
+> **Inferred.** Fifteen offloads in two years, at a frequency that implies
 > someone based on St Thomas rather than travelling from St Croix.
 
 `FishBay2` never moved in four years.
@@ -51,27 +51,95 @@ St John.
 > **Established.** Its dry-weather baseline holds at 101.2–101.5 kPa across the
 > whole 2021–2025 record with no step change. A vertical move would shift it.
 
----
+### Two of `FishBay1`'s exports are missing
 
-## 2023-03-31 · `FishBay1` is taken out
+Its archive has holes that `FishBay2`'s does not:
 
-Removed deliberately at a scheduled visit, not lost.
+```
+2023-03-31 14:17  ->  2023-06-15 14:27     76 days
+2023-09-26 15:27  ->  2024-02-01 17:40    128 days
+```
 
-> **Inferred, and the strongest reading available.** Its record ends cleanly on
-> a visit day, the same day `FishBay2` was offloaded. A logger lost to a flood
-> stops when the flood arrives or when its memory fills — not at a visit.
->
-> This also accounts for the ten months of silence that follow, with no failure
-> to download: a stopped logger records nothing.
+Both begin and end on visit days, which is the first sign that these are filing
+losses rather than interruptions: a logger that fails stops at an arbitrary
+moment, not at 14:17 on an afternoon somebody was standing over it.
+
+**The logger was in the gut throughout the first gap.** Its temperature on
+restarting tells us so:
+
+```
+                        day 1    day 2    day 3    day 4
+FishBay1, 15 Jun 2023    10.1     11.3     14.8     12.0
+FishBay2, same days      15.2     12.4     16.4     13.6
+FishBay1, 1 Feb 2024      2.1      2.1      2.8      6.1
+```
+
+> **Established.** A logger in a dry streambed swings ten to sixteen degrees a
+> day, reaching the mid-forties by afternoon. One sitting indoors swings two.
+> On 15 June 2023 `FishBay1` behaves like its neighbour from the first reading;
+> in February 2024, after four months in an office, it does not.
+
+So it was read on 31 March, restarted the same afternoon, ran through the
+spring, and was read again on 15 June. The export covering those weeks is not
+in the archive.
+
+> **Unknown** where it went. This logger's files are already scattered across
+> two folders under three naming conventions — `RB-2021*` in one place,
+> `RB_1.csv` in another, `fbslope_*` in a third. Two going astray is of a piece
+> with that.
+
+The second gap is the same story, and is addressed below.
 
 ---
 
 ## 2023-10-04 · Tropical Storm Philippe
 
 Stage 1.465 m, peak discharge 3.78 m³/s at `FishBay2` — the second largest event
-in four years. A visit followed five days later.
+in four years.
 
-> **Established** from the processed archive and the file boundaries.
+> **Established** from the processed archive.
+
+Eight days earlier, on 26 September, both loggers had been read. The readings
+from that morning show them **sitting in air**, warming from 28.8 to 30.5 °C
+through the morning: the gut was dry a week before the storm put a metre and a
+half through it.
+
+> **Established** from the raw record.
+
+### What the storm did
+
+> **Established**, from a message sent a week afterwards — the only
+> contemporaneous account of the event:
+>
+> *"Even one of the water level loggers was destroyed. Well the instrument
+> wasn't but the mounting stake was snapped in half and a boulder was on top of
+> the pvc housing lol. Had to dig it out."*
+
+The stake snapped, a boulder came to rest on the housing, and the logger itself
+survived and was dug out. The visit was on 9 October, five days after the storm,
+with water still flowing.
+
+**`FishBay1` is the logger this describes.** `FishBay2` recorded continuously
+through Philippe and every visit afterwards; only `FishBay1` goes silent.
+
+> **Inferred**, but with no competing candidate.
+
+### The second missing export
+
+Nothing covering 26 September to 9 October exists anywhere — not as a CSV, not
+in the shuttle readouts, not in the `.hobo` binaries.
+
+> **Established** by searching every file of every type in the prototype
+> archive for this serial. Eleven files carry it, and none covers that
+> fortnight.
+
+Whether the logger was recording when the boulder landed is therefore not
+recoverable. It was read and presumably restarted on 26 September, as it had
+been at every previous visit; the fortnight containing Philippe is lost either
+way.
+
+> That fortnight is the one period at Fish Bay where the upstream logger's
+> behaviour during a major flood would have been recorded. It is gone.
 
 ## 2023-10-29 and 11-08 · two more
 
@@ -80,12 +148,7 @@ in four years. A visit followed five days later.
 
 > **Established.**
 
-The upstream housing is thought to have survived Philippe and gone in one of
-these, which would explain an intention to survey the original position that
-became impossible.
-
-> **Inferred.** Neither event leaves a trace in any logger's record, since
-> `FishBay1` was already out of the water.
+By then `FishBay1` was out of the gut, so neither event was recorded upstream.
 
 ---
 
@@ -231,17 +294,31 @@ the record reaches.
 
 ```
 2021-10-21   station_established   FishBay1 and FishBay2 deployed as a pair
-2023-03-31   device_removed        FishBay1 removed from the upstream position
-2024-02-05   device_deployed       21179105 redeployed downstream, pair inverted
+2023-10-09   device_removal        FishBay1 recovered after Philippe; stake
+                                   snapped, boulder on the housing, dug out
+2024-02-05   device_added          21179105 redeployed downstream, pair inverted
 ```
+
+The 2023-10-09 entry replaces an earlier reconstruction that had this logger
+removed on 2023-03-31. That was wrong: it ran until 26 September and its
+removal was a recovery, not a decision.
 
 ### Product 1
 
 ```
 21179106   15 files   2021-10-21 → 2025-06-05
-21179105    3 files   2024-02-01 → 2025-06-05
-21179105    7 files   2021-10-21 → 2023-03-31    (filed under RB-*)
+21179105    7 files   2021-10-21 → 2023-03-31    filed as RB-2021*, RB-2022*
+21179105    1 file    2023-06-15 → 2023-09-26    filed as RB_1.csv, in
+                                                 Raw-level/Older_versions
+21179105    3 files   2024-02-01 → 2025-06-05    filed as fbslope_*
 ```
+
+Eleven exports under three naming conventions across three folders, none of
+which names the site correctly. The serial in each header is what identifies
+them.
+
+**Two exports are missing and are not recoverable**: 2023-03-31 to 2023-06-15,
+and 2023-09-26 to 2023-10-09. The second contains Philippe.
 
 ### What this reconstruction covers
 
@@ -260,11 +337,9 @@ from the maintenance record rather than from reconstruction.
 
 ## Open
 
-- Whether the upstream housing went in Philippe or in the 29 October event.
-  Both fall between visits; neither leaves a trace.
-- Whether `FishBay1` recorded anything after 2023-03-31. If stopped at the
-  visit, nothing. If it ran on, it filled around 28 August 2023 and the February
-  2024 relaunch erased it. No evidence survives either way.
+- Where the two missing exports went. Both are bounded by visit days and the
+  logger demonstrably ran across the first of them, so they were made and
+  mislaid rather than never taken.
 - The barometric correction changed when the weather station moved on
   2024-02-06, from essentially zero to about -210 m. VI-FLO computes it from
   station elevations in metadata rather than from the prototype's `elevs.csv`,
