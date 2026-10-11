@@ -41,6 +41,10 @@ nothing is written into them yet. Attribution resolves readings to stations
 and variables; writing Product 2, automatic quality control, the derived
 series and the published archive follow it.
 
+Product 1 itself is complete. The 2021-2025 archive was imported in October
+2026 - 3.29 million readings across 282 files - and `validate_product1()`
+checks it against the download log.
+
 ---
 
 ## Data products
@@ -356,11 +360,17 @@ and goes straight to the menu.
 │       ├── session_functions.R      # What to know at session start
 │       ├── guard_functions.R        # Refuses writes over a changed file
 │       ├── network_status_functions.R  # What needs attention across the network
+│       ├── attribution_functions.R  # Readings to stations, and regularisation
+│       ├── orphan_functions.R       # Archived files with no log row
+│       ├── validate_product1_functions.R  # The archive against the log
 │       └── backup_restore_functions.R
 │   └── jobs/
 │       └── download_job.R           # Pull, fetch, push - scheduled or on demand
 ├── data/         # Data dictionary and sample metadata
-├── docs/         # Additional documentation and notes
+├── docs/
+│   ├── ROADMAP.md    # Open work, where it came from, what it waits on
+│   ├── backfill/     # A dossier per station reconstructing its history
+│   └── ...           # Additional documentation and notes
 ├── tools/
 │   ├── launcher/     # Double-click entry to the metadata manager
 │   ├── migrations/   # One-off schema and data migrations, with a README

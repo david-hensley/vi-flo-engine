@@ -72,14 +72,47 @@ something tangled up in it.
   the authoritative positions are 286 m and 166 m from what had been recorded
 
 ### Added - validation
-- `EPOCH_IN_DATETIME_FIELD`, `UNPARSEABLE_DATETIME` and
-  `FILENAME_SPAN_MISMATCH`. Two writers each broke a rule the dictionary
-  already stated and nothing noticed; a repair fixes the instance, a check
-  fixes the class
+- `validate_product1()` and `product1_coverage()` in
+  `validate_product1_functions.R`. Eight checks on the archive itself: every
+  file reads back, holds a datetime column that parses and carries a zone,
+  matches its log row on rows and span, holds measurements rather than only
+  timestamps, and runs forward in time
+  - The measurement check is the one that matters. A file whose numeric
+    columns came back as text passes every other test - right count, right
+    span, right dates - and carries nothing usable
+  - Rows and distinct timestamps are reported separately, because a Zentra
+    file is long format: 24,795 rows can be 1,066 timestamps across 23
+    port-variables
+- Six checks added to `validate_metadata()`, now 34
+  - `EPOCH_IN_DATETIME_FIELD`, `UNPARSEABLE_DATETIME` and
+    `FILENAME_SPAN_MISMATCH`. Two writers each broke a rule the dictionary
+    already stated and nothing noticed; a repair fixes the instance, a check
+    fixes the class
+  - `REACH_LENGTH_ON_PRIMARY`, `ELEVATION_WITHOUT_SOURCE` and
+    `RECORD_DATE_OUTSIDE_DEPLOYMENT`, folded in from a one-off audit rather
+    than left in a script nobody would run again
   - The filename check initially passed on the bug it exists to catch.
     `as.Date()` on a POSIXct converts to UTC unless told otherwise, so it
     turned a local 21:58 into the following day and then agreed with a
     filename that had made exactly that mistake
+
+### Changed - datetime handling
+- Every path that writes a datetime into metadata or a log now goes through
+  `format_datetime_safe()`, which takes a timezone and can only produce a
+  formatted string
+  - The local ingest path had found this bug once and fixed it locally, with
+    a thorough comment. The Zentra downloader then made the same mistake
+    independently. The knowledge existed and did not travel, because the fix
+    was a workaround rather than a shared helper
+
+### Added - documentation
+- `docs/ROADMAP.md` - open work, where each item came from, what it waits on.
+  The list had been living in session transcripts and in recollection, which
+  meant rediscovering it each time and carrying at least one item that had
+  never existed
+- `DATA_DICTIONARY.md` gains a section on which times are local and which are
+  UTC, with both traps named: `as.Date()` on a POSIXct silently converting to
+  UTC, and a POSIXct assigned into a character column becoming its epoch
 
 ### Note
 - River, on Fair Plain Gut, is in Product 1 with no metadata row and no
