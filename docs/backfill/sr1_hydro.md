@@ -275,10 +275,11 @@ The VI-FLO era is recorded. These predate it:
 21352826                      2025-03-03 → present      (already in VI-FLO)
 ```
 
-**Do not import** `sr1backup_hydro_20230919-20231128.csv`.
+**Not imported:** `sr1backup_hydro_20230919-20231128.csv`. The importer
+refuses it by name.
 
 `SR1_level.csv` in the older downloads folder duplicates the first HOBOlink file
-at five minutes and can be left.
+at five minutes and was left.
 
 ### What this reconstruction covers
 

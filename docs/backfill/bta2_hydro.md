@@ -227,7 +227,7 @@ postdates the metadata manager and its history is complete.
 22357376              from 2026-09-02, not yet offloaded
 ```
 
-Only the two prototype CSVs need importing. Everything after 2025-03-03 is
+Only the two prototype CSVs needed importing. Everything after 2025-03-03 was
 already Product 1.
 
 Those two files are `bta2_hydro`'s own — they postdate its deployment and carry

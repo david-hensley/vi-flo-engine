@@ -98,7 +98,7 @@ place of work rather than by drainage.
 ### Product 1
 
 Already complete. This logger is in the ZentraCloud export set and downloads
-weekly, so nothing needs importing.
+weekly, so nothing needed importing.
 
 ### What this reconstruction covers
 

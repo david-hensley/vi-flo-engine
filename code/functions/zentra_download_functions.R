@@ -507,7 +507,7 @@ zentra_update_device_facts <- function(updates) {
   # When this download ran. Local, because last_download_date is a datetime
   # in the metadata table, whose times are project local; the UTC form of the
   # same moment goes in the download log as timestamp_utc.
-  ran_at <- format(Sys.time(), "%Y-%m-%d %H:%M:%S", tz = TZ)
+  ran_at <- format_datetime_safe(Sys.time(), tz = TZ)
 
   for (i in seq_len(nrow(updates))) {
     sn   <- updates$device_serial[i]
@@ -519,9 +519,10 @@ zentra_update_device_facts <- function(updates) {
     }
 
     if (!is.na(updates$last_reading[i])) {
-      # Formatted, never assigned raw: a bare POSIXct becomes an epoch here.
-      lr <- format(as.POSIXct(updates$last_reading[i]),
-                   "%Y-%m-%d %H:%M:%S", tz = TZ)
+      # Through the shared helper, never a bare assignment: a POSIXct put
+      # straight into a character column becomes its epoch. This is the
+      # mistake that left eighteen rows reading 1791468900.
+      lr <- format_datetime_safe(as.POSIXct(updates$last_reading[i]), tz = TZ)
       if ("last_update" %in% names(meta))      meta$last_update[rows]      <- lr
       if ("last_record_date" %in% names(meta)) meta$last_record_date[rows] <- lr
     }

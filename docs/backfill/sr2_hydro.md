@@ -204,7 +204,7 @@ Two rows are needed where there is one:
 ```
 
 `SR2_level.csv` in the older downloads folder duplicates the first HOBOlink file
-at five minutes and can be left.
+at five minutes and was left.
 
 ### What this reconstruction covers
 

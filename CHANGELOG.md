@@ -3,6 +3,95 @@ All notable changes to the VI-FLO Engine project are documented here.
 
 ---
 
+## [v2.5.0] - 2026-10-11
+
+The 2021-2025 Ridge to Reef archive is in. 76 exports, 1.46 million readings,
+and a dossier for every station explaining where each claim comes from. The
+prototype era is now something the repository can point at rather than
+something tangled up in it.
+
+### Added
+- 70 HOBO U20 exports imported as Product 1 with their `download_log` rows,
+  via `import_hobo_backfill.R`
+  - The serial comes from the file header, never the filename. Seven files
+    named `RB-2021*` hold Fish Bay's upstream logger under the plot title
+    `FishBay1`; reading the name would have filed two years of one site's
+    record under another
+  - Duplicates are matched on serial, span and reading count to the minute,
+    because the same export exists at two precisions - with and without
+    seconds - and comparing to the second treats them as different files
+  - A contained span is superseded; a seam overlap is reported and allowed,
+    since a logger read in the morning and relaunched that afternoon carries
+    readings either side of the visit
+- 6 HOBOlink telemetry exports imported, 781,506 readings at five minutes,
+  via `import_hobolink_backfill.R`
+  - Keyed by the water pressure SENSOR rather than the base. Salt River 1's
+    base was replaced in August 2023 and the sensor stayed in the water;
+    keying on the base would have split one continuous record in two
+  - Columns are read by their `M-` sensor code, never by position: the
+    barometric column is third in one Salt River 1 file and sixth in the other
+  - The station's own computed water level is kept. Product 2 will recompute
+    from pressure so every station derives the same way, with the computed
+    column as a check against that
+- `docs/backfill/` - 22 dossiers covering every station, each a dated sequence
+  with its evidence quoted beneath, and claims graded established, inferred or
+  unknown
+- `record_confirmed.csv` now carries a date for every active station: when it
+  was born to VI-FLO, with everything earlier marked as reconstruction
+- Ten prototype-era device rows, including four HOBOlink sensors and
+  Turpentine Run 2, whose station did not exist in metadata at all
+- `audit_hydro_metadata.R` - read-only, checks every hydro row against the
+  data rather than against the migrations that produced it
+
+### Changed
+- Device facts are derived per DEPLOYMENT, not per serial. A device that
+  served two stations was being given one date for both, so a retired
+  deployment inherited its successor's. A deployment now ends at whichever
+  comes first: the next deployment, or the day the device left
+- `interval_min` is no longer written from observed timestamps. The field
+  carries the DECLARED interval, set at relaunch through the metadata manager;
+  the observed one belongs to the data, where the memory check already reads
+  it. A declared fifteen against an actual ten is what cost Salt River 1 and
+  La Grange a month each
+- Product 1 filenames carry their span in PROJECT LOCAL time. A filename holds
+  both kinds of time - its fetch stamp is a machine event and stays UTC - and
+  five files had been named for the day after their own last reading
+
+### Fixed
+- `zentra_update_device_facts()` assigned a POSIXct straight into a character
+  column, which R coerces to its numeric epoch. Eighteen rows read
+  `1791468900` instead of `2026-10-08 10:15:00`. It also never wrote
+  `last_download_date`, leaving every Zentra row blank in a field the
+  dictionary defines for all devices
+- Fish Bay's reconstruction had its upstream logger removed in March 2023. An
+  export in a subfolder earlier scans had not descended into showed it ran
+  until September, and a message sent a week after Tropical Storm Philippe
+  records what actually happened: the mounting stake snapped, a boulder came
+  to rest on the housing, and the logger was dug out intact
+- Reef Bay's coordinates. Three pairs were in circulation and none was right -
+  the authoritative positions are 286 m and 166 m from what had been recorded
+
+### Added - validation
+- `EPOCH_IN_DATETIME_FIELD`, `UNPARSEABLE_DATETIME` and
+  `FILENAME_SPAN_MISMATCH`. Two writers each broke a rule the dictionary
+  already stated and nothing noticed; a repair fixes the instance, a check
+  fixes the class
+  - The filename check initially passed on the bug it exists to catch.
+    `as.Date()` on a POSIXct converts to UTC unless told otherwise, so it
+    turned a local 21:58 into the following day and then agreed with a
+    filename that had made exactly that mistake
+
+### Note
+- River, on Fair Plain Gut, is in Product 1 with no metadata row and no
+  station id. The reach cannot be gauged at any stage that matters - anchored
+  gear is swept away, and there is no stage worth measuring at which it is
+  safe to enter the water - so stage can never become discharge there. The
+  absence is a decision, and `river_hydro.md` exists to say so
+- Two Fish Bay exports are missing and are not recoverable. One covers
+  Tropical Storm Philippe
+
+---
+
 ## [v2.4.1] - 2026-10-09
 
 ### Fixed

@@ -831,8 +831,8 @@ archive_local_data <- function(station_id, device_serial, csv_path, parsed,
     # carries and what a person reading the log expects.
     timestamp_utc = format(Sys.time(), "%Y-%m-%d %H:%M:%S", tz = "UTC"),
     station       = station_id,
-    start_date    = format(parsed$start, "%Y-%m-%d %H:%M:%S"),
-    end_date      = format(parsed$end,   "%Y-%m-%d %H:%M:%S"),
+    start_date    = format_datetime_safe(parsed$start),
+    end_date      = format_datetime_safe(parsed$end),
     n_records     = parsed$n_records,
     filepath      = filepath_relative,
     download_type = "manual",
@@ -907,7 +907,11 @@ update_last_record_date <- function(device_serial, record_datetime) {
     # the class and leaves the underlying number. The result looks like
     # 1769927566 in the CSV: the right instant, stored uselessly.
     lrd <- format_datetime_safe(metadata$last_record_date)
-    lrd[device_index] <- format(as.POSIXct(record_datetime), "%Y-%m-%d %H:%M:%S")
+    #
+    # format_datetime_safe() is the guard, and the reason it is a shared
+    # helper rather than a local fix: the Zentra downloader made the same
+    # mistake independently and left eighteen rows holding epochs.
+    lrd[device_index] <- format_datetime_safe(as.POSIXct(record_datetime))
     metadata$last_record_date <- lrd
     save_device_metadata(metadata)
     return(TRUE)

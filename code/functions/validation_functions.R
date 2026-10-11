@@ -409,6 +409,55 @@ validate_metadata <- function(verbose = TRUE, stop_on_error = FALSE) {
     }
   }
   
+    # CHECK: reach_length_m belongs to a secondary, not a primary
+    #
+    # The dictionary defines it as the distance from THIS device to its
+    # station's primary. A primary is zero metres from itself, so a value
+    # there means the field was filled for the pair rather than for the
+    # device, and the hydraulic slope it feeds would be computed from a
+    # length that describes nothing.
+    if (all(c("reach_length_m", "device_role") %in% names(metadata))) {
+      misplaced <- which(!is.na(metadata$reach_length_m) &
+                         metadata$station_type == "hydro" &
+                         (is.na(metadata$device_role) |
+                          metadata$device_role == "primary"))
+
+      if (length(misplaced) > 0) {
+        record_violation(
+          "REACH_LENGTH_ON_PRIMARY",
+          paste(length(misplaced),
+                "reach_length_m value(s) on a primary or a row with no role"),
+          metadata[misplaced, c("unique_id", "device_serial", "station_id",
+                                "device_role", "reach_length_m")]
+        )
+      } else {
+        record_pass("reach_length_m only on secondaries")
+      }
+    }
+
+    # CHECK: an elevation says where it came from
+    #
+    # usgs_3dep_1m and surveyed_relative mean different things - one is a DEM
+    # sample, the other a primary's elevation plus a measured difference - and
+    # elev_source is how a reader tells which. A value without one is a number
+    # nobody can weigh.
+    if (all(c("elev", "elev_source") %in% names(metadata))) {
+      unsourced <- which(!is.na(metadata$elev) &
+                         (is.na(metadata$elev_source) |
+                          !nzchar(trimws(as.character(metadata$elev_source)))))
+
+      if (length(unsourced) > 0) {
+        record_violation(
+          "ELEVATION_WITHOUT_SOURCE",
+          paste(length(unsourced), "elevation(s) with no elev_source"),
+          metadata[unsourced, c("unique_id", "device_serial", "station_id",
+                                "elev")]
+        )
+      } else {
+        record_pass("elevations say where they came from")
+      }
+    }
+
     # CHECK: datetime fields hold formatted text, not an epoch
     #
     # R coerces a POSIXct into a character column as its numeric epoch -
@@ -728,6 +777,90 @@ validate_metadata <- function(verbose = TRUE, stop_on_error = FALSE) {
     }
   }
   
+  # ==========================================================================
+  # METADATA AGAINST THE DATA
+  # ==========================================================================
+
+  if (!is.null(metadata) && nrow(metadata) > 0) {
+    if (verbose) cat("\nChecking metadata against the data...\n")
+
+    # CHECK: a record date falls inside its own deployment
+    #
+    # A device that served two stations has a row for each, and each reaches
+    # only as far as the readings taken during it. Writing one serial-wide
+    # figure to every row gives a retired deployment its successor's dates -
+    # which is how Fish Bay's 2021 upstream logger came to claim a last
+    # reading from 2026, three years after it left the gut.
+    #
+    # A deployment ends at whichever comes first: the next deployment, or the
+    # day the device left.
+    tz_local <- "America/Puerto_Rico"
+    terminal <- c("removed", "replaced", "relocated", "decommissioned")
+    outside  <- data.frame()
+
+    if (all(c("deploy_datetime", "last_record_date", "device_serial")
+            %in% names(metadata))) {
+
+      for (sn in unique(metadata$device_serial)) {
+        idx <- which(metadata$device_serial == sn)
+        starts <- suppressWarnings(as.POSIXct(metadata$deploy_datetime[idx],
+                                              tz = tz_local))
+        ord <- order(starts)
+        idx <- idx[ord]; starts <- starts[ord]
+
+        for (k in seq_along(idx)) {
+          i  <- idx[k]
+          lr <- suppressWarnings(as.POSIXct(metadata$last_record_date[i],
+                                            tz = tz_local))
+          if (is.na(lr) || is.na(starts[k])) next
+
+          # Only a row that has ENDED has an upper bound. Two rows for one
+          # serial need not be two deployments in sequence: a ZL6 serves a
+          # weather station on port 1 and a soil moisture station on ports 2
+          # to 5 at the same time, and the second row's deploy date is when
+          # the sensors were added, not when the first station stopped.
+          #
+          # An active row runs to now, whatever else shares its serial.
+          bounds <- as.POSIXct(character(0), tz = tz_local)
+
+          if (tolower(metadata$status[i]) %in% terminal) {
+            if (k < length(idx)) bounds <- c(bounds, starts[k + 1])
+            if (!is.na(metadata$last_visit[i]) &&
+                nzchar(as.character(metadata$last_visit[i])))
+              bounds <- c(bounds, suppressWarnings(as.POSIXct(
+                paste(as.character(metadata$last_visit[i]), "23:59:59"),
+                tz = tz_local)))
+          }
+
+          too_early <- lr < starts[k]
+          too_late  <- length(bounds) > 0 && lr > min(bounds)
+
+          if (too_early || too_late) {
+            outside <- rbind(outside, data.frame(
+              unique_id     = metadata$unique_id[i],
+              device_serial = sn,
+              station_id    = metadata$station_id[i],
+              deployed      = format(starts[k], "%Y-%m-%d"),
+              last_record   = format(lr, "%Y-%m-%d"),
+              problem       = if (too_early) "before deployment"
+                              else "after the device left",
+              stringsAsFactors = FALSE))
+          }
+        }
+      }
+    }
+
+    if (nrow(outside) > 0) {
+      record_violation(
+        "RECORD_DATE_OUTSIDE_DEPLOYMENT",
+        paste(nrow(outside), "last record date(s) fall outside their deployment"),
+        outside
+      )
+    } else {
+      record_pass("record dates fall inside their deployments")
+    }
+  }
+
   # ==========================================================================
   # PENDING INGEST CHECKS
   # ==========================================================================

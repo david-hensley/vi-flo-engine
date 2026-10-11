@@ -142,7 +142,7 @@ after the last reading, so the two are unrelated.
 
 ### Maintenance entries
 
-One event is worth reconstructing:
+One event was reconstructed:
 
 ```
 2024-10-24   inspection   found unresponsive; last download 2024-06-05

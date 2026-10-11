@@ -27,6 +27,11 @@ Every script here follows the same shape, and new ones should too:
 - **Read with `read.csv()`**, not `load_zentra_metadata()`. Reading raw keeps
   every column a character string, so untouched values are written back
   byte-identical and no datetime is silently reformatted.
+
+  The October 2026 migrations did not follow this and read through
+  `load_zentra_metadata()` instead. Nothing was lost - `validate_metadata()`
+  now checks every datetime field parses, and it passes - but the rule stands
+  because that check was written after the fact rather than before.
 - **Verify afterwards** and say what it checked. Where a migration renames
   files, verification should confirm that every path recorded in the logs
   still resolves to a file that exists - that is the check which catches a
@@ -63,4 +68,14 @@ a second machine already has the result through Box and never needs to run one.
 | `migrate_clear_meaningless_roles.R` | 2026-09-28 | Cleared ten `device_role` values that meant neither of the two things a role can mean - including three separate stations at Limetree labelled primary, secondary and tertiary |
 | `migrate_hobo_batch_review.R` | 2026-09-28 | Recorded a review of twenty HOBO records, blank only because the flag they inherited was forced FALSE for manual devices |
 | `migrate_download_log_run_id.R` | 2026-09-30 | Added `run_id`, joining a Product 1 file, its download row and its run row |
+| `migrate_products_layout.R` | 2026-10-01 | Reorganised the data root around what is held and what is made from it: `internal/device-data/` immutable and device-keyed, `internal/products/` regenerable and station-keyed. `raw` disappeared |
+| `catchup_products_layout.R` | 2026-10-01 | Brought a second machine onto that layout. `rclone copy` never deletes, so a pull alone leaves the old folders in place - this retired them |
+| `migrate_discrete_and_cleanup.R` | 2026-10-02 | Separated discrete measurements from logged series. A gauging and a discharge record hold the same quantity arrived at differently, one by an instrument on a schedule and one by a person standing in the stream |
+| `migrate_backfill_to_product1.R` | 2026-10-03 | Gave the 26 parsed full-history exports their bookkeeping - date ranges and fetch stamps in the filenames, and a `download_log` row each - so they became Product 1 rather than intermediate working output |
+| `migrate_fix_pit_depths_and_reviews.R` | 2026-10-06 | Corrected the six-port pit depths on three replicate-plot loggers, and cleared legacy review flags |
+| `migrate_prototype_metadata.R` | 2026-10-11 | Wrote the prototype era into metadata: ten device rows for loggers that had recorded for a VI-FLO station and had none, including four HOBOlink sensors and Turpentine Run 2, whose station did not exist at all. Corrected deploy dates a device had inherited from its station's establishment, and the maintenance entries that named the device present now rather than the one present then |
+| `migrate_prototype_metadata_2.R` | 2026-10-11 | Filled what the first pass left: device roles, Dorothea's surveyed reach, last-visit dates, and elevations for every row that lacked one. Corrected Reef Bay's coordinates, where three pairs had been in circulation and none was right |
+| `migrate_fishbay_correction.R` | 2026-10-11 | Replaced a removal that never happened. A further export showed Fish Bay's upstream logger ran five months longer than the dossier had it, and left the gut when it was dug out after Tropical Storm Philippe |
+| `migrate_device_facts_repair.R` | 2026-10-11 | Undid facts written per serial rather than per deployment, which had given a retired deployment its successor's dates. Restored declared logging intervals from a backup, and carried the Adventure elevation survey into metadata |
+| `migrate_datetime_repair.R` | 2026-10-11 | Formatted eighteen datetime values stored as UNIX epochs, filled `last_download_date` on every Zentra row, and renamed five Product 1 files whose span was a day ahead of their own data |
 

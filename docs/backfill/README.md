@@ -32,6 +32,37 @@ someone checked a station against VI-FLO standards. A dossier reaching back to
 
 ---
 
+## What followed, and when
+
+The actions each dossier calls for were carried out on **11 October 2026**.
+They are described in the present tense throughout because they describe a
+station, not a queue of work. Nothing below is outstanding.
+
+**Metadata.** Ten device rows added for loggers that had recorded for a VI-FLO
+station and had none, including the four HOBOlink sensors and Turpentine Run
+2, whose station did not exist in metadata at all. Nineteen fields corrected,
+most of them deploy dates a device had inherited from its station's
+establishment. Nine maintenance entries corrected or dropped where they named
+the device present now rather than the one present then, and thirty added.
+Carried out by the migrations under `tools/migrations/`, each of which cites
+the dossier behind every value it writes.
+
+**Product 1.** 76 exports imported, 1.46 million readings: 70 U20 files and 6
+HOBOlink telemetry files. The HOBOlink exports are keyed by their water
+pressure sensor rather than their base, so Salt River 1's record stays whole
+across the base replacement of August 2023.
+
+**What was not imported.** `sr1backup_hydro_20230919-20231128.csv`, whose
+header declares one serial and whose lower half holds another's readings.
+Seven combined HOBOlink exports covering several stations at once, superseded
+by the per-station files. And a handful of earlier, shorter exports contained
+entirely within later ones.
+
+**What could not be recovered.** Two Fish Bay exports are missing, one of them
+covering Tropical Storm Philippe. See `fb2_hydro.md`.
+
+---
+
 ## The prototype archive
 
 The evidence cited throughout comes from **`vi-flo-prototype`**, a retired

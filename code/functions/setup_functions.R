@@ -240,7 +240,7 @@ set_named_path <- function(name, path){
 #' Also handles NAs within the column gracefully - use this to write to CSVs
 #' @param dt_col POSIXct vector that can include NAs
 #' @return Character vector representing YYYY-MM-DD HH:MM:SS
-format_datetime_safe <- function(dt_col) {
+format_datetime_safe <- function(dt_col, tz = "America/Puerto_Rico") {
   result <- rep(NA_character_, length(dt_col))
   not_na <- !is.na(dt_col)
 
@@ -253,7 +253,12 @@ format_datetime_safe <- function(dt_col) {
   # else is already a string, or should be treated as one.
   if (inherits(dt_col, "POSIXct") || inherits(dt_col, "POSIXlt") ||
       inherits(dt_col, "Date")) {
-    result[not_na] <- format(dt_col[not_na], "%Y-%m-%d %H:%M:%S")
+    # With an explicit zone, because format() on a POSIXct otherwise uses
+    # whichever zone the object carries. Readings and the fields derived
+    # from them are project local; a caller writing a machine event passes
+    # tz = "UTC". Getting this wrong moves a 21:58 reading onto the
+    # following day.
+    result[not_na] <- format(dt_col[not_na], "%Y-%m-%d %H:%M:%S", tz = tz)
   } else {
     result[not_na] <- as.character(dt_col[not_na])
   }
