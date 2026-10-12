@@ -3,6 +3,33 @@ All notable changes to the VI-FLO Engine project are documented here.
 
 ---
 
+## [v2.5.2] - 2026-10-12
+
+Logging a battery replacement printed the menu and then dropped to the R
+console. One unbound variable, ten broken prompts.
+
+### Fixed
+- `ui_select_or_specify()` referenced `extra_key`, `extra_options`,
+  `extra_label` and `showing_extra` without any of them being parameters or
+  local variables. The function printed its menu, hit the first mention, and
+  died before reading a selection - so whatever the user typed next went to
+  the R console and echoed back
+  - Every call was affected, not only the one that surfaced it: the action
+    prompt in the maintenance logger, and the watershed, area, site, site
+    abbreviation, station type, device role, manufacturer and model prompts
+    that make up the establish-a-station path
+  - The three parameters are now in the signature with NULL defaults, and the
+    second list a caller can offer behind a key - retired stations behind "r",
+    say - works as intended rather than existing as dead code
+
+### Note
+- This is what a metadata manager test pass is for, and the roadmap has one
+  outstanding since 7 October. The fault was not subtle and would have been
+  found in minutes by walking the menus; it survived because nothing walks
+  them
+
+---
+
 ## [v2.5.1] - 2026-10-12
 
 A power cut over the weekend left the desktop off at 07:00 on Monday, and the

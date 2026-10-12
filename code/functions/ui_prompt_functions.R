@@ -167,13 +167,27 @@ ui_select_from_menu <- function(prompt, options, allow_quit = TRUE,
 #' @param existing_options Character vector. Existing options to show
 #' @param allow_quit Logical. Allow 'q' to quit (default TRUE)
 #' @return Selected/entered value, or NULL if user quit
-ui_select_or_specify <- function(prompt, existing_options, allow_quit = TRUE) {
+ui_select_or_specify <- function(prompt, existing_options, allow_quit = TRUE,
+                                extra_options = NULL, extra_key = NULL,
+                                extra_label = NULL) {
+
+  # A second list the caller can offer behind a key - retired stations behind
+  # "r", say - so a long list stays short until somebody asks for the rest.
+  #
+  # These were once referenced here without being parameters, which made every
+  # call to this function fail at the first mention of extra_key: the menu
+  # printed, the function died before reading a selection, and whatever the
+  # user typed next went to the R console. Ten prompts were affected.
+  showing_extra <- FALSE
+
   repeat {
+    options_now <- if (showing_extra) c(existing_options, extra_options)
+                   else existing_options
     cat(prompt, "\n", sep = "")
-    for (i in seq_along(existing_options)) {
-      cat("  ", i, ". ", existing_options[i], "\n", sep = "")
+    for (i in seq_along(options_now)) {
+      cat("  ", i, ". ", options_now[i], "\n", sep = "")
     }
-    cat("  ", length(existing_options) + 1, ". other (specify)\n", sep = "")
+    cat("  ", length(options_now) + 1, ". other (specify)\n", sep = "")
     
     offer_extra <- !is.null(extra_key) && !is.null(extra_options) &&
                    length(extra_options) > 0 && !showing_extra
@@ -203,9 +217,9 @@ ui_select_or_specify <- function(prompt, existing_options, allow_quit = TRUE) {
     if (grepl("^[0-9]+$", selection)) {
       selection_num <- as.numeric(selection)
       
-      if (selection_num >= 1 && selection_num <= length(existing_options)) {
-        return(existing_options[selection_num])
-      } else if (selection_num == length(existing_options) + 1) {
+      if (selection_num >= 1 && selection_num <= length(options_now)) {
+        return(options_now[selection_num])
+      } else if (selection_num == length(options_now) + 1) {
         # Other - specify custom value
         cat("Enter value: ")
         custom_value <- trimws(readline())
