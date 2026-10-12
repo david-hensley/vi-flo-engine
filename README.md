@@ -332,7 +332,13 @@ is doing, or `print_network_todo()` for what needs attention. Both are also in
 the metadata manager under option 3.
 
 **To download the latest data**, double-click `tools/download/run_download.bat`.
-The same job runs weekly on whichever machine holds the scheduled task; see
+It updates the engine from GitHub, pulls from Box, fetches whatever ZentraCloud
+has that you do not, and pushes the result back.
+
+The same job runs weekly on whichever machine holds the scheduled task, and a
+logon or unlock after a missed Monday offers to run it. All three routes update
+the code before fetching, so a machine that has been off for a week does not
+run a week-old downloader. See
 `tools/download/SCHEDULING.md`.
 
 **To use the metadata manager**, double-click

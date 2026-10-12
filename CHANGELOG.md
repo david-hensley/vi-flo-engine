@@ -3,6 +3,51 @@ All notable changes to the VI-FLO Engine project are documented here.
 
 ---
 
+## [v2.5.1] - 2026-10-12
+
+A power cut over the weekend left the desktop off at 07:00 on Monday, and the
+weekly download simply did not happen. Nothing noticed until somebody looked.
+Three faults in the same chain.
+
+### Fixed
+- **The catch-up prompt measured staleness, not the schedule.** It asked
+  whether the last download was more than seven days old, which is a
+  different question from whether Monday's run happened. A Monday missed
+  while the machine was off would not have been raised until the Wednesday,
+  because the previous Thursday's run was still inside the window
+  - It now finds the most recent Monday 07:00 and asks whether a download has
+    run since. One hour's grace, so 07:00 is not late at 07:30
+  - The dialog names the date the job was due, and lists what running it will
+    do
+
+- **Nothing in the download chain updated the engine.** Box was pulled before
+  every run and pushed after, but the CODE was whatever happened to be on
+  disk - which on a machine untouched for a week is a week-old downloader
+  working on today's data
+  - `tools/download/run_download_job.bat` is new: it pulls the engine, then
+    runs the job. The scheduled task calls it instead of invoking Rscript
+    directly
+  - The interactive `run_download.bat` and the catch-up prompt go through the
+    same path, so all three routes update before R starts
+  - Pulling from inside `download_job.R` was not enough on its own: R has
+    already read the script by then, so an update would only apply to the
+    next run. It stays as a backstop for anyone running the script directly
+  - A pull is refused over uncommitted changes, and a failed pull does not
+    stop the download. Being unable to reach GitHub is not a reason to skip a
+    week of data
+
+- **The catch-up prompt could not launch the job.** Task Scheduler runs it
+  with `-WindowStyle Hidden`, which is what keeps it silent on every unlock
+  when there is nothing to say - but a child process inheriting that absent
+  console cannot start, and failed with `0xc0000142`. It now asks Windows for
+  a fresh console rather than the parent's
+
+- A `goto` out of a `for` loop in both batch wrappers exited the enclosing
+  `if` as well, so the job reported `git is not on PATH` immediately after
+  successfully running `git status`
+
+---
+
 ## [v2.5.0] - 2026-10-11
 
 The 2021-2025 Ridge to Reef archive is in. 76 exports, 1.46 million readings,
