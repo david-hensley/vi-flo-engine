@@ -100,12 +100,28 @@ get_network_todo <- function(devices = NULL) {
   # fresh as the data. It used to come from whatever last happened to write it,
   # which meant a device could sit at a January value while this check tried to
   # warn about low batteries.
+  #
+  # It is still only as fresh as the last DOWNLOAD, and cannot be otherwise:
+  # zc_list_devices() returns identity and timestamps, not battery, so the
+  # figure arrives with the readings. A battery changed this morning still
+  # reads low here until the next download, which is confusing enough to be
+  # worth saying rather than leaving the reader to work out.
   if ("battery" %in% names(active)) {
     low <- which(!is.na(active$battery) & active$battery < 25)
     for (i in low) {
+      as_of <- active$last_download_date[i]
+      age <- if (!is.na(as_of))
+        suppressWarnings(as.numeric(difftime(now, as.POSIXct(as_of),
+                                             units = "days")))
+      else NA_real_
+
+      note <- paste0("battery ", active$battery[i], "%")
+      if (!is.na(age) && age >= 1)
+        note <- paste0(note, " as of ", format(round(age)), "d ago")
+
       add(active$station_id[i], active$device_serial[i],
           if (active$battery[i] < 15) "high" else "medium",
-          paste0("battery ", active$battery[i], "%"), "battery")
+          note, "battery")
     }
   }
 
@@ -142,7 +158,19 @@ get_network_todo <- function(devices = NULL) {
       error = function(e) character(0))
 
     if (length(held) > 0) {
-      newest <- held[which.max(file.mtime(held))]
+      # The newest file by its DATA, not by file.mtime(). Modification time
+      # says when a file was written, which is not when its readings were
+      # taken - importing the 2021-2025 archive in October 2026 gave a Fish
+      # Bay file from 2021 the newest mtime on disk, and the check then
+      # reported that logger as running at ten minutes because that is what
+      # it did five years ago.
+      #
+      # The span is in the name: {serial}_{start}_{end}_raw.rds
+      ends <- suppressWarnings(as.Date(
+        sub("^.*_([0-9]{8})_([0-9]{8})(_[0-9T]+)?_raw\\.rds$", "\\2",
+            basename(held)), format = "%Y%m%d"))
+      newest <- if (all(is.na(ends))) held[which.max(file.mtime(held))]
+                else held[which.max(ends)]
       obs <- tryCatch({
         l <- hobo_to_long(readRDS(newest), sn)
         u <- sort(unique(l$datetime))
@@ -326,7 +354,7 @@ print_network_todo <- function(status = NULL, quiet_if_clean = FALSE) {
 
   headings <- c(
     "reporting"       = "NOT REPORTING",
-    "battery"         = "BATTERY",
+    "battery"         = "BATTERY  (as of the last download)",
     "memory"          = "HYDRO LOGGER MEMORY",
     "survey"          = "SURVEY OUTSTANDING",
     "known broken"    = "KNOWN BROKEN - NEEDS A VISIT",
