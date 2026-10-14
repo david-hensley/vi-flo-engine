@@ -80,7 +80,7 @@ remembered_file <- function(path) {
 #' Rows differing between what this session read and what is on disk now
 #'
 #' Named by whatever identifies them - unique_id, station_id, serial - so the
-#' answer is in terms someone recognises rather than row numbers.
+#' answer is in terms someone recognizes rather than row numbers.
 #'
 #' @param path Character
 #' @return Character vector of descriptions, empty if not comparable

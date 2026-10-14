@@ -932,55 +932,78 @@ survey_device_elevation <- function(device_serial, elevation) {
   })
 }
 
-#' Survey stream gauge elevations for primary/secondary logger setup
+#' Writes a paired-gauge survey to the metadata
+#'
+#' The surveyed logger's elevation is the primary's plus a measured
+#' difference, and its reach length is its distance to the primary along the
+#' channel. Either half can be written alone: a re-measured reach does not
+#' need a re-leveled fall. NA means "not surveyed - leave as it is".
+#'
+#' "Secondary" here means the non-primary end of the pair - a tertiary is
+#' surveyed against the primary the same way. The difference is signed:
+#' negative when the surveyed logger is BELOW the primary, which is the normal
+#' case for a tertiary and allowed for any role. Role is not position.
+#'
 #' @param station_id Character. Station being surveyed
 #' @param primary_serial Character. Primary logger device serial
-#' @param secondary_serial Character. Secondary logger device serial
-#' @param primary_elev Numeric. Surveyed elevation of primary logger (meters)
-#' @param elevation_diff Numeric. Elevation difference: secondary - primary (meters)
+#' @param secondary_serial Character. The logger surveyed against it
+#' @param primary_elev Numeric. Primary elevation (meters), the anchor
+#' @param elevation_diff Numeric. Surveyed minus primary (meters), or NA to
+#'   leave elevations unchanged
+#' @param reach_length_m Numeric. Along-channel distance, or NA to leave it
+#' @param primary_elev_source Character. Written only when the primary had no
+#'   elevation and one was established for this survey
 #' @return TRUE if successful, error message if failed
 survey_dual_logger_elevations <- function(station_id, primary_serial, secondary_serial,
-                                          primary_elev, elevation_diff,
-                                          reach_length_m = NA) {
+                                          primary_elev, elevation_diff = NA,
+                                          reach_length_m = NA,
+                                          primary_elev_source = NA) {
   tryCatch({
     metadata <- load_zentra_metadata()
-    
-    secondary_elev <- primary_elev + elevation_diff
-    
+
     # Scoped by station AND active status, not by serial alone. A serial can
     # carry several rows - a relocated one plus its successor - and writing to
     # all of them would put a current survey onto a closed historical record.
     terminal <- c("removed", "replaced", "relocated", "decommissioned")
     active <- !tolower(metadata$status) %in% terminal
-    
+
     p_idx <- which(metadata$device_serial == primary_serial &
                    metadata$station_id == station_id & active)
     s_idx <- which(metadata$device_serial == secondary_serial &
                    metadata$station_id == station_id & active)
-    
+
     if (length(p_idx) == 0 || length(s_idx) == 0) {
       return("Could not find active rows for both loggers at this station")
     }
-    
-    metadata$elev[p_idx[1]] <- primary_elev
-    metadata$elev[s_idx[1]] <- secondary_elev
-    
-    # The secondary's elevation is DERIVED - its absolute accuracy is the
-    # primary's, its accuracy relative to the primary is the survey's. Saying
-    # so is the difference between a usable slope and an unexplained number.
-    if ("elev_source" %in% names(metadata)) {
-      metadata$elev_source[s_idx[1]] <- "surveyed_relative"
+
+    if (!is.na(elevation_diff)) {
+      if (is.na(primary_elev)) {
+        return("The primary has no elevation for the difference to hang from")
+      }
+      metadata$elev[p_idx[1]] <- primary_elev
+      if (!is.na(primary_elev_source) && "elev_source" %in% names(metadata)) {
+        metadata$elev_source[p_idx[1]] <- primary_elev_source
+      }
+
+      metadata$elev[s_idx[1]] <- primary_elev + elevation_diff
+
+      # The surveyed logger's elevation is DERIVED - its absolute accuracy is
+      # the primary's, its accuracy relative to the primary is the survey's.
+      # Saying so is the difference between a usable slope and an unexplained
+      # number.
+      if ("elev_source" %in% names(metadata)) {
+        metadata$elev_source[s_idx[1]] <- "surveyed_relative"
+      }
     }
-    
-    # Reach length belongs to the secondary: it is that logger's distance to
-    # the primary, measured along the channel. Slope is then
-    # (secondary_elev - primary_elev) / reach_length_m.
+
+    # Reach length belongs to the surveyed logger: its distance to the primary
+    # along the channel. Slope is |surveyed elev - primary elev| / reach.
     if ("reach_length_m" %in% names(metadata) && !is.na(reach_length_m)) {
       metadata$reach_length_m[s_idx[1]] <- reach_length_m
     }
-    
+
     save_device_metadata(metadata)
-    
+
     return(TRUE)
   }, error = function(e) {
     return(paste0("Failed to update elevations: ", e$message))
@@ -1778,7 +1801,7 @@ suggest_station_id <- function(site, station_type) {
 #'
 #' Two loggers at a gauge mean nothing in metadata order; primary then
 #' secondary is how they are thought about in the field, so it is how they
-#' should be listed. Anything with an unrecognised or missing role sorts last
+#' should be listed. Anything with an unrecognized or missing role sorts last
 #' rather than being hidden or dropped.
 #'
 #' @param devices Data frame of device rows

@@ -341,7 +341,7 @@ read_exported_csv <- function(filepath, tz = NULL, expected_serial = NULL) {
   }
 
   if (is.null(datetime_col)) {
-    # No recognisable name - try parsing each column and take the first that
+    # No recognizable name - try parsing each column and take the first that
     # yields dates for most rows.
     for (i in seq_along(data)) {
       attempt <- suppressWarnings(
@@ -883,7 +883,7 @@ archive_local_data <- function(station_id, device_serial, csv_path, parsed,
 #' local devices: a logger that died three weeks before the visit shows records
 #' ending well before the visit date.
 #'
-#' Modelled on update_last_download_date() in metadata_manager_functions.R.
+#' Modeled on update_last_download_date() in metadata_manager_functions.R.
 #'
 #' @param device_serial Character. Device to update
 #' @param record_datetime POSIXct. Timestamp of the last record archived

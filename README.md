@@ -2,7 +2,7 @@
 
 Backend data and code engine for the Virgin Islands Freshwater and Landscapes Observatory (VI-FLO).
 
-**Status:** v2.4.1
+**Status:** v2.6.0
 
 ---
 
@@ -71,7 +71,15 @@ permanently and never edited.
 ```
 internal/device-data/hobo/shuttle_readouts/     .hobo files
 internal/device-data/zentra/backfill/exports/   ZentraCloud export zips
+internal/discrete/surveys/gut_surveys/          paired-gauge surveys
 ```
+
+Survey records are keyed by STATION, unlike the device-keyed files above: a
+fall and a reach describe a pair of loggers, not one instrument. Each is named
+`<station>_<quantity>_<method>_<date>` - `bta2_hydro_fall_rod_20261014.csv`
+holds the rod readings exactly as typed, in the units they were read in;
+`bta2_hydro_reach_trupulse_20261014.txt` is the TruPulse export as it came off
+the device. What was concluded from them goes in the maintenance log.
 
 ### Product 1 - device-keyed readings
 
@@ -139,7 +147,7 @@ pressure reaches P4, regeneration produces P4 versions of both.
 
 That matters more than it sounds. Requiring P4 inputs would mean nobody sees a
 hydrograph until two stations had been reviewed by hand - research waiting on
-paperwork. This way discharge exists within days, honestly labelled, and P4
+paperwork. This way discharge exists within days, honestly labeled, and P4
 follows when review catches up.
 
 The gate runs the other way: **P4 of a derived series requires P4 inputs.**
@@ -171,6 +179,20 @@ timestamp. Fallback happens automatically but within a declared order, so the
 result is reproducible - the ordering is a parameter, not runtime cleverness.
 Values built on a fallback carry the `substituted` flag and record which source
 was used.
+
+Fallback never crosses a **barometric zone**. St Croix is one zone, St Thomas
+and St John together the other. Within a zone, pressure differs by well under a
+hectopascal on an ordinary day, and the zone's stations see the same weather
+systems. Between zones the difference is small on a quiet day and wrong exactly
+when it matters: a system moving through steepens the gradient, which is when
+there is flow to measure. So a declared pairing names only same-zone sources,
+and a cross-zone source is never automatic - it is possible only as a Product 4
+decision, with a reason and a span, realistically for a zero-flow period. Like
+any Product 4 input, the source station's pressure must itself be at Product 4.
+
+St John has one weather station and St Thomas two, so the case this rule
+actually governs is the St John station failing, with its gauges falling back
+to St Thomas.
 
 ### Regeneration
 
@@ -205,7 +227,7 @@ So a release is a frozen snapshot with a DOI - the actual files, plus the
 parameters, decisions and metadata as they stood. Made when something needs
 citing, not on a schedule.
 
-A release carries whatever level each series has reached, labelled. Waiting for
+A release carries whatever level each series has reached, labeled. Waiting for
 everything to reach P4 would mean releasing nothing.
 
 ### Discrete measurements
@@ -258,7 +280,7 @@ a user who wants nothing to do with reconstructed history can filter on it.
 Some things could not be recovered and are recorded as lost rather than
 guessed. Two logger exports from Fish Bay are missing, one of them covering
 Tropical Storm Philippe. The data itself is unaffected and remains good to
-use, and site locations are accurate to within 5-10 metres.
+use, and site locations are accurate to within 5-10 meters.
 
 ### Published literature using VI-EPSCoR data
 

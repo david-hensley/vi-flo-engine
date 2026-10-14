@@ -393,7 +393,7 @@ ui_prompt_status_change <- function(current_status, allow_quit = TRUE, restrict_
 #'   selecting from it - "r" to show retired stations, say
 #' @param extra_label Character. What that key does, shown beneath the list
 #' @param extra_options Character vector. Appended when the key is pressed (default TRUE)
-#' @return Status string, or NULL if cancelled
+#' @return Status string, or NULL if canceled
 ui_prompt_device_status <- function(allow_quit = TRUE) {
 
   statuses <- c("manual", "online", "local", "nonresponsive", "defunct")
@@ -626,7 +626,7 @@ ui_prompt_elevation <- function(lat, lon, station_type = NA, device_role = NA) {
 
   #### Manual entry ####
   repeat {
-    cat("\nElevation in metres (or press Enter to leave blank): ")
+    cat("\nElevation in meters (or press Enter to leave blank): ")
     input <- trimws(readline())
 
     if (input == "") {

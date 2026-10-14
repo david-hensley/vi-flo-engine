@@ -93,7 +93,7 @@ coerce_datetime_flexible <- function(x, tz = NULL) {
   if (any(bad)) {
     stop("Parsed an implausible date (year ", yrs[which(bad)[1]], ") from '",
          as.character(x)[which(bad)[1]], "'. The date format in this file was ",
-         "not recognised - check whether it uses an unusual layout.",
+         "not recognized - check whether it uses an unusual layout.",
          call. = FALSE)
   }
 

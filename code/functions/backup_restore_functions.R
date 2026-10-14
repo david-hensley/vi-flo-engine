@@ -59,7 +59,7 @@ backup_directory <- function(source_dir, backup_dir, confirm = TRUE, allow_overw
     response <- toupper(trimws(readline()))
     
     if (response != "YES") {
-      cat("❌ Backup cancelled\n")
+      cat("❌ Backup canceled\n")
       return(FALSE)
     }
     cat("\n")
@@ -218,7 +218,7 @@ restore_directory <- function(backup_dir, dest_dir, confirm = TRUE) {
     response <- toupper(trimws(readline()))
     
     if (response != "YES") {
-      cat("❌ Restoration cancelled\n")
+      cat("❌ Restoration canceled\n")
       return(FALSE)
     }
     cat("\n")

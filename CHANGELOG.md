@@ -3,6 +3,112 @@ All notable changes to the VI-FLO Engine project are documented here.
 
 ---
 
+## [v2.6.0] - 2026-10-14
+
+The paired-gauge survey now goes from field notebook to metadata in one
+workflow. Before, it asked for an elevation difference and a reach length
+already worked out by hand - so the reduction lived in a notebook and the
+arithmetic was never checked.
+
+### Added
+- **`ui_survey_gut_pair()`**, reached as option 1 of the field elevation
+  survey. Survey date and initials first, then the station and pair, then
+  each half in turn
+  - **The fall**, from a builder's level and rod or typed in meters. For the
+    rod: its units are chosen up front - feet-inches-eighths, decimal feet,
+    meters or centimeters - then backsight (upstream rebar) and foresight
+    (downstream rebar) for as many independent setups as were taken, then the
+    rebar-to-measuring-point offset at each logger in their own units, chosen
+    separately because a tape can be in anything
+  - Each rod reading is entered one number at a time - feet, inches, then
+    eighths, with decimal eighths accepted for a reading between graduations -
+    and read back for confirmation ("You entered 4' 3 2/8\" - correct?")
+    before it is used. Eighths are shown as entered, not reduced, so the
+    screen matches the notebook
+  - Each setup gives `fall = (FS + d_down) - (BS + d_up)`. The two that agree
+    most closely are offered, and averaged if within 10 mm. One setup alone is
+    accepted only as UNCHECKED. No agreeing pair means no fall from those
+    readings - start again, type it, or skip it
+  - A fall that is not positive means the end named upstream is not higher,
+    so it is refused outright: mislabeled ends or a bad reading. Falls are
+    shown without a sign, and a negative one is labeled as a climb
+  - **The reach**, from a TruPulse export or typed in meters. The export's
+    horizontal distances are summed and the arithmetic shown, in feet or
+    meters as the device recorded them. It refuses a file whose legs disagree
+    with its header unit, or whose leg count disagrees with its own total,
+    and warns when shots are dated other than the survey date
+  - A typed fall or reach requires a line saying how it was measured, so a
+    manual value never looks like a surveyed one later. This is also the
+    route for a reach that would need turning points
+  - Either half can be skipped, and at the end saved alone: a re-measured
+    reach does not need a re-leveled fall. The confirm screen shows old and
+    new values for both, and the slope
+- **`code/functions/survey_functions.R`** - the arithmetic, with no prompts:
+  rod and offset conversion, the fall, pair selection, the TruPulse reader,
+  slope, and the Product 0 writers. Testable on its own
+- **Product 0 for surveys**, in `internal/discrete/surveys/gut_surveys/`,
+  keyed by station and named `<station>_<quantity>_<method>_<date>`
+  - The rod readings are written as typed, in their original units, beside
+    their value in meters, to `<station>_fall_rod_<date>.csv`. Which setups
+    were accepted is a decision, not a reading, so it goes in the maintenance
+    log instead
+  - The TruPulse export is renamed to `<station>_reach_trupulse_<date>.txt`
+    rather than copied, as with HOBO exports. A same-day re-survey gets `_2`
+  - Written before anything touches the metadata. If they fail, nothing is
+    saved
+
+### Changed
+- **Role is no longer position.** Primary means the anchor - the logger whose
+  elevation is sourced externally, where flow is gauged, the position kept
+  long-term. Normally downstream, but not required to be
+  - The survey asks which logger is upstream, reminding that it is normally
+    the secondary. It no longer offers to switch roles when the primary
+    turns out higher
+  - The rod readings cannot tell which LOGGER stood at the backsight end, so
+    a mix-up there still gives a positive fall - and a wrong elevation. Two
+    guards instead: naming the primary as upstream asks for confirmation,
+    and a survey that puts the surveyed logger on the other side of the
+    primary from the record says so on the summary screen, before saving.
+    Both came out of the first live survey, at Bethlehem Adventure 2, where
+    the primary was named upstream by mistake and saved - caught only
+    afterwards, from the maintenance log, and reverted
+  - Where roles are not yet set, it suggests the downstream logger as primary
+    and you choose
+  - Slope is now `|surveyed elev - primary elev| / reach`, positive whichever
+    end is primary. RB-c, a tertiary below its primary, works without special
+    handling
+- `survey_dual_logger_elevations()` writes either half alone - NA leaves a
+  value as it is - and records the primary's `elev_source` when the survey
+  had to establish its elevation
+- The maintenance log line for a survey records the arrangement as measured,
+  the method behind each half, old and new values, and the slope
+- **American spelling throughout** the function files and the README, data
+  dictionary and roadmap: meters, centimeters, canceled, labeled, recognized
+  and the rest. User-facing prompts included. The backfill dossiers and the
+  older CHANGELOG entries are left as written
+
+### Fixed
+- **The station list counted every HOBO ever installed.** Dorothea showed
+  four loggers, two of them long removed. Removed, replaced, relocated and
+  decommissioned loggers are now excluded from the list and from the pair
+- **A survey that assigned roles was never logged.** The roles-not-yet-set
+  path saved the elevations and returned before the maintenance entry and
+  `last_visit`. Option 1 is now one path, so every survey is logged
+
+### Documentation
+- `DATA_DICTIONARY.md`: `device_role` redefined as above; `elev` for a hydro
+  logger is the sensor's elevation, 1-2 cm above the bed; the slope formula
+- `README.md`: status brought up to date; the survey Product 0 folder; the
+  barometric zone rule - St Croix one zone, St Thomas and St John the other,
+  automatic fallback only within a zone, cross-zone only as a Product 4
+  decision
+- `ROADMAP.md`: the survey section rewritten around what remains; turning
+  points recorded as deliberately deferred; survey geometry over time folded
+  into the time-varying role question, with the decision to rely on the
+  maintenance log and Product 0 for now
+
+---
+
 ## [v2.5.2] - 2026-10-12
 
 Logging a battery replacement printed the menu and then dropped to the R

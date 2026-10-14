@@ -412,7 +412,7 @@ validate_metadata <- function(verbose = TRUE, stop_on_error = FALSE) {
     # CHECK: reach_length_m belongs to a secondary, not a primary
     #
     # The dictionary defines it as the distance from THIS device to its
-    # station's primary. A primary is zero metres from itself, so a value
+    # station's primary. A primary is zero meters from itself, so a value
     # there means the field was filled for the pair rather than for the
     # device, and the hydraulic slope it feeds would be computed from a
     # length that describes nothing.

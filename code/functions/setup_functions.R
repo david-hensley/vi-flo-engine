@@ -182,7 +182,7 @@ set_named_path <- function(name, path){
       message("Overwriting...")
       default_datamap$path[default_datamap$named_path == name] <- relative_path
     } else {
-      stop("Operation cancelled by user", call. = FALSE)
+      stop("Operation canceled by user", call. = FALSE)
     }
   } else {
     # No existing path - add a new one to the default datamap

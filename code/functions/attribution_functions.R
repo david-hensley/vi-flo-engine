@@ -278,7 +278,7 @@ variable_name <- function(measurement, depth_cm = NA) {
 
   out <- unname(known[base])
 
-  # Anything unrecognised keeps its own name, tidied. Better a variable called
+  # Anything unrecognized keeps its own name, tidied. Better a variable called
   # x_axis_level than a reading silently dropped for want of a translation.
   unknown <- is.na(out)
   if (any(unknown)) {

@@ -7,7 +7,7 @@ recollection, which meant rediscovering it each time — and carrying at least
 one item that had never existed. Anything genuinely finished is deleted rather
 than struck through; `CHANGELOG.md` is the record of what was done.
 
-Last reviewed: **2026-10-11**
+Last reviewed: **2026-10-14**
 
 ---
 
@@ -17,29 +17,27 @@ Last reviewed: **2026-10-11**
 
 **The most time-critical item here, and it has been open since September.**
 
-Four stations have a logger pair with no surveyed separation: Turpentine Run 1,
-Dorothea, and Reef Bay's rebuilt pair. Without a reach length and an elevation
-difference, a pair produces no hydraulic slope, which is the whole reason the
-second logger is there.
+Three stations have a logger pair with no surveyed separation: Turpentine Run 1,
+Dorothea, and Reef Bay's rebuilt pair - where RB-c, the tertiary, also wants
+surveying against the primary. Without a reach length and a fall, a pair
+produces no hydraulic slope, which is the whole reason the second logger is
+there.
 
-The November 2025 field notes already say what is needed: *"return on the next
-trip with the ranging laser... to get distance and altitude from both Dorothea
-a and b and turpentine a and b."*
-
-Three things want settling before the trip rather than after:
-
-- **The laser reduction.** The instrument gives azimuth, inclination and slope
-  distance; metadata wants along-channel distance and a height difference.
-  Where does that arithmetic live, and is the raw observation kept?
-- **What `elev` means** when a surveyed value and a DEM lookup share one
-  column. `elev_source` distinguishes them, but a reader comparing two
-  stations is comparing different things.
-- **Pair geometry as time-varying.** A survey describes a pair at a moment. A
-  logger that moves invalidates it, and metadata has no way to say a reach
-  length applied between two dates.
+The method and the workflow now exist (v2.6.0): a builder's level and rod for
+the fall, at two or more independent setups agreeing within 10 mm, and the
+TruPulse in horizontal-distance legs for the reach. Bethlehem Adventure 2 was
+the first surveyed this way, on 14 October.
 
 The loggers at Turpentine Run and Fish Bay also fill their memory around
 3 November, so the trip has its own deadline.
+
+### Turning points, if a reach ever needs them
+
+The rod workflow assumes one instrument setup sees both rebars. A reach too
+long or too bendy for that needs turning points, which breaks the pair
+structure. Not built, deliberately: until such a reach exists, the fall is
+measured some other way and typed in meters, with a note saying how. Build it
+only when a real survey needs it.
 
 ---
 
@@ -54,6 +52,13 @@ for 2021 to 2023 both rows read `secondary` with no primary.
 Surfaced during the backfill and left alone deliberately: adding a second row
 would assert a redeployment that did not happen. Barometric pairing and reach
 length have the same shape. See `docs/backfill/fb2_hydro.md`.
+
+Survey geometry is the clearest case. A survey describes a pair at a moment,
+and a re-survey overwrites the metadata. For now that is deliberate: the
+maintenance log records every survey with its old and new values, and the raw
+readings sit in Product 0, so the history is complete - it is just not
+queryable from metadata. Decided 14 October 2026; revisit if a product ever
+needs the geometry that applied on a past date.
 
 ### Barometric pairing
 

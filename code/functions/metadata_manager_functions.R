@@ -66,7 +66,7 @@ ui_log_maintenance <- function(prefill_station = NULL, prefill_device = NULL,
   #### 1 - Field visit date
   field_visit_date <- ui_prompt_date("When did you visit the field?")
   if (is.null(field_visit_date)) {
-    cat("❌ Cancelled\n")
+    cat("❌ Canceled\n")
     return(NULL)
   }
   cat("✓ Field visit date:", field_visit_date, "\n\n")
@@ -98,7 +98,7 @@ ui_log_maintenance <- function(prefill_station = NULL, prefill_device = NULL,
     extra_key = "r", extra_label = "Show retired stations",
     extra_options = retired_options)
   if (is.null(selected)) {
-    cat("❌ Cancelled\n")
+    cat("❌ Canceled\n")
     return(NULL)
   }
   
@@ -111,7 +111,7 @@ ui_log_maintenance <- function(prefill_station = NULL, prefill_device = NULL,
   cat("✓ Station:", station_id, "(", station_type, ")\n")
   
   #### 3 - Device selection
-  # Labelled with the HOBOware name where there is one - a serial alone means
+  # Labeled with the HOBOware name where there is one - a serial alone means
   # nothing to someone deciding which of two loggers they worked on.
   device_options <- vapply(seq_len(nrow(station_devices)),
                            function(i) device_label(station_devices[i, ],
@@ -119,7 +119,7 @@ ui_log_maintenance <- function(prefill_station = NULL, prefill_device = NULL,
                            character(1))
   selected_device <- ui_select_from_menu("Select device:", device_options)
   if (is.null(selected_device)) {
-    cat("❌ Cancelled\n")
+    cat("❌ Canceled\n")
     return(NULL)
   }
   device_serial <- station_devices$device_serial[match(selected_device, device_options)]
@@ -144,7 +144,7 @@ ui_log_maintenance <- function(prefill_station = NULL, prefill_device = NULL,
   )
   
   # Relaunching is a HOBO concept - a Zentra is not launched and relaunched -
-  # so it is not offered where it cannot apply, rather than labelled and left
+  # so it is not offered where it cannot apply, rather than labeled and left
   # for the user to filter.
   device_meta <- load_zentra_metadata()
   this_device <- device_meta[device_meta$device_serial == device_serial, ]
@@ -156,7 +156,7 @@ ui_log_maintenance <- function(prefill_station = NULL, prefill_device = NULL,
   action_type <- ui_select_or_specify("What action was performed?",
                                       names(action_options))
   if (is.null(action_type)) {
-    cat("❌ Cancelled\n")
+    cat("❌ Canceled\n")
     return(NULL)
   }
   
@@ -216,7 +216,7 @@ ui_log_maintenance <- function(prefill_station = NULL, prefill_device = NULL,
   new_status <- ui_prompt_status_change(current_status, allow_quit = TRUE, restrict_to_device_level = TRUE)
   
   if (is.null(new_status)) {
-    cat("❌ Cancelled\n")
+    cat("❌ Canceled\n")
     return(NULL)
   }
   
@@ -244,7 +244,7 @@ ui_log_maintenance <- function(prefill_station = NULL, prefill_device = NULL,
   
   confirm <- ui_yes_no("Confirm?", allow_quit = FALSE)
   if (confirm != "Y") {
-    cat("❌ Cancelled - no entry logged\n")
+    cat("❌ Canceled - no entry logged\n")
     return(NULL)
   }
   
@@ -390,7 +390,7 @@ ui_log_download <- function() {
   #### 1 - Field visit date
   field_visit_date <- ui_prompt_date("When did you download data?")
   if (is.null(field_visit_date)) {
-    cat("❌ Cancelled\n")
+    cat("❌ Canceled\n")
     return(NULL)
   }
   cat("✓ Download date:", field_visit_date, "\n\n")
@@ -422,7 +422,7 @@ ui_log_download <- function() {
     extra_key = "r", extra_label = "Show retired stations",
     extra_options = retired_options)
   if (is.null(selected)) {
-    cat("❌ Cancelled\n")
+    cat("❌ Canceled\n")
     return(NULL)
   }
   
@@ -435,7 +435,7 @@ ui_log_download <- function() {
   cat("✓ Station:", station_id, "(", station_type, ")\n")
   
   #### 3 - Device selection
-  # Labelled with the HOBOware name where there is one - a serial alone means
+  # Labeled with the HOBOware name where there is one - a serial alone means
   # nothing to someone deciding which of two loggers they worked on.
   device_options <- vapply(seq_len(nrow(station_devices)),
                            function(i) device_label(station_devices[i, ],
@@ -443,7 +443,7 @@ ui_log_download <- function() {
                            character(1))
   selected_device <- ui_select_from_menu("Select device:", device_options)
   if (is.null(selected_device)) {
-    cat("❌ Cancelled\n")
+    cat("❌ Canceled\n")
     return(NULL)
   }
   device_serial <- station_devices$device_serial[match(selected_device, device_options)]
@@ -513,7 +513,7 @@ ui_log_download <- function() {
   
   confirm <- ui_yes_no("Confirm?", allow_quit = FALSE)
   if (confirm != "Y") {
-    cat("❌ Cancelled - no entry logged\n")
+    cat("❌ Canceled - no entry logged\n")
     return(NULL)
   }
   
@@ -626,8 +626,8 @@ ui_survey_elevations <- function() {
   cat("\n============================================\n")
   cat("  Field Elevation Survey\n")
   cat("============================================\n\n")
-  cat("Use this workflow to record surveyed elevations\n")
-  cat("from field measurements (GNSS, laser levels, etc.)\n\n")
+  cat("Use this workflow to record surveyed elevations: the fall and reach\n")
+  cat("length between a paired gauge's loggers, or one device's elevation.\n\n")
   
   ################################################################################
   #### SELECT SURVEY TYPE ####
@@ -635,7 +635,7 @@ ui_survey_elevations <- function() {
   
   cat("--- SURVEY TYPE ---\n\n")
   cat("What type of elevation survey?\n")
-  cat("  1. Dual-logger stream gauge (primary/secondary with elevation difference)\n")
+  cat("  1. Paired stream gauge - fall and reach length between two loggers\n")
   cat("  2. Single device (direct elevation entry)\n")
   cat("  q. Cancel\n\n")
   cat("Enter selection: ")
@@ -643,7 +643,7 @@ ui_survey_elevations <- function() {
   survey_type <- trimws(readline())
   
   if (tolower(survey_type) == "q") {
-    cat("❌ Cancelled\n")
+    cat("❌ Canceled\n")
     return(NULL)
   }
   
@@ -652,471 +652,9 @@ ui_survey_elevations <- function() {
   ################################################################################
   
   if (survey_type == "1") {
-    cat("\n--- DUAL-LOGGER STREAM GAUGE SURVEY ---\n\n")
-    
-    # Get all stations and filter to those with 2+ HOBO devices
-    metadata <- load_zentra_metadata()
-    hobo_devices <- metadata[is_hobo_device(metadata$mfger), ]
-    
-    if (nrow(hobo_devices) == 0) {
-      cat("❌ No HOBO devices found in metadata\n")
-      return(NULL)
-    }
-    
-    # Find stations with multiple HOBO devices
-    station_counts <- table(hobo_devices$station_id)
-    multi_hobo_stations <- names(station_counts[station_counts >= 2])
-    
-    if (length(multi_hobo_stations) == 0) {
-      cat("❌ No stations found with 2+ HOBO devices\n")
-      cat("   This option is for dual-logger stream gauges\n")
-      return(NULL)
-    }
-    
-    # Build station options
-    station_options <- sapply(multi_hobo_stations, function(sid) {
-      station_devices <- metadata[metadata$station_id == sid, ]
-      station_devices <- station_devices[order(as.POSIXct(station_devices$deploy_datetime), 
-                                               decreasing = TRUE), ]
-      device_row <- station_devices[1, ]
-      hobo_count <- sum(hobo_devices$station_id == sid)
-      paste0(sid, " (", device_row$site_full, " - ", hobo_count, " HOBO devices)")
-    })
-    
-    selected <- ui_select_from_menu("Select station:", station_options)
-    if (is.null(selected)) {
-      cat("❌ Cancelled\n")
-      return(NULL)
-    }
-    
-    # Extract station_id
-    station_id <- sub(" \\(.*\\)$", "", selected)
-    cat("✓ Station:", station_id, "\n\n")
-    
-    #### Identify primary and secondary ####
-    station_hobos <- hobo_devices[hobo_devices$station_id == station_id, ]
-    
-    # Look for devices with role = "primary" and role = "secondary"
-    primary_device <- station_hobos[!is.na(station_hobos$device_role) & 
-                                      tolower(station_hobos$device_role) == "primary", ]
-    secondary_device <- station_hobos[!is.na(station_hobos$device_role) & 
-                                        tolower(station_hobos$device_role) == "secondary", ]
-    
-    #### Roles not yet assigned - the survey itself determines them ####
-    # Requiring roles before surveying is backwards: you have to guess a role
-    # to obtain the measurement that tells you the role. Primary is the
-    # downstream logger, downstream is lower, and the survey measures exactly
-    # that. So measure first, then assign.
-    if (nrow(primary_device) == 0 || nrow(secondary_device) == 0) {
-      
-      if (nrow(station_hobos) != 2) {
-        cat("❌ Device roles are not set at this station, and it has ",
-            nrow(station_hobos), " logger(s) rather than 2.\n", sep = "")
-        cat("   Roles can only be assigned by survey for a paired gauge.\n")
-        return(NULL)
-      }
-      
-      cat("--- ASSIGN ROLES BY SURVEY ---\n\n")
-      cat("Neither logger has a role yet. Primary means the DOWNSTREAM logger,\n")
-      cat("which is the lower of the two - so the survey decides this rather\n")
-      cat("than you having to know it in advance.\n\n")
-      
-      dev_a <- station_hobos[1, ]
-      dev_b <- station_hobos[2, ]
-      
-      cat("Loggers at this station:\n")
-      cat("  A. ", device_label(dev_a), "\n", sep = "")
-      cat("  B. ", device_label(dev_b), "\n\n", sep = "")
-      
-      repeat {
-        cat("Enter elevation of logger A - ", device_label(dev_a), " - in metres: ", sep = "")
-        elev_a <- suppressWarnings(as.numeric(trimws(readline())))
-        if (!is.na(elev_a)) break
-        cat("⚠️  Invalid number.\n")
-      }
-      
-      repeat {
-        cat("\nEnter elevation difference (B - A) in metres:\n")
-        cat("  Positive = B is HIGHER than A\n")
-        cat("  Negative = B is LOWER than A\n")
-        cat("Difference: ")
-        diff_ba <- suppressWarnings(as.numeric(trimws(readline())))
-        if (!is.na(diff_ba)) break
-        cat("⚠️  Invalid number.\n")
-      }
-      
-      elev_b <- elev_a + diff_ba
-      
-      if (diff_ba == 0) {
-        cat("\n❌ The two loggers are at the same elevation, so neither is\n")
-        cat("   downstream of the other and no slope can be derived.\n")
-        cat("   Re-survey before assigning roles.\n")
-        return(NULL)
-      }
-      
-      # Lower = downstream = primary
-      if (elev_a < elev_b) {
-        primary_device   <- dev_a
-        secondary_device <- dev_b
-        primary_elev     <- elev_a
-        elevation_diff   <- diff_ba
-      } else {
-        primary_device   <- dev_b
-        secondary_device <- dev_a
-        primary_elev     <- elev_b
-        elevation_diff   <- -diff_ba
-      }
-      
-      cat("\n--- ROLES DETERMINED BY SURVEY ---\n\n")
-      cat("  Primary   (downstream, lower): ", device_label(primary_device),
-          "  ", primary_elev, " m\n", sep = "")
-      cat("  Secondary (upstream, higher):  ", device_label(secondary_device),
-          "  ", primary_elev + elevation_diff, " m\n", sep = "")
-      cat("  Difference: ", sprintf("%+.2f", elevation_diff), " m\n\n", sep = "")
-      
-      if (ui_yes_no("Assign these roles and save the elevations?",
-                    allow_quit = FALSE) != "Y") {
-        cat("❌ Cancelled - nothing saved\n")
-        return(NULL)
-      }
-      
-      #### Write the roles before the elevations ####
-      backup_metadata()
-      metadata <- load_zentra_metadata()
-      
-      p_idx <- which(metadata$device_serial == primary_device$device_serial &
-                     metadata$station_id == station_id &
-                     !metadata$status %in% c("removed", "replaced", "relocated",
-                                             "decommissioned"))
-      s_idx <- which(metadata$device_serial == secondary_device$device_serial &
-                     metadata$station_id == station_id &
-                     !metadata$status %in% c("removed", "replaced", "relocated",
-                                             "decommissioned"))
-      
-      metadata$device_role[p_idx[1]] <- "primary"
-      metadata$device_role[s_idx[1]] <- "secondary"
-      
-      save_device_metadata(metadata)
-      cat("✓ Roles assigned\n")
-      
-      #### Reach length ####
-      # Same requirement as the other path: slope is the elevation difference
-      # over this distance, so a survey without it cannot produce one.
-      repeat {
-        cat("\n--- REACH LENGTH ---\n\n")
-        cat("Distance between the two loggers ALONG THE CHANNEL, in metres.\n")
-        cat("Where the channel bends, this is longer than the straight line,\n")
-        cat("and using the straight line overestimates slope.\n\n")
-        cat("Reach length (m): ")
-        rl_input <- trimws(readline())
-        reach_length <- suppressWarnings(as.numeric(rl_input))
-        
-        if (is.na(reach_length) || reach_length <= 0) {
-          cat("\u26a0\ufe0f  Enter a positive number of metres.\n")
-          next
-        }
-        
-        slope <- elevation_diff / reach_length
-        cat("\n  Reach length: ", reach_length, " m\n", sep = "")
-        cat("  Slope:        ", sprintf("%.5f", slope),
-            "  (", sprintf("%.3f", slope * 100), "%)\n", sep = "")
-        
-        if (abs(slope) > 0.1 || abs(slope) < 0.0001) {
-          cat("\n\u26a0\ufe0f  That slope is unusual for a stream reach. Check the\n")
-          cat("   elevation difference and the distance before saving.\n")
-          if (ui_yes_no("  Use it anyway?", allow_quit = FALSE) == "N") next
-        }
-        break
-      }
-      
-      #### Then the elevations, through the existing logic function ####
-      result <- survey_dual_logger_elevations(
-        station_id       = station_id,
-        primary_serial   = primary_device$device_serial,
-        secondary_serial = secondary_device$device_serial,
-        primary_elev     = primary_elev,
-        elevation_diff   = elevation_diff,
-        reach_length_m   = reach_length
-      )
-      
-      if (!isTRUE(result)) {
-        cat("❌ Error:", result, "\n")
-        return(NULL)
-      }
-      cat("✓ Elevations saved successfully\n")
-      
-      return(TRUE)
-    }
-    
-    # Use first match if multiple (shouldn't happen but be safe)
-    primary_device <- primary_device[1, ]
-    secondary_device <- secondary_device[1, ]
-    
-    cat("Primary logger:   ", device_label(primary_device), "\n", sep = "")
-    cat("Secondary logger: ", device_label(secondary_device), "\n\n", sep = "")
-    
-    #### Primary elevation ####
-    cat("--- PRIMARY LOGGER ELEVATION ---\n\n")
-    
-    if (!is.na(primary_device$elev)) {
-      # Primary already has elevation
-      cat("Current elevation: ", primary_device$elev, " m\n", sep = "")
-      update_primary <- ui_yes_no("Update this elevation?", allow_quit = FALSE)
-      
-      if (update_primary == "Y") {
-        repeat {
-          cat("Enter new elevation for primary logger (meters): ")
-          elev_input <- trimws(readline())
-          primary_elev <- suppressWarnings(as.numeric(elev_input))
-          
-          if (!is.na(primary_elev)) {
-            cat("✓ New primary elevation: ", primary_elev, " m\n", sep = "")
-            break
-          } else {
-            cat("⚠️  Invalid number. Please enter elevation in meters.\n")
-          }
-        }
-      } else {
-        primary_elev <- primary_device$elev
-        cat("✓ Keeping existing elevation: ", primary_elev, " m\n", sep = "")
-      }
-    } else {
-      # Primary has no elevation - must enter
-      cat("No elevation recorded for primary logger.\n")
-      repeat {
-        cat("Enter elevation for primary logger (meters): ")
-        elev_input <- trimws(readline())
-        primary_elev <- suppressWarnings(as.numeric(elev_input))
-        
-        if (!is.na(primary_elev)) {
-          cat("✓ Primary elevation: ", primary_elev, " m\n", sep = "")
-          break
-        } else {
-          cat("⚠️  Invalid number. Please enter elevation in meters.\n")
-        }
-      }
-    }
-    
-    #### Secondary elevation (via difference) ####
-    cat("\n--- SECONDARY LOGGER ELEVATION ---\n\n")
-    cat("Primary logger elevation: ", primary_elev, " m\n\n", sep = "")
-    
-    repeat {
-      cat("Enter elevation difference (secondary - primary) in meters:\n")
-      cat("  Positive = secondary is HIGHER (upslope - normally secondary is supposed to be upstream!)\n")
-      cat("  Negative = secondary is LOWER (downslope)\n")
-      cat("Difference: ")
-      diff_input <- trimws(readline())
-      elevation_diff <- suppressWarnings(as.numeric(diff_input))
-      
-      if (!is.na(elevation_diff)) {
-        secondary_elev <- primary_elev + elevation_diff
-        cat("\n✓ Calculated elevations:\n")
-        cat("  Primary:   ", primary_elev, " m\n", sep = "")
-        cat("  Secondary: ", secondary_elev, " m\n", sep = "")
-        cat("  Difference: ", sprintf("%+.2f", elevation_diff), " m\n\n", sep = "")
-        break
-      } else {
-        cat("⚠️  Invalid number. Please enter elevation difference in meters.\n\n")
-      }
-    }
-    
-
-    #### Reach length ####
-    # Required, not optional. Slope is the elevation difference divided by
-    # this, so a survey without it produces a number nobody can use - and
-    # realistically nobody measures one without the other. If only the
-    # levelling was done, keep the figures until the distance is measured too.
-    #
-    # ALONG THE CHANNEL, not straight-line. On a straight reach they are the
-    # same; on a sinuous one the straight-line distance is shorter, which
-    # overestimates slope and therefore discharge.
-    repeat {
-      cat("\n--- REACH LENGTH ---\n\n")
-      cat("Distance between the two loggers ALONG THE CHANNEL, in metres.\n")
-      cat("On a straight reach a laser or tape reading serves. Where the\n")
-      cat("channel bends, the along-channel distance is longer than the\n")
-      cat("straight line, and using the straight line overestimates slope.\n\n")
-      cat("Reach length (m): ")
-      rl_input <- trimws(readline())
-      reach_length <- suppressWarnings(as.numeric(rl_input))
-
-      if (is.na(reach_length) || reach_length <= 0) {
-        cat("\u26a0\ufe0f  Enter a positive number of metres.\n")
-        next
-      }
-
-      slope <- elevation_diff / reach_length
-      cat("\n  Reach length: ", reach_length, " m\n", sep = "")
-      cat("  Slope:        ", sprintf("%.5f", slope),
-          "  (", sprintf("%.3f", slope * 100), "%)\n", sep = "")
-
-      # A hydraulic slope outside roughly 0.0001 to 0.1 is unusual enough to
-      # be worth a second look - most often a decimal slip in one or the other
-      if (abs(slope) > 0.1 || abs(slope) < 0.0001) {
-        cat("\n\u26a0\ufe0f  That slope is unusual for a stream reach. Check the\n")
-        cat("   elevation difference and the distance before saving.\n")
-        if (ui_yes_no("  Use it anyway?", allow_quit = FALSE) == "N") next
-      }
-      break
-    }
-
-    #### Does the measurement contradict the recorded roles? ####
-    # Primary is the downstream logger and downstream is lower, so a negative
-    # difference means the roles on record are the wrong way round. The
-    # measurement is the evidence, so offer to correct the roles from it
-    # rather than sending the user elsewhere to fix it by hand.
-    if (elevation_diff < 0) {
-      p_name <- device_label(primary_device)
-      s_name <- device_label(secondary_device)
-
-      cat("\n--- ROLES LOOK INVERTED ---\n\n")
-      cat("You have measured ", s_name, "\n", sep = "")
-      cat("as ", sprintf("%.2f", abs(elevation_diff)), " m LOWER than ", p_name, ".\n\n", sep = "")
-      cat("Primary means the DOWNSTREAM logger, which is the lower of the two.\n")
-      cat("So this measurement says the roles on record are the wrong way round.\n\n")
-      cat("Switch them?\n")
-      cat("  ", s_name, " would become PRIMARY   (downstream, lower)\n", sep = "")
-      cat("  ", p_name, " would become SECONDARY (upstream, higher)\n\n", sep = "")
-
-      switch_roles <- ui_yes_no("Switch the roles and save?", allow_quit = FALSE)
-
-      if (switch_roles == "Y") {
-        backup_metadata()
-        metadata <- load_zentra_metadata()
-
-        active <- !metadata$status %in% c("removed", "replaced", "relocated",
-                                          "decommissioned")
-        p_idx <- which(metadata$device_serial == primary_device$device_serial &
-                       metadata$station_id == station_id & active)
-        s_idx <- which(metadata$device_serial == secondary_device$device_serial &
-                       metadata$station_id == station_id & active)
-
-        metadata$device_role[p_idx[1]] <- "secondary"
-        metadata$device_role[s_idx[1]] <- "primary"
-
-        save_device_metadata(metadata)
-        cat("\n✓ Roles switched\n")
-
-        # Swap locally so the save below writes the right elevations to the
-        # right devices, and flip the sign so the difference is positive again
-        tmp              <- primary_device
-        primary_device   <- secondary_device
-        secondary_device <- tmp
-        primary_elev     <- primary_elev + elevation_diff
-        elevation_diff   <- -elevation_diff
-        # secondary_elev was computed before the swap - recompute it, or the
-        # confirmation below displays a stale figure
-        secondary_elev   <- primary_elev + elevation_diff
-
-      } else {
-        cat("\nRoles left as they are. Note the hydraulic slope will come out\n")
-        cat("with the wrong sign unless the measurement is re-checked.\n\n")
-
-        if (ui_yes_no("Save these elevations anyway?", allow_quit = FALSE) != "Y") {
-          cat("❌ Cancelled - elevations not saved\n")
-          return(NULL)
-        }
-      }
-    }
-    
-    #### Confirmation ####
-    cat("============================================\n")
-    cat("Ready to save elevations:\n")
-    cat("  Station: ", station_id, "\n", sep = "")
-    cat("  Primary   ", device_label(primary_device), ": ", primary_elev, " m\n", sep = "")
-    cat("  Secondary ", device_label(secondary_device), ": ", secondary_elev, " m\n", sep = "")
-    cat("  Difference: ", sprintf("%+.2f", elevation_diff), " m\n", sep = "")
-    cat("  Reach length: ", reach_length, " m\n", sep = "")
-    cat("  Slope: ", sprintf("%.5f", elevation_diff / reach_length),
-        "  (", sprintf("%.3f", (elevation_diff / reach_length) * 100), "%)\n",
-        sep = "")
-    cat("============================================\n\n")
-    
-    confirm <- ui_yes_no("Confirm and save?", allow_quit = FALSE)
-    if (confirm != "Y") {
-      cat("❌ Cancelled - elevations not saved\n")
-      return(NULL)
-    }
-    
-    #### Call logic function ####
-    result <- survey_dual_logger_elevations(
-      station_id = station_id,
-      primary_serial = primary_device$device_serial,
-      secondary_serial = secondary_device$device_serial,
-      primary_elev = primary_elev,
-      elevation_diff = elevation_diff,
-      reach_length_m = reach_length
-    )
-    
-    if (!isTRUE(result)) {
-      cat("❌ Error:", result, "\n")
-      return(NULL)
-    }
-    
-    cat("✓ Elevations saved successfully\n")
-    
-    #### Log to maintenance ####
-    survey_date <- ui_prompt_date("When was this survey performed?", allow_today = TRUE)
-    if (is.null(survey_date)) {
-      cat("⚠️  Warning: Elevations saved but not logged to maintenance\n")
-      return(TRUE)
-    }
-    
-    # Get who logged
-    cat("\nWho is logging this survey?\n")
-    cat("  1. DAH\n")
-    cat("  2. Enter custom initials (3 letters)\n")
-    cat("\nEnter selection: ")
-    logged_by_input <- trimws(readline())
-    
-    if (logged_by_input == "1") {
-      logged_by <- "DAH"
-    } else if (logged_by_input == "2") {
-      repeat {
-        cat("Enter 3-letter initials: ")
-        custom_initials <- toupper(trimws(readline()))
-        if (nchar(custom_initials) == 3) {
-          logged_by <- custom_initials
-          break
-        } else {
-          cat("⚠️  Please enter exactly 3 letters\n")
-        }
-      }
-    } else {
-      logged_by <- "DAH"  # Default
-    }
-    
-    # Log for primary device
-    details <- paste0("Elevation survey: Primary=", primary_elev, "m, Secondary=", 
-                      secondary_elev, "m (diff=", sprintf("%+.2f", elevation_diff), "m)")
-    
-    log_result <- create_maintenance_entry(
-      field_visit_date = survey_date,
-      station_id = station_id,
-      station_type = primary_device$station_type,
-      device_serial = primary_device$device_serial,
-      action_type = "elevation_survey",
-      details = details,
-      ports_updated = FALSE,
-      logged_by = logged_by
-    )
-    
-    if (!isTRUE(log_result)) {
-      cat("⚠️  Warning: Elevations saved but maintenance log entry failed\n")
-    } else {
-      cat("✓ Survey logged to maintenance\n")
-    }
-    
-    # Update last_visit
-    visit_result <- update_last_visit(station_id, survey_date)
-    if (!isTRUE(visit_result)) {
-      cat("⚠️  Warning: could not update last_visit: ", visit_result, "\n", sep = "")
-    }
-    
-    cat("\n✓ Dual-logger elevation survey complete!\n")
-    
-    return(TRUE)
+    # The paired-gauge survey has its own workflow: rod readings or a typed
+    # fall, a TruPulse export or a typed reach, and either half alone.
+    return(ui_survey_gut_pair())
   }
   
   ################################################################################
@@ -1136,7 +674,7 @@ ui_survey_elevations <- function() {
     
     selected <- ui_select_from_menu("Select station:", station_options)
     if (is.null(selected)) {
-      cat("❌ Cancelled\n")
+      cat("❌ Canceled\n")
       return(NULL)
     }
     
@@ -1154,7 +692,7 @@ ui_survey_elevations <- function() {
     
     selected_device <- ui_select_from_menu("Select device:", device_options)
     if (is.null(selected_device)) {
-      cat("❌ Cancelled\n")
+      cat("❌ Canceled\n")
       return(NULL)
     }
     
@@ -1180,7 +718,7 @@ ui_survey_elevations <- function() {
       elev_input <- trimws(readline())
       
       if (tolower(elev_input) == "q") {
-        cat("❌ Cancelled\n")
+        cat("❌ Canceled\n")
         return(NULL)
       }
       
@@ -1204,7 +742,7 @@ ui_survey_elevations <- function() {
     
     confirm <- ui_yes_no("Confirm and save?", allow_quit = FALSE)
     if (confirm != "Y") {
-      cat("❌ Cancelled - elevation not saved\n")
+      cat("❌ Canceled - elevation not saved\n")
       return(NULL)
     }
     
@@ -1290,6 +828,690 @@ ui_survey_elevations <- function() {
   }
 }
 
+
+#' Interactive paired-gauge survey: fall and reach length
+#'
+#' One path from the field notebook to the metadata. The fall comes from rod
+#' readings at independent level setups, or is typed in meters where it was
+#' measured some other way; the reach comes from a TruPulse export, or is
+#' typed. Either can be skipped, so a re-measured reach does not need a
+#' re-leveled fall.
+#'
+#' ROLE IS NOT POSITION. Primary means the anchor - the logger whose elevation
+#' is sourced externally, where flow is gauged, the position kept come what
+#' may. Normally that is the downstream logger, but nothing here requires it.
+#' Upstream and downstream come from the survey itself: the user names the
+#' backsight end, and the sign of the fall confirms it.
+#'
+#' Nothing is written until the final confirmation. Then, in order: the
+#' Product 0 files, any role assignment, the metadata, the maintenance log.
+#' A Product 0 failure stops everything before the metadata is touched.
+#'
+#' @return TRUE if something was saved, NULL if canceled
+ui_survey_gut_pair <- function() {
+
+  cancel <- function(msg = "Canceled - nothing saved") {
+    cat("\n\u274c ", msg, "\n", sep = "")
+    invisible(NULL)
+  }
+  read_or_quit <- function(prompt) {
+    cat(prompt)
+    x <- trimws(readline())
+    if (tolower(x) == "q") return(NULL)
+    x
+  }
+
+  cat("\n--- PAIRED GAUGE SURVEY ---\n\n")
+  cat("Fall between two loggers, and reach length between them along the\n")
+  cat("channel. Either can be skipped. Nothing is saved until the end, and\n")
+  cat("'q' at any prompt cancels.\n\n")
+
+  ##############################################################################
+  #### 1. When and who ####
+  ##############################################################################
+
+  survey_date <- ui_prompt_date("When was this survey performed?", allow_today = TRUE)
+  if (is.null(survey_date)) return(cancel())
+  cat("\u2713 Survey date: ", survey_date, "\n", sep = "")
+
+  cat("\nWho is logging this survey?\n")
+  cat("  1. DAH\n")
+  cat("  2. Enter custom initials (3 letters)\n")
+  cat("\nEnter selection: ")
+  lb <- trimws(readline())
+  logged_by <- "DAH"
+  if (lb == "2") {
+    repeat {
+      cat("Enter 3-letter initials: ")
+      ini <- toupper(trimws(readline()))
+      if (nchar(ini) == 3) { logged_by <- ini; break }
+      cat("\u26a0\ufe0f  Please enter exactly 3 letters\n")
+    }
+  }
+  cat("\u2713 Logged by: ", logged_by, "\n\n", sep = "")
+
+  ##############################################################################
+  #### 2. Station and pair ####
+  ##############################################################################
+
+  # ACTIVE loggers only. Counting every HOBO ever installed listed stations by
+  # loggers long since removed - Dorothea showed four.
+  terminal <- c("removed", "replaced", "relocated", "decommissioned")
+  metadata <- load_zentra_metadata()
+  active <- metadata[is_hobo_device(metadata$mfger) &
+                       !tolower(metadata$status) %in% terminal, ]
+
+  counts <- table(active$station_id)
+  stations <- sort(names(counts[counts >= 2]))
+  if (length(stations) == 0) {
+    cat("\u274c No station has two or more active HOBO loggers\n")
+    return(invisible(NULL))
+  }
+
+  station_options <- vapply(stations, function(sid) {
+    paste0(sid, " (", active$site_full[active$station_id == sid][1], " - ",
+           counts[[sid]], " active HOBO loggers)")
+  }, character(1), USE.NAMES = FALSE)
+
+  selected <- ui_select_from_menu("Select station:", station_options)
+  if (is.null(selected)) return(cancel())
+  station_id <- sub(" \\(.*\\)$", "", selected)
+  cat("\u2713 Station: ", station_id, "\n\n", sep = "")
+
+  loggers <- order_devices_by_role(active[active$station_id == station_id, ])
+  roles <- tolower(trimws(as.character(loggers$device_role)))
+  primary_rows <- which(!is.na(roles) & roles == "primary")
+
+  roles_unset <- FALSE
+  if (length(primary_rows) == 1) {
+    primary <- loggers[primary_rows, ]
+    others  <- loggers[-primary_rows, ]
+    if (nrow(others) == 1) {
+      other <- others[1, ]
+    } else {
+      # rb2 has a secondary and a tertiary. Each is surveyed against the
+      # primary, one at a time, because each derives its elevation from it.
+      pick <- ui_select_from_menu(
+        "Which logger is being surveyed against the primary?",
+        vapply(seq_len(nrow(others)), function(i)
+          device_label(others[i, ], with_role = TRUE), character(1)))
+      if (is.null(pick)) return(cancel())
+      other <- others[vapply(seq_len(nrow(others)), function(i)
+        device_label(others[i, ], with_role = TRUE), character(1)) == pick, ][1, ]
+    }
+  } else if (length(primary_rows) == 0 && nrow(loggers) == 2) {
+    roles_unset <- TRUE
+    primary <- NULL
+    other   <- NULL
+  } else {
+    cat("\u274c This station has ", length(primary_rows), " primary loggers and ",
+        nrow(loggers), " active loggers in all.\n", sep = "")
+    cat("   A survey needs exactly one primary, or two loggers with no roles\n")
+    cat("   yet. Fix the roles with 'Correct device details' first.\n")
+    return(invisible(NULL))
+  }
+
+  pair <- if (roles_unset) loggers[1:2, ] else rbind(primary, other)
+
+  cat("--- THE PAIR ---\n\n")
+  if (roles_unset) {
+    cat("Neither logger has a role yet. Roles are suggested once the fall is\n")
+    cat("measured, so a fall is required this time.\n\n")
+  } else {
+    cat("Current roles:\n")
+  }
+  for (i in 1:2) cat("  ", device_label(pair[i, ], with_role = TRUE), "\n", sep = "")
+  cat("\n")
+
+  ##############################################################################
+  #### 3. The fall ####
+  ##############################################################################
+
+  fall <- NULL   # list(value_m, upstream_serial, method, summary, p0)
+
+  repeat {
+    cat("--- FALL ---\n\n")
+    cat("How was the fall between the loggers measured?\n")
+    cat("  1. Builder's level and rod - enter the readings\n")
+    cat("  2. Some other way - enter the fall in meters\n")
+    if (!roles_unset) cat("  3. Not measured this time - skip\n")
+    method <- read_or_quit("\nEnter selection: ")
+    if (is.null(method)) return(cancel())
+    if (method == "3" && !roles_unset) { cat("\u2713 Fall skipped\n\n"); break }
+    if (!method %in% c("1", "2")) { cat("\u26a0\ufe0f  Choose 1, 2",
+                                        if (!roles_unset) " or 3", "\n\n", sep = ""); next }
+
+    #### Which end is upstream ####
+    cat("\nWhich logger is UPSTREAM", if (method == "1") " - the backsight end" else "",
+        "?\n", sep = "")
+    cat("(Normally that is the secondary.)\n")
+    # The readings cannot tell which LOGGER stood at the backsight end - a
+    # mix-up here still gives a positive fall, and a wrong elevation. So the
+    # unusual answer, the primary upstream, is confirmed rather than taken.
+    # It is allowed - role is not position - but the first live survey named
+    # the primary upstream by mistake, and nothing else would have caught it.
+    labels <- vapply(1:2, function(i) device_label(pair[i, ], with_role = TRUE),
+                     character(1))
+    repeat {
+      up_pick <- ui_select_from_menu("Upstream logger:", labels)
+      if (is.null(up_pick)) return(cancel())
+      up_i <- which(labels == up_pick)[1]
+      up_role <- tolower(trimws(as.character(pair$device_role[up_i])))
+      if (roles_unset || is.na(up_role) || up_role != "primary") break
+      sure <- ui_yes_no(paste0("  The primary is normally downstream. Is ",
+                               device_label(pair[up_i, ]), " really upstream?"))
+      if (sure == "Q") return(cancel())
+      if (sure == "Y") break
+      cat("\n")
+    }
+    up_dev <- pair[up_i, ]
+    dn_dev <- pair[3 - up_i, ]
+    cat("\u2713 Upstream:   ", device_label(up_dev, with_role = TRUE), "\n", sep = "")
+    cat("\u2713 Downstream: ", device_label(dn_dev, with_role = TRUE), "\n\n", sep = "")
+
+    if (method == "2") {
+      #### Manual fall ####
+      v <- NA_real_
+      repeat {
+        x <- read_or_quit("Fall from upstream to downstream logger, in meters: ")
+        if (is.null(x)) return(cancel())
+        v <- suppressWarnings(as.numeric(x))
+        if (!is.na(v)) break
+        cat("\u26a0\ufe0f  Not a number\n")
+      }
+      note <- ""
+      while (!nzchar(note)) {
+        note <- read_or_quit("How was it measured? (one line, e.g. 'hand level and tape'): ")
+        if (is.null(note)) return(cancel())
+      }
+      candidate <- list(value_m = v, method = "manual",
+                        summary = paste0("manual: ", note), p0 = NULL)
+
+    } else {
+      #### Rod survey ####
+      rod_pick <- ui_select_from_menu("What units is the rod graduated in?",
+                                      unname(ROD_UNITS))
+      if (is.null(rod_pick)) return(cancel())
+      rod_unit <- names(ROD_UNITS)[ROD_UNITS == rod_pick]
+      unit_word <- switch(rod_unit, ft = "feet", m = "meters", cm = "centimeters")
+      unit_eg   <- switch(rod_unit, ft = "4.37", m = "1.482", cm = "148.2")
+
+      # One number per prompt, then the whole reading read back for a yes.
+      # Three numbers on one line was too easy to get wrong without noticing,
+      # and a misread here is a wrong slope later.
+      read_number <- function(prompt) {
+        repeat {
+          x <- read_or_quit(prompt)
+          if (is.null(x)) return(NULL)
+          if (!is.na(suppressWarnings(as.numeric(x)))) return(x)
+          cat("    \u26a0\ufe0f  Not a number\n")
+        }
+      }
+
+      read_rod <- function(end) {
+        cat("\n  Rod reading with the rod on the ", toupper(end),
+            " rebar datum (top of the rebar stake)", sep = "")
+        if (rod_unit == "ft_in_8") {
+          cat(",\n  in feet, inches and eighths of an inch:\n")
+        } else {
+          cat(", in ", unit_word, ":\n", sep = "")
+        }
+        repeat {
+          if (rod_unit == "ft_in_8") {
+            ft <- read_number("    Feet: ");                                 if (is.null(ft)) return(NULL)
+            inch <- read_number("    Inches: ");                             if (is.null(inch)) return(NULL)
+            e8 <- read_number("    Eighths of an inch (decimals OK, e.g. 1.5): "); if (is.null(e8)) return(NULL)
+            x <- paste(trimws(ft), trimws(inch), trimws(e8))
+          } else {
+            x <- read_number(paste0("    Reading (e.g. ", unit_eg, "): "))
+            if (is.null(x)) return(NULL)
+          }
+          p <- parse_rod_reading(x, rod_unit)
+          if (!p$ok) {
+            cat("    \u26a0\ufe0f  ", p$message, " - enter it again\n", sep = "")
+            next
+          }
+          ok <- ui_yes_no(paste0("    You entered ", format_rod_reading(x, rod_unit),
+                                 " - correct?"))
+          if (ok == "Q") return(NULL)
+          if (ok == "Y") return(list(text = x, m = p$value_m))
+          cat("    Enter it again:\n")
+        }
+      }
+
+      bs_text <- character(0); fs_text <- character(0)
+      bs_m <- numeric(0); fs_m <- numeric(0)
+      repeat {
+        k <- length(bs_text) + 1
+        cat("\nSetup ", k, "\n", sep = "")
+        cat("  Backsight")
+        b <- read_rod("upstream")
+        if (is.null(b)) return(cancel())
+        cat("\n  Foresight")
+        f <- read_rod("downstream")
+        if (is.null(f)) return(cancel())
+        bs_text <- c(bs_text, b$text); bs_m <- c(bs_m, b$m)
+        fs_text <- c(fs_text, f$text); fs_m <- c(fs_m, f$m)
+        another <- ui_yes_no("\nAdd another setup?")
+        if (another == "Q") return(cancel())
+        if (another == "N") break
+      }
+
+      #### Offsets ####
+      cat("\n--- RE-BAR TO MEASURING POINT OFFSETS ---\n\n")
+      cat("At each logger, the distance from the TOP of the rebar DOWN to the\n")
+      cat("logger's measuring point. Positive when the measuring point is below\n")
+      cat("the rebar top, which is the usual case.\n\n")
+      off_pick <- ui_select_from_menu("What units were the offsets measured in?",
+                                      unname(OFFSET_UNITS))
+      if (is.null(off_pick)) return(cancel())
+      off_unit <- names(OFFSET_UNITS)[OFFSET_UNITS == off_pick]
+
+      read_offset <- function(dev) {
+        repeat {
+          x <- read_or_quit(paste0("  Offset at ", device_label(dev), " (", off_unit, "): "))
+          if (is.null(x)) return(NULL)
+          v <- suppressWarnings(as.numeric(x))
+          if (!is.na(v)) return(list(text = x, m = to_meters(v, off_unit)))
+          cat("  \u26a0\ufe0f  Not a number\n")
+        }
+      }
+      d_up <- read_offset(up_dev);   if (is.null(d_up)) return(cancel())
+      d_dn <- read_offset(dn_dev);   if (is.null(d_dn)) return(cancel())
+
+      #### Reduce ####
+      falls <- compute_falls(bs_m, fs_m, d_up$m, d_dn$m)
+
+      cat("\n--- FALL BY SETUP ---\n\n")
+      cat("  (FS + d_down) - (BS + d_up)\n\n")
+      for (k in seq_along(falls)) {
+        cat(sprintf("  Setup %d:  BS %-14s FS %-14s  fall %s\n", k,
+                    format_rod_reading(bs_text[k], rod_unit),
+                    format_rod_reading(fs_text[k], rod_unit), format_fall(falls[k])))
+      }
+      cat(sprintf("\n  Offsets: upstream %s %s, downstream %s %s\n\n",
+                  d_up$text, off_unit, d_dn$text, off_unit))
+
+      sel <- select_agreeing_pair(falls, tolerance_m = 0.010)
+
+      p0 <- list(table = build_fall_rod_table(
+        station_id, survey_date, up_dev$device_serial, dn_dev$device_serial,
+        bs_text, fs_text, rod_unit, d_up$text, d_dn$text, off_unit))
+
+      # A fall that is not positive is never accepted - asking first and then
+      # refusing it would be asking a question whose answer does not matter.
+      # It goes straight to the sign check below.
+      ask_accept <- function(q) if (sel$fall_m <= 0) "Y" else ui_yes_no(q)
+
+      accepted <- FALSE
+      if (sel$single) {
+        cat("One setup only - there is nothing to check it against, so it is\n")
+        cat("recorded as UNCHECKED.\n\n")
+        cat("  Fall: ", format_fall(sel$fall_m), "\n\n", sep = "")
+        a <- ask_accept("Accept this fall?")
+        if (a == "Q") return(cancel())
+        accepted <- a == "Y"
+        summ <- sprintf("rod: 1 setup, unchecked")
+      } else if (isTRUE(sel$within)) {
+        cat(sprintf("Setups %d and %d agree within %.1f mm (tolerance 10 mm).\n",
+                    sel$i, sel$j, sel$diff_m * 1000))
+        cat("  Mean fall: ", format_fall(sel$fall_m), "\n\n", sep = "")
+        a <- ask_accept("Accept their mean as the fall?")
+        if (a == "Q") return(cancel())
+        accepted <- a == "Y"
+        summ <- sprintf("rod: %d setups, accepted %d+%d, agreement %.1f mm",
+                        sel$n, sel$i, sel$j, sel$diff_m * 1000)
+      } else {
+        cat(sprintf("No two setups agree within 10 mm - the closest, %d and %d, are\n",
+                    sel$i, sel$j))
+        cat(sprintf("%.1f mm apart. The fall will not be taken from these readings.\n\n",
+                    sel$diff_m * 1000))
+      }
+
+      if (!accepted) {
+        cat("What next?\n")
+        cat("  1. Start the fall again - re-enter, or enter it in meters instead\n")
+        if (!roles_unset) cat("  2. Skip the fall\n")
+        x <- read_or_quit("\nEnter selection: ")
+        if (is.null(x)) return(cancel())
+        if (x == "2" && !roles_unset) { cat("\u2713 Fall skipped\n\n"); break }
+        cat("\n"); next
+      }
+
+      p0$filename <- build_survey_filename(station_id, "fall", "rod", survey_date,
+                                           "csv", dir = get_gut_survey_dir())
+      candidate <- list(value_m = sel$fall_m, method = "rod",
+                        summary = paste0(summ, ", file ", p0$filename), p0 = p0)
+    }
+
+    #### The sign checks the upstream choice ####
+    if (candidate$value_m <= 0) {
+      cat("\n\u26a0\ufe0f  The fall came out ", format_fall(candidate$value_m),
+          " - the end named upstream is not higher.\n", sep = "")
+      cat("   Either the ends were mislabeled or a reading is wrong. Nothing\n")
+      cat("   from this attempt will be saved.\n\n")
+      cat("  1. Start the fall again\n")
+      if (!roles_unset) cat("  2. Skip the fall\n")
+      x <- read_or_quit("\nEnter selection: ")
+      if (is.null(x)) return(cancel())
+      if (x == "2" && !roles_unset) { cat("\u2713 Fall skipped\n\n"); break }
+      cat("\n"); next
+    }
+
+    fall <- c(candidate, list(upstream_serial = up_dev$device_serial,
+                              up_dev = up_dev, dn_dev = dn_dev))
+    cat("\u2713 Fall: ", format_fall(fall$value_m), "\n\n", sep = "")
+    break
+  }
+
+  ##############################################################################
+  #### 4. Roles, if not yet set ####
+  ##############################################################################
+
+  if (roles_unset) {
+    cat("--- ASSIGN ROLES ---\n\n")
+    cat("Primary is the anchor: the logger whose elevation is sourced\n")
+    cat("externally, where flow is gauged, the position kept long-term.\n")
+    cat("Normally that is the downstream logger:\n\n")
+    cat("  Suggested primary: ", device_label(fall$dn_dev), " (downstream)\n\n", sep = "")
+    p_pick <- ui_select_from_menu("Which logger is PRIMARY?",
+      c(paste0(device_label(fall$dn_dev), " (downstream) - suggested"),
+        paste0(device_label(fall$up_dev), " (upstream)")))
+    if (is.null(p_pick)) return(cancel())
+    if (grepl("suggested$", p_pick)) {
+      primary <- fall$dn_dev; other <- fall$up_dev
+    } else {
+      primary <- fall$up_dev; other <- fall$dn_dev
+    }
+    cat("\u2713 Primary:   ", device_label(primary), "\n", sep = "")
+    cat("\u2713 Secondary: ", device_label(other), "\n\n", sep = "")
+  }
+
+  ##############################################################################
+  #### 5. The reach ####
+  ##############################################################################
+
+  reach <- NULL   # list(value_m, method, summary, from, filename)
+
+  repeat {
+    cat("--- REACH LENGTH ---\n\n")
+    cat("Along the channel, between the two loggers.\n")
+    cat("  1. TruPulse export (.txt)\n")
+    cat("  2. Some other way - enter the reach in meters\n")
+    cat("  3. Not measured this time - skip\n")
+    method <- read_or_quit("\nEnter selection: ")
+    if (is.null(method)) return(cancel())
+    if (method == "3") { cat("\u2713 Reach skipped\n\n"); break }
+    if (!method %in% c("1", "2")) { cat("\u26a0\ufe0f  Choose 1, 2 or 3\n\n"); next }
+
+    if (method == "2") {
+      v <- NA_real_
+      repeat {
+        x <- read_or_quit("Reach length in meters: ")
+        if (is.null(x)) return(cancel())
+        v <- suppressWarnings(as.numeric(x))
+        if (!is.na(v) && v > 0) break
+        cat("\u26a0\ufe0f  Enter a positive number\n")
+      }
+      note <- ""
+      while (!nzchar(note)) {
+        note <- read_or_quit("How was it measured? (one line, e.g. 'tape along thalweg'): ")
+        if (is.null(note)) return(cancel())
+      }
+      reach <- list(value_m = v, method = "manual",
+                    summary = paste0("manual: ", note), from = NULL, filename = NULL)
+      cat(sprintf("\u2713 Reach: %.2f m\n\n", v))
+      break
+    }
+
+    #### TruPulse ####
+    survey_dir <- get_gut_survey_dir()
+    cat("\nThe export belongs in:\n\n     ", survey_dir, "\n\n", sep = "")
+    there <- ui_yes_no("Is it in that folder?")
+    if (there == "Q") return(cancel())
+    if (there == "N") {
+      cat("\nCopy it there, then choose this option again.\n\n")
+      next
+    }
+
+    # Unfiled exports, plus this station's already-filed ones in case of a rerun
+    txts <- list.files(survey_dir, pattern = "\\.txt$", ignore.case = TRUE)
+    txts <- txts[!is_standard_survey_filename(txts) |
+                   startsWith(txts, paste0(station_id, "_reach_"))]
+    if (length(txts) == 0) {
+      cat("\n\u26a0\ufe0f  No .txt files there that are not already filed.\n\n")
+      next
+    }
+    f_pick <- ui_select_from_menu("Which file is the export for this reach?", txts)
+    if (is.null(f_pick)) return(cancel())
+    from <- file.path(survey_dir, f_pick)
+
+    parsed <- read_trupulse_export(from)
+    if (!isTRUE(parsed$ok)) {
+      cat("\n\u274c ", parsed$message, "\n\n", sep = "")
+      next
+    }
+
+    cat("\n  ", length(parsed$legs), " leg", if (length(parsed$legs) != 1) "s",
+        ", in ", parsed$unit, ":\n\n", sep = "")
+    cat("  ", format_reach_arithmetic(parsed), "\n\n", sep = "")
+
+    off_dates <- parsed$dates[!is.na(parsed$dates) &
+                                parsed$dates != as.Date(survey_date)]
+    if (length(off_dates) > 0) {
+      cat("\u26a0\ufe0f  The export has shots dated ",
+          paste(unique(format(off_dates)), collapse = ", "),
+          ", not the survey date ", survey_date, ".\n", sep = "")
+      cat("   Check this is the right file.\n\n")
+    }
+
+    a <- ui_yes_no(sprintf("Accept %.2f m as the reach length?", parsed$total_m))
+    if (a == "Q") return(cancel())
+    if (a == "N") { cat("\n"); next }
+
+    filename <- if (is_standard_survey_filename(f_pick)) f_pick else
+      build_survey_filename(station_id, "reach", "trupulse", survey_date,
+                            "txt", dir = survey_dir)
+    cat("\n  Will be filed as: ", filename, "\n\n", sep = "")
+
+    reach <- list(value_m = parsed$total_m, method = "trupulse",
+                  summary = sprintf("trupulse: %d legs, file %s",
+                                    length(parsed$legs), filename),
+                  from = from, filename = filename)
+    cat(sprintf("\u2713 Reach: %.2f m\n\n", parsed$total_m))
+    break
+  }
+
+  if (is.null(fall) && is.null(reach)) {
+    return(cancel("Neither fall nor reach was measured - nothing to save"))
+  }
+
+  ##############################################################################
+  #### 6. What would change ####
+  ##############################################################################
+
+  # The primary's elevation is the anchor and is not changed here. Only if it
+  # has never been set does the fall need one to hang from.
+  primary_elev <- suppressWarnings(as.numeric(primary$elev))
+  primary_elev_source <- NA_character_
+  if (!is.null(fall) && is.na(primary_elev)) {
+    cat("--- PRIMARY ELEVATION ---\n\n")
+    cat("The primary, ", device_label(primary), ", has no elevation, and the\n", sep = "")
+    cat("other logger's is derived from it.\n")
+    pe <- ui_prompt_elevation(primary$lat, primary$lon, "hydro", "primary")
+    if (is.na(pe$elev)) {
+      cat("\n\u26a0\ufe0f  Without it the fall cannot be saved as an elevation.\n\n")
+      if (is.null(reach)) return(cancel())
+      fall <- NULL
+    } else {
+      primary_elev <- pe$elev
+      primary_elev_source <- pe$elev_source
+    }
+  }
+
+  other_is_upstream <- !is.null(fall) && fall$upstream_serial == other$device_serial
+  old_elev  <- suppressWarnings(as.numeric(other$elev))
+  old_reach <- suppressWarnings(as.numeric(other$reach_length_m))
+  # To the tenth of a millimeter - finer than any rod reading
+  new_elev  <- if (!is.null(fall)) {
+    round(primary_elev + if (other_is_upstream) fall$value_m else -fall$value_m, 4)
+  } else NA_real_
+
+  # Slope from whatever is newest of each half
+  fall_for_slope  <- if (!is.null(fall)) fall$value_m else abs(old_elev - primary_elev)
+  reach_for_slope <- if (!is.null(reach)) reach$value_m else old_reach
+  slope <- compute_slope(fall_for_slope, reach_for_slope)
+
+  show <- function(x, d = 3) if (is.na(x)) "(blank)" else formatC(x, format = "f", digits = d)
+
+  cat("============================================\n")
+  cat("  Station:  ", station_id, "  (", survey_date, ")\n", sep = "")
+  cat("  Primary:  ", device_label(primary), "\n", sep = "")
+  cat("  Surveyed: ", device_label(other, with_role = TRUE), "\n\n", sep = "")
+  if (!is.null(fall)) {
+    cat("  Fall:          ", format_fall(fall$value_m), "   [", fall$summary, "]\n", sep = "")
+    cat("  Upstream:      ", device_label(fall$up_dev), "\n", sep = "")
+    cat("  Elevation of ", other$device_serial, ":  ", show(old_elev), " -> ",
+        show(new_elev), " m\n", sep = "")
+  } else {
+    cat("  Fall:          not surveyed - elevation stays ", show(old_elev), " m\n", sep = "")
+  }
+  if (!is.null(reach)) {
+    cat("  Reach length:  ", show(old_reach, 2), " -> ", show(reach$value_m, 2),
+        " m   [", reach$summary, "]\n", sep = "")
+  } else {
+    cat("  Reach length:  not surveyed - stays ", show(old_reach, 2), " m\n", sep = "")
+  }
+  if (!is.na(slope)) {
+    cat("  Slope:         ", sprintf("%.5f", slope), "  (",
+        sprintf("%.3f", slope * 100), "%)\n", sep = "")
+  } else {
+    cat("  Slope:         cannot be computed yet\n")
+  }
+  cat("============================================\n\n")
+
+  # A survey that puts the surveyed logger on the other side of the primary
+  # from the record is either a correction or a mix-up over which logger was
+  # at the backsight. Both are worth seeing before anything is saved.
+  if (!is.null(fall) && !is.na(old_elev) && !is.na(primary_elev) &&
+      (old_elev > primary_elev) != (new_elev > primary_elev)) {
+    side <- function(above) if (above) "ABOVE" else "BELOW"
+    cat("\u26a0\ufe0f  This survey puts ", device_label(other), " ",
+        side(new_elev > primary_elev), " the primary;\n", sep = "")
+    cat("   the record had it ", side(old_elev > primary_elev),
+        ". If that is a correction, carry on. If not, check which\n", sep = "")
+    cat("   logger was at the backsight end.\n\n")
+  }
+
+  # Outside roughly 0.0001-0.1 is most often a decimal slip in one half
+  if (!is.na(slope) && (slope > 0.1 || slope < 0.0001)) {
+    cat("\u26a0\ufe0f  That slope is unusual for a stream reach. Check both halves.\n\n")
+  }
+
+  ##############################################################################
+  #### 7. Save what? ####
+  ##############################################################################
+
+  opts <- character(0)
+  if (!is.null(fall) && !is.null(reach)) opts <- c(opts, "Save both")
+  if (!is.null(fall))  opts <- c(opts, "Save the fall only")
+  if (!is.null(reach) && !roles_unset) opts <- c(opts, "Save the reach only")
+  choice <- ui_select_from_menu("Save?", opts)
+  if (is.null(choice)) return(cancel())
+
+  save_fall  <- choice %in% c("Save both", "Save the fall only")
+  save_reach <- choice %in% c("Save both", "Save the reach only")
+
+  ##############################################################################
+  #### 8. Write ####
+  ##############################################################################
+
+  #### Product 0 first - the record of what was measured ####
+  survey_dir <- get_gut_survey_dir()
+  if (save_fall && fall$method == "rod") {
+    r <- write_fall_rod_file(fall$p0$table, file.path(survey_dir, fall$p0$filename))
+    if (!isTRUE(r)) return(cancel(paste0("Could not write the rod readings: ", r,
+                                         " - nothing saved")))
+    cat("\u2713 Readings filed: ", fall$p0$filename, "\n", sep = "")
+  }
+  if (save_reach && reach$method == "trupulse") {
+    r <- archive_trupulse_export(reach$from, file.path(survey_dir, reach$filename))
+    if (!isTRUE(r)) return(cancel(paste0("Could not file the TruPulse export: ", r,
+                                         " - nothing saved to metadata")))
+    cat("\u2713 Export filed:   ", reach$filename, "\n", sep = "")
+  }
+
+  backup_metadata()
+
+  #### Roles ####
+  if (roles_unset) {
+    metadata <- load_zentra_metadata()
+    act <- !tolower(metadata$status) %in% terminal
+    p_idx <- which(metadata$device_serial == primary$device_serial &
+                   metadata$station_id == station_id & act)
+    o_idx <- which(metadata$device_serial == other$device_serial &
+                   metadata$station_id == station_id & act)
+    metadata$device_role[p_idx[1]] <- "primary"
+    metadata$device_role[o_idx[1]] <- "secondary"
+    save_device_metadata(metadata)
+    cat("\u2713 Roles assigned\n")
+  }
+
+  #### Metadata ####
+  result <- survey_dual_logger_elevations(
+    station_id          = station_id,
+    primary_serial      = primary$device_serial,
+    secondary_serial    = other$device_serial,
+    primary_elev        = primary_elev,
+    elevation_diff      = if (save_fall) new_elev - primary_elev else NA_real_,
+    reach_length_m      = if (save_reach) reach$value_m else NA_real_,
+    primary_elev_source = primary_elev_source
+  )
+  if (!isTRUE(result)) {
+    cat("\u274c ", result, "\n", sep = "")
+    return(invisible(NULL))
+  }
+  cat("\u2713 Metadata saved\n")
+
+  #### Maintenance log ####
+  bits <- character(0)
+  if (save_fall) {
+    bits <- c(bits, sprintf("upstream %s, downstream %s; fall %.4f m [%s]; elev %s -> %.3f m",
+                            device_label(fall$up_dev, with_role = TRUE),
+                            device_label(fall$dn_dev, with_role = TRUE),
+                            fall$value_m, fall$summary, show(old_elev), new_elev))
+  }
+  if (save_reach) {
+    bits <- c(bits, sprintf("reach %s -> %.2f m [%s]", show(old_reach, 2),
+                            reach$value_m, reach$summary))
+  }
+  slope_saved <- compute_slope(
+    if (save_fall) fall$value_m else abs(old_elev - primary_elev),
+    if (save_reach) reach$value_m else old_reach)
+  if (!is.na(slope_saved)) bits <- c(bits, sprintf("slope %.5f", slope_saved))
+
+  log_result <- create_maintenance_entry(
+    field_visit_date = survey_date,
+    station_id       = station_id,
+    station_type     = other$station_type,
+    device_serial    = other$device_serial,
+    action_type      = "elevation_survey",
+    details          = paste0("Gut survey: ", paste(bits, collapse = "; ")),
+    ports_updated    = FALSE,
+    logged_by        = logged_by
+  )
+  # create_maintenance_entry() announces its own success
+  if (!isTRUE(log_result)) {
+    cat("\u26a0\ufe0f  Saved, but the maintenance log entry failed: ", log_result, "\n", sep = "")
+  }
+
+  visit <- update_last_visit(station_id, survey_date)
+  if (!isTRUE(visit)) cat("\u26a0\ufe0f  Could not update last_visit: ", visit, "\n", sep = "")
+
+  cat("\n\u2713 Survey complete\n")
+  invisible(TRUE)
+}
+
 # --- DEVICE & STATION MANAGEMENT ---
 #' Interactive device addition
 #' Adds a new device to metadata - either at new station or existing station
@@ -1346,7 +1568,7 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL,
     existing_watersheds <- get_metadata_unique_values("watershed")
     watershed <- ui_select_or_specify("Select watershed:", existing_watersheds)
     if (is.null(watershed)) {
-      cat("❌ Cancelled\n")
+      cat("❌ Canceled\n")
       return(NULL)
     }
     cat("✓ Watershed:", watershed, "\n")
@@ -1366,7 +1588,7 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL,
       existing_areas <- get_metadata_unique_values("area")
       area <- ui_select_or_specify("Select area:", existing_areas)
       if (is.null(area)) {
-        cat("❌ Cancelled\n")
+        cat("❌ Canceled\n")
         return(NULL)
       }
       cat("✓ Area:", area, "\n")
@@ -1398,7 +1620,7 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL,
       site_full <- ui_select_or_specify(
         paste0("Select site in ", watershed, ":"), existing_sites)
       if (is.null(site_full)) {
-        cat("❌ Cancelled\n")
+        cat("❌ Canceled\n")
         return(NULL)
       }
     }
@@ -1423,7 +1645,7 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL,
       cat("   This should not happen. Choose the correct one.\n")
       site <- ui_select_or_specify("Select site abbreviation:", matching)
       if (is.null(site)) {
-        cat("❌ Cancelled\n")
+        cat("❌ Canceled\n")
         return(NULL)
       }
       cat("✓ Site abbrev:", site, "\n")
@@ -1445,7 +1667,7 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL,
             paste(existing_full, collapse = ", "), "\n", sep = "")
         confirm <- ui_yes_no("Use it anyway?", allow_quit = FALSE)
         if (confirm == "N") {
-          cat("❌ Cancelled\n")
+          cat("❌ Canceled\n")
           return(NULL)
         }
       }
@@ -1464,7 +1686,7 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL,
       existing_types <- get_metadata_unique_values("station_type")
       station_type <- ui_select_or_specify("Select station type:", existing_types)
       if (is.null(station_type)) {
-        cat("❌ Cancelled\n")
+        cat("❌ Canceled\n")
         return(NULL)
       }
       cat("✓ Station type:", station_type, "\n")
@@ -1482,8 +1704,8 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL,
       cat("\n⚠️  Station '", base_id, "' already exists at this site.\n\n", sep = "")
       
       if (tolower(station_type) == "hydro") {
-        cat("   A stream gauge often has TWO loggers - a primary downstream and\n")
-        cat("   a secondary upstream - but they are two devices at ONE station,\n")
+        cat("   A stream gauge often has TWO loggers - a primary, normally\n")
+        cat("   downstream, and a secondary - but they are two devices at ONE station,\n")
         cat("   sharing the station ID. That is not a second station.\n\n")
       }
       
@@ -1493,7 +1715,7 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL,
       cat("   happens to share the site and type - it will be numbered.\n\n")
       
       if (ui_yes_no("Is this a separate new station?", allow_quit = FALSE) == "N") {
-        cat("\n❌ Cancelled - use 'New device at existing active station' instead\n")
+        cat("\n❌ Canceled - use 'New device at existing active station' instead\n")
         return(NULL)
       }
     }
@@ -1536,7 +1758,7 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL,
       
       selected <- ui_select_from_menu("Select station:", station_options)
       if (is.null(selected)) {
-        cat("❌ Cancelled\n")
+        cat("❌ Canceled\n")
         return(NULL)
       }
       
@@ -1649,14 +1871,14 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL,
 
         if (ui_yes_no("Add this device to a new station as well?",
                       allow_quit = FALSE) == "N") {
-          cat("\u274c Cancelled\n")
+          cat("\u274c Canceled\n")
           return(NULL)
         }
 
         # It is the same physical box, so everything that describes the DEVICE
         # rather than the station is already on record. Re-typing it is not
         # just tedious - it is how one logger ends up with two spellings of
-        # its name and coordinates a few metres apart.
+        # its name and coordinates a few meters apart.
         shared_row <- active[1, ]
       }
     }
@@ -1719,7 +1941,7 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL,
         deploy_datetime <- ui_prompt_datetime(
           "When did this station's sensors go in?")
         if (is.null(deploy_datetime)) {
-          cat("\u274c Cancelled\n")
+          cat("\u274c Canceled\n")
           return(NULL)
         }
       }
@@ -1730,8 +1952,9 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL,
       # type, and "recommended" invited people to pick primary when unsure.
       # Saying what it is for keeps that from happening.
       cat("\nDevice role - most devices do not need one:\n\n")
-      cat("  hydro    paired stream gauges only. primary is the DOWNSTREAM\n")
-      cat("           logger, secondary upstream. A lone gauge has no role.\n")
+      cat("  hydro    paired stream gauges only. primary is the anchor - where\n")
+      cat("           flow is gauged, normally the DOWNSTREAM logger.\n")
+      cat("           A lone gauge has no role.\n")
       cat("  vwc      primary ONLY if this shares the weather station's logger.\n")
       cat("           Otherwise none.\n")
       cat("  weather  almost always none.\n\n")
@@ -1743,7 +1966,7 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL,
         existing_roles <- get_metadata_unique_values("device_role")
         device_role <- ui_select_or_specify("Select device role:", existing_roles)
         if (is.null(device_role)) {
-          cat("\u274c Cancelled\n")
+          cat("\u274c Canceled\n")
           return(NULL)
         }
         cat("\u2713 Device role:", device_role, "\n")
@@ -1759,7 +1982,7 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL,
     existing_mfgers <- get_metadata_unique_values("mfger")
     mfger <- ui_select_or_specify("Select manufacturer:", existing_mfgers)
     if (is.null(mfger)) {
-      cat("❌ Cancelled\n")
+      cat("❌ Canceled\n")
       return(NULL)
     }
     cat("✓ Manufacturer:", mfger, "\n")
@@ -1772,7 +1995,7 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL,
     if (length(existing_models) > 0) {
       model <- ui_select_or_specify("Select model:", existing_models)
       if (is.null(model)) {
-        cat("❌ Cancelled\n")
+        cat("❌ Canceled\n")
         return(NULL)
       }
     } else {
@@ -1790,8 +2013,9 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL,
     # type, and "recommended" invited people to pick primary when unsure.
     # Saying what it is for keeps that from happening.
     cat("\nDevice role - most devices do not need one:\n\n")
-    cat("  hydro    paired stream gauges only. primary is the DOWNSTREAM\n")
-    cat("           logger, secondary upstream. A lone gauge has no role.\n")
+    cat("  hydro    paired stream gauges only. primary is the anchor - where\n")
+    cat("           flow is gauged, normally the DOWNSTREAM logger.\n")
+    cat("           A lone gauge has no role.\n")
     cat("  vwc      primary ONLY if this shares the weather station's logger.\n")
     cat("           Otherwise none.\n")
     cat("  weather  almost always none.\n\n")
@@ -1803,7 +2027,7 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL,
       existing_roles <- get_metadata_unique_values("device_role")
       device_role <- ui_select_or_specify("Select device role:", existing_roles)
       if (is.null(device_role)) {
-        cat("❌ Cancelled\n")
+        cat("❌ Canceled\n")
         return(NULL)
       }
       cat("✓ Device role:", device_role, "\n")
@@ -1952,7 +2176,7 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL,
       timezone <- "America/Puerto_Rico"
       cat("✓ Timezone: America/Puerto_Rico (default)\n")
     } else if (tz_input == "q") {
-      cat("❌ Cancelled\n")
+      cat("❌ Canceled\n")
       return(NULL)
     } else {
       tz_num <- suppressWarnings(as.numeric(tz_input))
@@ -1974,7 +2198,7 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL,
                                           allow_now = TRUE, 
                                           timezone = timezone)
     if (is.null(deploy_datetime)) {
-      cat("❌ Cancelled\n")
+      cat("❌ Canceled\n")
       return(NULL)
     }
     cat("✓ Deploy datetime:", format(deploy_datetime), "\n")
@@ -1988,7 +2212,7 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL,
     ## Status
     status <- ui_prompt_device_status()
     if (is.null(status)) {
-      cat("❌ Cancelled\n")
+      cat("❌ Canceled\n")
       return(NULL)
     }
     cat("✓ Status:", status, "\n")
@@ -2061,7 +2285,7 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL,
       restart <- ui_yes_no("Start over and re-enter device information?", allow_quit = FALSE)
       
       if (restart != "Y") {
-        cat("❌ Cancelled - device not added\n")
+        cat("❌ Canceled - device not added\n")
         return(NULL)
       }
       
@@ -2178,7 +2402,7 @@ ui_replace_device <- function() {
   
   selected <- ui_select_from_menu("Select station:", station_options)
   if (is.null(selected)) {
-    cat("❌ Cancelled\n")
+    cat("❌ Canceled\n")
     return(NULL)
   }
   
@@ -2202,7 +2426,7 @@ ui_replace_device <- function() {
                            character(1))
   selected_device <- ui_select_from_menu("\nSelect device to replace:", device_options)
   if (is.null(selected_device)) {
-    cat("❌ Cancelled\n")
+    cat("❌ Canceled\n")
     return(NULL)
   }
   
@@ -2220,7 +2444,7 @@ ui_replace_device <- function() {
   )
   
   if (confirm_replace != "Y") {
-    cat("❌ Cancelled - no changes made\n")
+    cat("❌ Canceled - no changes made\n")
     return(NULL)
   }
   
@@ -2235,7 +2459,7 @@ ui_replace_device <- function() {
   add_result <- ui_add_device(is_new_station = FALSE, preset_station_id = station_id, suppress_logging = TRUE)
   
   if (is.null(add_result)) {
-    cat("❌ New device not added - replacement cancelled\n")
+    cat("❌ New device not added - replacement canceled\n")
     cat("   Old device status unchanged\n")
     return(NULL)
   }
@@ -2387,7 +2611,7 @@ ui_relocate_station <- function() {
   
   selected <- ui_select_from_menu("Select station:", station_options)
   if (is.null(selected)) {
-    cat("❌ Cancelled\n")
+    cat("❌ Canceled\n")
     return(NULL)
   }
   
@@ -2421,7 +2645,7 @@ ui_relocate_station <- function() {
   )
   
   if (confirm_relocate != "Y") {
-    cat("❌ Cancelled - no changes made\n")
+    cat("❌ Canceled - no changes made\n")
     return(NULL)
   }
   
@@ -2507,14 +2731,14 @@ ui_relocate_station <- function() {
     existing_mfgers <- get_metadata_unique_values("mfger")
     nd_mfger <- ui_select_or_specify("Select manufacturer:", existing_mfgers)
     if (is.null(nd_mfger)) {
-      cat("\u274c Cancelled\n")
+      cat("\u274c Canceled\n")
       return(NULL)
     }
     
     existing_models <- get_metadata_unique_values("model")
     nd_model <- ui_select_or_specify("Select model:", existing_models)
     if (is.null(nd_model)) {
-      cat("\u274c Cancelled\n")
+      cat("\u274c Canceled\n")
       return(NULL)
     }
     
@@ -2621,7 +2845,7 @@ ui_relocate_station <- function() {
   )
   
   if (is.null(deploy_datetime)) {
-    cat("❌ Cancelled\n")
+    cat("❌ Canceled\n")
     return(NULL)
   }
   cat("✓ Deploy datetime:", format(deploy_datetime), "\n")
@@ -2633,7 +2857,7 @@ ui_relocate_station <- function() {
   cat("\nStatus at the new location:\n")
   new_status <- ui_prompt_device_status(allow_quit = TRUE)
   if (is.null(new_status)) {
-    cat("❌ Cancelled\n")
+    cat("❌ Canceled\n")
     return(NULL)
   }
   cat("✓ Status:", new_status, "\n")
@@ -2699,7 +2923,7 @@ ui_relocate_station <- function() {
   
   confirm <- ui_yes_no("Confirm relocation?", allow_quit = FALSE)
   if (confirm != "Y") {
-    cat("❌ Cancelled - station not relocated\n")
+    cat("❌ Canceled - station not relocated\n")
     return(NULL)
   }
   
@@ -2830,7 +3054,7 @@ ui_decommission_station <- function() {
   
   selected <- ui_select_from_menu("Select station:", station_options)
   if (is.null(selected)) {
-    cat("❌ Cancelled\n")
+    cat("❌ Canceled\n")
     return(NULL)
   }
   
@@ -2877,7 +3101,7 @@ ui_decommission_station <- function() {
   )
   
   if (confirm_decommission != "Y") {
-    cat("❌ Cancelled - station not decommissioned\n")
+    cat("❌ Canceled - station not decommissioned\n")
     return(NULL)
   }
   
@@ -2887,7 +3111,7 @@ ui_decommission_station <- function() {
                              allow_quit = FALSE)
   
   if (final_confirm != "Y") {
-    cat("❌ Cancelled - station not decommissioned\n")
+    cat("❌ Canceled - station not decommissioned\n")
     return(NULL)
   }
   
@@ -3077,7 +3301,7 @@ ui_reactivate_station <- function() {
   
   selected <- ui_select_from_menu("Select decommissioned station:", station_options)
   if (is.null(selected)) {
-    cat("❌ Cancelled\n")
+    cat("❌ Canceled\n")
     return(NULL)
   }
   
@@ -3110,7 +3334,7 @@ ui_reactivate_station <- function() {
   location_choice <- trimws(readline())
   
   if (tolower(location_choice) == "q") {
-    cat("❌ Cancelled\n")
+    cat("❌ Canceled\n")
     return(NULL)
   }
   
@@ -3137,14 +3361,14 @@ ui_reactivate_station <- function() {
     add_result <- ui_add_device(is_new_station = FALSE, preset_station_id = station_id, suppress_logging = TRUE)
     
     if (is.null(add_result)) {
-      cat("❌ Reactivation cancelled\n")
+      cat("❌ Reactivation canceled\n")
       return(NULL)
     }
     
     new_device_serial <- add_result$device_serial
     
     # Same coordinates as before, so the old elevation still describes this
-    # place - carry its source with it rather than leaving the value unlabelled
+    # place - carry its source with it rather than leaving the value unlabeled
     old_source <- if ("elev_source" %in% names(old_device)) {
       old_device$elev_source
     } else NA_character_
@@ -3201,7 +3425,7 @@ ui_reactivate_station <- function() {
     add_result <- ui_add_device(is_new_station = FALSE, preset_station_id = station_id, suppress_logging = TRUE)
     
     if (is.null(add_result)) {
-      cat("❌ Device not added - reactivation cancelled\n")
+      cat("❌ Device not added - reactivation canceled\n")
       return(NULL)
     }
     
@@ -3470,7 +3694,7 @@ ui_initialize_ports <- function(device_serial) {
     restart <- ui_yes_no("Start over and reconfigure all ports?", allow_quit = FALSE)
     
     if (restart != "Y") {
-      cat("❌ Cancelled - configuration not saved\n")
+      cat("❌ Canceled - configuration not saved\n")
       return(NULL)
     }
     
@@ -3543,7 +3767,7 @@ ui_update_ports <- function(preset_device_serial = NULL) {
     
     selected <- ui_select_from_menu("Select device:", device_options)
     if (is.null(selected)) {
-      cat("❌ Cancelled\n")
+      cat("❌ Canceled\n")
       return(NULL)
     }
     
@@ -3574,7 +3798,7 @@ ui_update_ports <- function(preset_device_serial = NULL) {
       result <- ui_initialize_ports(device_serial)
       return(result)
     } else {
-      cat("❌ Cancelled - ports not configured\n")
+      cat("❌ Canceled - ports not configured\n")
       return(NULL)
     }
   }
@@ -3620,7 +3844,7 @@ ui_update_ports <- function(preset_device_serial = NULL) {
   )
   
   if (is.null(change_datetime)) {
-    cat("❌ Cancelled\n")
+    cat("❌ Canceled\n")
     return(NULL)
   }
   
@@ -3820,7 +4044,7 @@ ui_update_ports <- function(preset_device_serial = NULL) {
     restart <- ui_yes_no("Start over and reconfigure ports again?", allow_quit = FALSE)
     
     if (restart != "Y") {
-      cat("❌ Cancelled - configuration not updated\n")
+      cat("❌ Canceled - configuration not updated\n")
       return(NULL)
     }
     
@@ -4451,7 +4675,7 @@ ui_remove_device <- function() {
   
   selected <- ui_select_from_menu("Select station:", station_options)
   if (is.null(selected)) {
-    cat("❌ Cancelled\n")
+    cat("❌ Canceled\n")
     return(NULL)
   }
   
@@ -4477,7 +4701,7 @@ ui_remove_device <- function() {
                            character(1))
   selected_device <- ui_select_from_menu("\nSelect device to remove:", device_options)
   if (is.null(selected_device)) {
-    cat("❌ Cancelled\n")
+    cat("❌ Canceled\n")
     return(NULL)
   }
   
@@ -4534,7 +4758,7 @@ ui_remove_device <- function() {
   )
   
   if (is.null(removal_datetime)) {
-    cat("❌ Cancelled\n")
+    cat("❌ Canceled\n")
     return(NULL)
   }
   
@@ -4595,7 +4819,7 @@ ui_remove_device <- function() {
   
   confirm <- ui_yes_no("Confirm device removal?", allow_quit = FALSE)
   if (confirm != "Y") {
-    cat("❌ Cancelled - no changes made\n")
+    cat("❌ Canceled - no changes made\n")
     return(NULL)
   }
   
@@ -4659,7 +4883,7 @@ ui_remove_device <- function() {
 #' Delete a metadata row by unique_id (ADMIN FUNCTION)
 #' Shows full record, confirms deletion, removes from metadata and ports
 #' Logs deletion to maintenance log
-#' @return TRUE if successful, NULL if cancelled
+#' @return TRUE if successful, NULL if canceled
 ui_delete_metadata_row <- function() {
   cat("\n============================================\n")
   cat("  DELETE METADATA ROW (ADMIN)\n")
@@ -4676,7 +4900,7 @@ ui_delete_metadata_row <- function() {
   unique_id_input <- trimws(readline())
   
   if (tolower(unique_id_input) == "q" || unique_id_input == "") {
-    cat("❌ Cancelled\n")
+    cat("❌ Canceled\n")
     return(NULL)
   }
   
@@ -4732,7 +4956,7 @@ ui_delete_metadata_row <- function() {
   confirm <- ui_yes_no("Permanently delete this row from metadata?", allow_quit = FALSE)
   
   if (confirm != "Y") {
-    cat("❌ Cancelled - no changes made\n")
+    cat("❌ Canceled - no changes made\n")
     return(NULL)
   }
   
@@ -4822,7 +5046,7 @@ ui_delete_metadata_row <- function() {
 #' easy path for changes that ought to be logged, and the log is the only
 #' record of why anything changed.
 #'
-#' @return TRUE if a change was made, NULL if cancelled
+#' @return TRUE if a change was made, NULL if canceled
 ui_correct_device_details <- function() {
 
   cat("\n============================================\n")
@@ -4850,7 +5074,7 @@ ui_correct_device_details <- function() {
 
   selected <- ui_select_from_menu("Select station:", station_options)
   if (is.null(selected)) {
-    cat("Cancelled\n")
+    cat("Canceled\n")
     return(invisible(NULL))
   }
   # ui_select_from_menu returns the chosen STRING, not an index, so strip the
@@ -4887,7 +5111,7 @@ ui_correct_device_details <- function() {
   } else {
     dsel <- ui_select_from_menu("Select device:", device_options)
     if (is.null(dsel)) {
-      cat("Cancelled\n")
+      cat("Canceled\n")
       return(invisible(NULL))
     }
     row_i <- match(dsel, device_options)
@@ -5217,7 +5441,7 @@ ui_correct_device_details <- function() {
 #' duplicate the maintenance entry and re-stamp last_visit. What is actually
 #' outstanding is the archiving alone.
 #'
-#' @return TRUE if an ingest completed, FALSE if deferred again, NULL if cancelled
+#' @return TRUE if an ingest completed, FALSE if deferred again, NULL if canceled
 ui_resume_pending_ingest <- function() {
 
   pending <- load_pending_ingest()
@@ -5242,7 +5466,7 @@ ui_resume_pending_ingest <- function() {
 
   selected <- ui_select_from_menu("Select task to resume:", options)
   if (is.null(selected)) {
-    cat("Cancelled\n")
+    cat("Canceled\n")
     return(invisible(NULL))
   }
 
@@ -5438,7 +5662,7 @@ metadata_manager <- function() {
             # Two different situations, previously asked as one question and
             # answered as the other. Doing maintenance AND a port change on
             # one visit is normal - both happened, both belong in the log.
-            # Picking the wrong workflow is a miscategorisation, and only that
+            # Picking the wrong workflow is a miscategorization, and only that
             # warrants removing the entry just written.
             cat("\nAnything else at this station on this visit?\n")
             cat("  1. Yes - I also did something else (port change, device\n")
@@ -5626,7 +5850,7 @@ metadata_manager <- function() {
             }
             
             #### Metadata review, last, once per station that moved ####
-            # A companion that travelled has a changed record of its own, and
+            # A companion that traveled has a changed record of its own, and
             # only now - after the move and any port work - is there something
             # complete to confirm.
             for (ms in result$moved_stations) {
@@ -5656,11 +5880,8 @@ metadata_manager <- function() {
         
         ### Option 8: Surveyed elevation of station or logger
         else if (work_choice == "8") {
+          # The survey workflows announce their own completion
           result <- ui_survey_elevations()
-          
-          if (!is.null(result)) {
-            cat("\n✓ Elevation survey complete\n")
-          }
           # Continue to next iteration (allow more work)
           next
         }
@@ -5778,7 +5999,7 @@ metadata_manager <- function() {
                   sep = "")
               cat("   of type '", device_station_type, "'. Its sensor was\n", sep = "")
               cat("   removed when this station was last retired.\n\n")
-              cat("   Full port initialisation would overwrite the other\n")
+              cat("   Full port initialization would overwrite the other\n")
               cat("   station's configuration, so the sensor is recorded one\n")
               cat("   port at a time instead.\n\n")
               
@@ -5905,7 +6126,7 @@ metadata_manager <- function() {
                   sep = "")
               cat("   of type '", device_station_type, "'. Its sensor was\n", sep = "")
               cat("   removed when this station was last retired.\n\n")
-              cat("   Full port initialisation would overwrite the other\n")
+              cat("   Full port initialization would overwrite the other\n")
               cat("   station's configuration, so the sensor is recorded one\n")
               cat("   port at a time instead.\n\n")
               
