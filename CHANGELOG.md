@@ -38,6 +38,15 @@ All notable changes to the VI-FLO Engine project are documented here.
   point to the gazetteer
 - `README.md`: the gazetteer is listed in the repo layout
 
+### Fixed
+- **Every HOBO U20 stream gauge was recorded as the wrong model.** All 27
+  rows, active and retired, said `U20-001-01`, the 9 m (30 ft) range logger.
+  They are `U20-001-04`, the 4 m (13 ft) model, so any check of a reading
+  against its sensor's range would have used the wrong limit.
+  `tools/migrations/migrate_u20_model_04.R` corrects them by explicit
+  `unique_id` rather than by model, because real `U20-001-01` loggers are
+  about to join the network at the pond sites
+
 ---
 
 ## [v2.6.0] - 2026-10-14
