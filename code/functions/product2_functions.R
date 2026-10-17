@@ -110,6 +110,9 @@ VARIABLE_KINDS <- c("instantaneous", "accumulated", "maximum", "minimum")
 normalize_unit <- function(x) {
   x <- trimws(enc2utf8(as.character(x)))
   x[is.na(x)] <- ""
+  # A UTF-8 degree sign read once as Latin-1 arrives as two characters, "Â°".
+  # The stray "Â" goes, wherever it precedes a degree, square or cube sign
+  x <- gsub("\u00c2(?=[\u00b0\u00b2\u00b3])", "", x, perl = TRUE)
   # The degree sign, however it survived the trip
   x <- gsub("\u00b0|<U\\+00B0>|\u00ba", "deg", x)
   x <- gsub("\u00b2|<U\\+00B2>", "2", x)
@@ -457,7 +460,10 @@ read_p1_set <- function(paths, log = NULL, registry = NULL) {
   fetched <- p1_fetch_times(paths, log)
   parts <- list(); unmapped <- list()
   for (i in seq_along(paths)) {
-    m <- map_measurements(read_p1_long(paths[i]), registry)
+    # A file that cannot be mapped says which file it is
+    m <- tryCatch(map_measurements(read_p1_long(paths[i]), registry),
+                  error = function(e) stop(basename(paths[i]), ": ", conditionMessage(e),
+                                           call. = FALSE))
     if (nrow(attr(m, "unmapped")) > 0) {
       unmapped[[length(unmapped) + 1]] <- cbind(source_file = basename(paths[i]),
                                                 attr(m, "unmapped"))
@@ -505,8 +511,10 @@ DEVICE_LEVEL_VARIABLES <- c("logger_pressure")
 #' @param windows,pwindows From deployment_windows() and port_windows(), or
 #'   NULL to compute
 #' @return Data frame: the readings that resolved, with station_id and the
-#'   full variable name. Attribute "unattributed": device, variable, first,
-#'   last and count of readings that resolved to no station
+#'   full variable name. Attribute "unattributed": device, port, variable,
+#'   first, last and count of readings that resolved to no station. Attribute
+#'   "unattributed_readings": those readings themselves - device, port,
+#'   variable, datetime - so a caller can count them over its own period
 attribute_readings <- function(readings, windows = NULL, pwindows = NULL) {
   if (is.null(windows))  windows  <- deployment_windows()
   if (is.null(pwindows)) pwindows <- port_windows()
@@ -556,24 +564,38 @@ attribute_readings <- function(readings, windows = NULL, pwindows = NULL) {
 
   #### What resolved to nothing ####
   lost <- is.na(readings$station_id)
-  unattributed <- if (any(lost)) {
-    u <- readings[lost, ]
-    agg <- aggregate(list(rows = rep(1L, nrow(u))),
-                     list(device_serial = u$device_serial, variable = u$variable), length)
-    agg$first <- as.POSIXct(tapply(as.numeric(u$datetime), paste(u$device_serial, u$variable), min)[
-      paste(agg$device_serial, agg$variable)], origin = "1970-01-01", tz = "UTC")
-    agg$last <- as.POSIXct(tapply(as.numeric(u$datetime), paste(u$device_serial, u$variable), max)[
-      paste(agg$device_serial, agg$variable)], origin = "1970-01-01", tz = "UTC")
-    agg
-  } else {
-    data.frame(device_serial = character(0), variable = character(0),
-               rows = integer(0))
-  }
+  lost_rows <- readings[lost, c("device_serial", "port", "variable", "datetime"), drop = FALSE]
+  rownames(lost_rows) <- NULL
 
   out <- readings[!lost, , drop = FALSE]
   rownames(out) <- NULL
-  attr(out, "unattributed") <- unattributed
+  attr(out, "unattributed") <- summarize_unattributed(lost_rows)
+  attr(out, "unattributed_readings") <- lost_rows
   out
+}
+
+#' Unattributed readings, counted by device, port and variable
+#'
+#' @param u Data frame: device_serial, port, variable, datetime
+#' @return Data frame: device_serial, port, variable, rows, first, last
+summarize_unattributed <- function(u) {
+  if (nrow(u) == 0) {
+    return(data.frame(device_serial = character(0), port = integer(0),
+                      variable = character(0), rows = integer(0),
+                      first = as.POSIXct(character(0), tz = "UTC"),
+                      last = as.POSIXct(character(0), tz = "UTC")))
+  }
+  key <- paste(u$device_serial, u$port, u$variable, sep = "|")
+  k <- unique(key)
+  i <- match(k, key)
+  t <- as.numeric(u$datetime)
+  data.frame(device_serial = u$device_serial[i], port = u$port[i], variable = u$variable[i],
+             rows  = as.integer(tabulate(match(key, k), length(k))),
+             first = as.POSIXct(as.numeric(tapply(t, factor(key, levels = k), min)),
+                                origin = "1970-01-01", tz = "UTC"),
+             last  = as.POSIXct(as.numeric(tapply(t, factor(key, levels = k), max)),
+                                origin = "1970-01-01", tz = "UTC"),
+             stringsAsFactors = FALSE)
 }
 
 
@@ -907,11 +929,19 @@ p1_files_for <- function(station, year, windows) {
 
 #' The years a station has readings in, by its devices' files
 #'
+#' Only years the station was deployed in: a logger serving a weather station
+#' since 2021 and a vwc station since 2023 has files from 2021, but the vwc
+#' station has nothing to build before 2023.
+#'
 #' @param station Character
 #' @param windows Data frame from deployment_windows()
 #' @return Integer years
 p2_years_for <- function(station, windows) {
-  devices <- unique(windows$device_serial[windows$station_id == station])
+  w <- windows[windows$station_id == station, , drop = FALSE]
+  devices <- unique(w$device_serial)
+  tz <- "America/Puerto_Rico"
+  first <- as.integer(format(min(w$starts), "%Y", tz = tz))
+  last  <- if (any(is.na(w$ends))) 9999L else as.integer(format(max(w$ends), "%Y", tz = tz))
   files <- c(list.files(wds("device_zentra"), pattern = "_raw\\.rds$"),
              list.files(wds("device_hobo"),   pattern = "_raw\\.rds$"))
   yrs <- integer(0)
@@ -920,7 +950,8 @@ p2_years_for <- function(station, windows) {
     if (is.null(p) || is.na(p$device_serial) || !p$device_serial %in% devices) next
     yrs <- c(yrs, seq(as.integer(format(p$start, "%Y")), as.integer(format(p$end, "%Y"))))
   }
-  sort(unique(yrs))
+  yrs <- sort(unique(yrs))
+  yrs[yrs >= first & yrs <= last]
 }
 
 #' Each device's declared interval against the one it actually logged
@@ -982,6 +1013,7 @@ build_p2 <- function(stations = NULL, years = NULL, quiet = FALSE) {
   if (is.null(stations)) stations <- sort(unique(windows$station_id))
   manifest <- read_manifest(product)
   report <- list()
+  lost <- list()
 
   for (st in stations) {
     yrs <- if (is.null(years)) p2_years_for(st, windows) else years
@@ -993,6 +1025,14 @@ build_p2 <- function(stations = NULL, years = NULL, quiet = FALSE) {
       if (length(files) > 0) {
         r <- read_p1_set(files, log, registry)
         a <- attribute_readings(r, windows, pwindows)
+        # Readings that belonged to no station at all, gathered for the
+        # summary. A co-located logger's are seen from both its stations, so
+        # the summary counts each device, variable and year once
+        # Only this year's: a file spanning several years is read for each,
+        # and would otherwise be counted in full every time
+        u <- attr(a, "unattributed_readings")
+        u <- u[as.integer(format(u$datetime, "%Y", tz = "America/Puerto_Rico")) == yr, , drop = FALSE]
+        if (nrow(u) > 0) lost[[length(lost) + 1]] <- u
         a <- a[a$station_id == st, , drop = FALSE]
         if (nrow(attr(r, "unmapped")) > 0) {
           notes <- c(notes, paste0("unrecognized: ",
@@ -1063,6 +1103,26 @@ build_p2 <- function(stations = NULL, years = NULL, quiet = FALSE) {
 
   if (!is.null(manifest)) write_manifest(manifest, product)
   out <- if (length(report) > 0) do.call(rbind, report) else NULL
+
+  unattributed <- NULL
+  if (length(lost) > 0) {
+    u <- do.call(rbind, lost)
+    # Each reading once: a co-located logger is read from both its stations
+    u <- u[!duplicated(u), , drop = FALSE]
+    unattributed <- summarize_unattributed(u)
+  }
+  if (!is.null(out)) attr(out, "unattributed") <- unattributed
+  if (!quiet && !is.null(unattributed) && nrow(unattributed) > 0) {
+    cat("\nUnattributed - read from these stations' loggers, belonging to no station:\n")
+    for (i in seq_len(nrow(unattributed))) {
+      x <- unattributed[i, ]
+      cat(sprintf("  %-10s %-7s %-20s %8s readings  %s to %s\n", x$device_serial,
+                  if (is.na(x$port)) "" else paste("port", x$port), x$variable,
+                  format(x$rows, big.mark = ","),
+                  format(x$first, "%Y-%m-%d", tz = "America/Puerto_Rico"),
+                  format(x$last,  "%Y-%m-%d", tz = "America/Puerto_Rico")))
+    }
+  }
   if (!quiet && !is.null(out)) {
     flagged <- out[nzchar(out$problems) | grepl("declared", out$intervals) | out$conflicts != "0", ]
     if (nrow(flagged) > 0) {

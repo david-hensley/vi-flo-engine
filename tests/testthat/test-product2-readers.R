@@ -57,6 +57,11 @@ test_that("units are recognized however they are spelled", {
                c("degC", "degF", "kPa", "psi", "m3/m3", "W/m2", "mm/h", ""))
 })
 
+test_that("a degree sign mangled by an encoding round trip is still recognized", {
+  expect_equal(normalize_unit(c("\u00c2\u00b0C", "\u00c2\u00b0F", "m\u00c2\u00b3/m\u00c2\u00b3", "W/m\u00c2\u00b2")),
+               c("degC", "degF", "m3/m3", "W/m2"))
+})
+
 test_that("conversions are right, and an unknown one is refused", {
   expect_equal(convert_units(212, "degF", "degC"), 100)
   expect_equal(convert_units(1, "psi", "kPa"), 6.894757)

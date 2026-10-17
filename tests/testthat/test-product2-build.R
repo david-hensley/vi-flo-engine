@@ -104,3 +104,41 @@ test_that("a station's years come from its devices' files", {
   expect_equal(p2_years_for("zzb_hydro", w), 2026L)
   expect_equal(p2_years_for("zzs_hydro", w), 2023L)
 })
+
+test_that("readings outside every deployment are counted in the build's summary", {
+  local_test_root(); place_p1(U20)
+  path <- file.path(wds("meta_internal"), "device_metadata.csv")
+  m <- read.csv(path, stringsAsFactors = FALSE)
+  m$deploy_datetime[m$unique_id == "t-0007"] <- "2026-08-30 12:00:00"   # after the first readings
+  write.csv(m, path, row.names = FALSE)
+  out <- build_p2("zzb_hydro", 2026, quiet = TRUE)
+  u <- attr(out, "unattributed")
+  expect_setequal(u$variable, c("abs_pressure", "water_temp"))
+  expect_true(all(u$device_serial == "21652379"))
+  expect_true(all(u$rows > 0))
+  expect_true(all(format(u$last, "%Y-%m-%d", tz = "America/Puerto_Rico") <= "2026-08-30"))
+})
+
+test_that("a station is only built for years it was deployed in", {
+  local_test_root(); place_p1(U20)
+  w <- deployment_windows()
+  expect_equal(p2_years_for("zzb_hydro", w), 2026L)
+  w$starts[w$station_id == "zzb_hydro"] <- as.POSIXct("2027-01-01 12:00:00", tz = "America/Puerto_Rico")
+  expect_length(p2_years_for("zzb_hydro", w), 0)
+})
+
+test_that("unattributed readings are counted once, however many builds read them", {
+  local_test_root(); place_p1(UVI)
+  # zzu_vwc1 deployed after these readings: its five water content series
+  # belong to no station, and the logger is read from both its stations
+  path <- file.path(wds("meta_internal"), "device_metadata.csv")
+  m <- read.csv(path, stringsAsFactors = FALSE)
+  m$deploy_datetime[m$unique_id == "t-0010"] <- "2026-12-01 12:00:00"
+  write.csv(m, path, row.names = FALSE)
+
+  out <- build_p2(c("zzu_weather", "zzu_vwc1", "zzu_weather"), 2026, quiet = TRUE)
+  u <- attr(out, "unattributed")
+  expect_equal(sum(u$rows), 5 * 3)               # five ports, three readings each
+  expect_setequal(u$port, 2:6)
+  expect_true(all(u$device_serial == "z6-13368"))
+})

@@ -90,6 +90,16 @@ test_that("the same moment on two ports is two readings, not a duplicate", {
   expect_equal(sum(duplicated(wc[, c("port", "datetime")])), 0)
 })
 
+test_that("a file that cannot be mapped is named in the error", {
+  local_test_root()
+  path <- place_p1(U20)
+  x <- readRDS(path)
+  pc <- grep("^Abs Pres", names(x))
+  names(x)[pc] <- sub("kPa", "bar", names(x)[pc])
+  saveRDS(x, path)
+  expect_error(read_p1_set(path), U20, fixed = TRUE)
+})
+
 test_that("a HOBO file reads, maps and deduplicates through the same path", {
   local_test_root()
   out <- read_p1_set(place_p1(U20))

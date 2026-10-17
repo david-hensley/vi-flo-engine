@@ -1,6 +1,6 @@
 source,sensor,measurement,keep,variable,unit,kind,depth,source_unit,note
 zentra,ATMOS 41,Air Temperature,TRUE,temp,degC,instantaneous,FALSE,,
-zentra,ATMOS 41,Relative Humidity,TRUE,rh,%,instantaneous,FALSE,,
+zentra,ATMOS 41,Relative Humidity,FALSE,,,,,,"Computed by ZENTRA from vapor pressure, and absent from the full-history exports. Derivable for the whole record from vapor_pressure and temp"
 zentra,ATMOS 41,Atmospheric Pressure,TRUE,pressure,kPa,instantaneous,FALSE,,The barometric source for level
 zentra,ATMOS 41,Vapor Pressure,TRUE,vapor_pressure,kPa,instantaneous,FALSE,,
 zentra,ATMOS 41,Wind Speed,TRUE,wind_speed,m/s,instantaneous,FALSE,,Averaged by the sensor over its interval
@@ -18,7 +18,7 @@ zentra,ATMOS 41,Reference ET,FALSE,,,,,,Computed by ZENTRA
 zentra,ATMOS 41,Hourly Reference ET,FALSE,,,,,,Computed by ZENTRA
 zentra,ATMOS 41,Daily Reference ET,FALSE,,,,,,Computed by ZENTRA
 zentra,ATMOS 41 G2,Air Temperature,TRUE,temp,degC,instantaneous,FALSE,,
-zentra,ATMOS 41 G2,Relative Humidity,TRUE,rh,%,instantaneous,FALSE,,
+zentra,ATMOS 41 G2,Relative Humidity,FALSE,,,,,,"Computed by ZENTRA from vapor pressure, and absent from the full-history exports. Derivable for the whole record from vapor_pressure and temp"
 zentra,ATMOS 41 G2,Atmospheric Pressure,TRUE,pressure,kPa,instantaneous,FALSE,,The barometric source for level
 zentra,ATMOS 41 G2,Vapor Pressure,TRUE,vapor_pressure,kPa,instantaneous,FALSE,,
 zentra,ATMOS 41 G2,Wind Speed,TRUE,wind_speed,m/s,instantaneous,FALSE,,Averaged by the sensor over its interval

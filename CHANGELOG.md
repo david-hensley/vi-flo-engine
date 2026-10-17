@@ -24,7 +24,9 @@ All notable changes to the VI-FLO Engine project are documented here.
     `hobolink_level`, never `level`
   - Dropped, and still in Product 1: diagnostics (battery, signal, logger
     temperature, tilt, RH sensor temperature), raw VWC, everything ZENTRA
-    computes (VPD, dew point, reference ET), the G2's drop counts, spoon tips
+    computes (VPD, dew point, reference ET, relative humidity - which the
+    full-history exports do not even carry, so kept it would exist only from
+    September 2026), the G2's drop counts, spoon tips
     and rain conductivity - noted as evidence for Product 3 rain QC - the
     ECRN-50s, deployed but their data judged unbelievable, and the TEROS 21,
     on no station's ports
@@ -39,6 +41,10 @@ All notable changes to the VI-FLO Engine project are documented here.
     measurement the registry has never heard of is reported, not silently
     lost
   - Pressure stays in kPa, the unit both the U20s and the ATMOS deliver
+  - `variable_name()` in `attribution_functions.R` is gone. Its hard-coded
+    translations - HOBOlink's level as `level` among them - were a second,
+    contradicting answer to what a measurement is called, and nothing used
+    it once the registry existed
 - **Product 2, piece 2: deduplication across overlapping downloads**
   - Two downloads can hold the same moment - a re-run, a catch-up, an
     offload repeating the end of the last. `dedupe_readings()` keeps one
@@ -133,6 +139,16 @@ All notable changes to the VI-FLO Engine project are documented here.
   masks functions such as `terra`'s `compare()` in the session
 
 ### Fixed
+- Some HOBO Product 1 files carry the degree sign mangled by an encoding round
+  trip, as "Â°C", which stopped the first real Product 2 build. It is now
+  recognized, and an error mapping a file names the file
+- `build_p2()` counted readings that belong to no station but never showed
+  them. Its summary now lists them by device, port and variable with the
+  dates they span, counting only each year's own readings and each reading
+  once - a full-history export spanning five years, read for each, had been
+  counted five times over. And a station is
+  built only for years it was deployed in, not every year its logger has
+  files from
 - The reach arithmetic printed a stray space before a short first leg -
   `format()` pads every leg to the widest. Found by the new suite on its first
   run
