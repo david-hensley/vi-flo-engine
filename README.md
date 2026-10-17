@@ -41,9 +41,9 @@ nothing is written into them yet. Attribution resolves readings to stations
 and variables; writing Product 2, automatic quality control, the derived
 series and the published archive follow it.
 
-Product 1 itself is complete. The 2021-2025 archive was imported in October
-2026 - 3.29 million readings across 282 files - and `validate_product1()`
-checks it against the download log.
+Product 1 itself is complete, including the 2021-2025 archive imported in
+October 2026. `validate_product1()` checks every file against the download log
+and reports the archive's current size.
 
 ---
 
@@ -118,13 +118,21 @@ Every variable has its own ladder:
 | **P4** | human decisions applied |
 
 ```
-internal/products/hydro/level/p2/sr1_hydro_2026.csv.gz
-internal/products/weather/precip/p3/uvi_weather_2025.csv.gz
-internal/products/vwc/vwc_30cm/p4/bta2_vwc1_2024.csv.gz
+internal/products/p2/hydro/sr1_hydro/abs_pressure/sr1_hydro_abs_pressure_p2_2026.csv.gz
+internal/products/p3/weather/uvi_weather/precip/uvi_weather_precip_p3_2025.csv.gz
+internal/products/p4/vwc/bta2_vwc1/vwc_30cm/bta2_vwc1_vwc_30cm_p4_2024.csv.gz
 ```
 
 Station-year files, one variable each, `.csv.gz` - a format anything can open,
 compressed because a station-variable-year is about 1.3 MB as plain text.
+Filed by level first, because each level has its own life - Product 2 is
+rebuilt freely, Product 4 rests on human decisions, a release ships one level -
+and then by station, because a station-year is what regenerates together.
+Named in full, so a file copied out of its folder still says what it is.
+
+What becomes a variable, in which unit, and whether it is instantaneous or
+accumulated, is set by `data/variables.csv` - one row for every measurement
+any logger reports, kept or dropped.
 
 Every value carries a flag: `observed`, `interpolated`, `substituted`,
 `estimated`, `manual`, `missing` or `suspect`. So a decision resting on a
@@ -367,6 +375,18 @@ run a week-old downloader. See
 `tools/launcher/metadata-manager.Rproj`. It opens RStudio, loads everything,
 and goes straight to the menu.
 
+**To run the tests**, before calling a change good, after `start.R`:
+
+```r
+source(file.path(Sys.getenv("VI_FLO_ENGINE_ROOT"), "tests/run_tests.R"))
+```
+
+Each test builds its own throwaway data root, so real metadata is never in
+reach. Workflows are driven by scripted answers and checked by what they leave
+behind. The suite is run by hand - not on every push, not on every session -
+and takes a few seconds. A bug fixed should arrive with the test that would
+have caught it.
+
 ---
 
 ## Repository Structure
@@ -391,10 +411,15 @@ and goes straight to the menu.
 │       ├── attribution_functions.R  # Readings to stations, and regularisation
 │       ├── orphan_functions.R       # Archived files with no log row
 │       ├── validate_product1_functions.R  # The archive against the log
+│       ├── survey_functions.R       # Paired-gauge survey arithmetic, Product 0 writers
+│       ├── product2_functions.R     # Product 2: the variable registry and Product 1 readers
 │       └── backup_restore_functions.R
 │   └── jobs/
 │       └── download_job.R           # Pull, fetch, push - scheduled or on demand
-├── data/         # Data dictionary and sample metadata
+├── tests/
+│   ├── run_tests.R   # The suite, run by hand
+│   └── testthat/     # Tests, helpers and fixtures
+├── data/         # Data dictionary, variable registry, sample metadata
 ├── docs/
 │   ├── ROADMAP.md    # Open work, where it came from, what it waits on
 │   ├── PLACE_NAMES.md  # VI-FLO's names for guts and watersheds, and everyone else's
@@ -441,6 +466,7 @@ differ substantially in accuracy. See `data/DATA_DICTIONARY.md`.
 
   * `dplyr`
   * `ggplot2`
+  * `testthat`, for the test suite only
 
 ---
 

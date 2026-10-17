@@ -440,107 +440,101 @@ check_raw_overlap <- function(station = NULL, start, end, dir = NULL,
 #                            PRODUCT PATHS                                     #
 ################################################################################
 
-#' Which domain a variable belongs to
+#' The station type a station id names
 #'
-#' Kept in one place so that a variable's home is a fact about the variable,
-#' not something each caller decides. A variable not listed is returned under
-#' "other" rather than refused - a new sensor should not break a write.
+#' A station id is site plus type, with a number only where a site has more
+#' than one station of that type: `uvi_weather`, `uvi_vwc1`, `bt1_pond`,
+#' `bt1_hydro2`. The type is the domain a product file lives under.
 #'
-#' @param variable Character
-#' @return Character domain
-variable_domain <- function(variable) {
-  domains <- list(
-    hydro   = c("level", "discharge", "stage", "velocity"),
-    weather = c("precip", "temp", "rh", "wind_speed", "wind_direction",
-                "gust_speed", "solar_radiation", "pressure", "vapor_pressure",
-                "lightning_count", "lightning_distance"),
-    vwc     = c("vwc_10cm", "vwc_30cm", "vwc_50cm", "vwc_100cm",
-                "soil_temp", "soil_ec")
-  )
-
-  for (d in names(domains)) if (variable %in% domains[[d]]) return(d)
-
-  # A depth-suffixed soil variable we have not met before
-  if (grepl("^(vwc|soil)_", variable)) return("vwc")
-  "other"
+#' @param station Character
+#' @return Character
+station_type_of <- function(station) {
+  sub("[0-9]+$", "", sub("^.*_", "", station))
 }
-
 
 #' Where a product file lives
 #'
 #' The structure is composed here rather than spread across the datamap, so
 #' that changing it later means changing this function and nothing else.
 #'
-#'     internal/products/<domain>/<variable>/p<n>/<station>_<year>.csv.gz
+#'     internal/products/p<n>/<type>/<station>/<variable>/
+#'         <station>_<variable>_p<n>_<year>.csv.gz
 #'
-#' Station-year files, one variable each. Small enough to open, large enough
-#' not to be a thousand files a year, and the unit somebody asks for.
+#' By level first, because each level has its own life: Product 2 is rebuilt
+#' freely, Product 4 rests on human decisions, and a release ships one level.
+#' Each can then be wiped, rebuilt or published whole. Within a level, by
+#' station, because a station-year is what regenerates together and a person
+#' browsing is nearly always looking at one station. Questions across
+#' stations go through the query tool.
+#'
+#' One file per station, variable and year, never mixed: each variable climbs
+#' the product ladder on its own, so a file holding two could have no single
+#' level. The filename carries everything, so a file copied out of its folder
+#' still says what it is.
 #'
 #' Compressed because a station-variable-year is about 1.3 MB as plain text and
-#' a tenth of that gzipped. read.csv() opens a .csv.gz directly, and the query
-#' tool hands out plain CSV for anyone who would rather not deal with it.
+#' a tenth of that gzipped. read.csv() opens a .csv.gz directly.
 #'
-#' @param product Integer. 2, 3 or 4
-#' @param variable Character. "level", "precip", "vwc_10cm"
-#' @param station Character. Station id, or NULL for the directory
+#' @param product Integer. 2 or above
+#' @param station Character. Station id
+#' @param variable Character. "abs_pressure", "precip", "vwc_30cm", or NULL
+#'   for the station's directory
 #' @param year Integer, or NULL for the directory
 #' @param create Logical. Create the directory if it does not exist
 #' @return Character path
-product_path <- function(product, variable, station = NULL, year = NULL,
+product_path <- function(product, station, variable = NULL, year = NULL,
                          create = FALSE) {
-
   if (!product %in% 2:9) {
     stop("product must be 2 or above - products 0 and 1 are device-keyed and ",
          "live under device-data", call. = FALSE)
   }
+  base <- file.path(wds("products"), paste0("p", product),
+                    station_type_of(station), station)
+  if (is.null(variable)) return(base)
 
-  dir <- file.path(wds("products"), variable_domain(variable), variable,
-                   paste0("p", product))
-
+  dir <- file.path(base, variable)
   if (create && !dir.exists(dir)) dir.create(dir, recursive = TRUE)
-
-  if (is.null(station) || is.null(year)) return(dir)
-
-  file.path(dir, paste0(station, "_", year, ".csv.gz"))
+  if (is.null(year)) return(dir)
+  file.path(dir, paste0(station, "_", variable, "_p", product, "_", year, ".csv.gz"))
 }
 
-
-#' Every product file for a variable, optionally narrowed
+#' Every product file at a level, optionally narrowed
 #'
 #' @param product Integer
-#' @param variable Character
-#' @param station Character, or NULL for all
+#' @param station Character vector, or NULL for every station
+#' @param variable Character vector, or NULL for every variable
 #' @param years Integer vector, or NULL for all
 #' @return Character vector of paths that exist
-list_product_files <- function(product, variable, station = NULL,
+list_product_files <- function(product, station = NULL, variable = NULL,
                                years = NULL) {
-
-  dir <- product_path(product, variable)
-  if (!dir.exists(dir)) return(character(0))
-
-  files <- list.files(dir, pattern = "\\.csv\\.gz$", full.names = TRUE)
+  root <- file.path(wds("products"), paste0("p", product))
+  if (!dir.exists(root)) return(character(0))
+  pattern <- paste0("_p", product, "_[0-9]{4}\\.csv\\.gz$")
+  files <- list.files(root, pattern = pattern, recursive = TRUE, full.names = TRUE)
   if (length(files) == 0) return(files)
 
-  parsed <- sub("\\.csv\\.gz$", "", basename(files))
-  file_year <- suppressWarnings(as.integer(sub("^.*_([0-9]{4})$", "\\1", parsed)))
-  file_station <- sub("_[0-9]{4}$", "", parsed)
+  # <type>/<station>/<variable>/<file>, read from the path rather than the name
+  parts <- strsplit(files, "/", fixed = TRUE)
+  n <- lengths(parts)
+  f_station  <- mapply(function(p, k) p[k - 2], parts, n)
+  f_variable <- mapply(function(p, k) p[k - 1], parts, n)
+  f_year <- as.integer(sub("^.*_([0-9]{4})\\.csv\\.gz$", "\\1", files))
 
   keep <- rep(TRUE, length(files))
-  if (!is.null(station)) keep <- keep & file_station %in% station
-  if (!is.null(years))   keep <- keep & file_year %in% years
-
+  if (!is.null(station))  keep <- keep & f_station %in% station
+  if (!is.null(variable)) keep <- keep & f_variable %in% variable
+  if (!is.null(years))    keep <- keep & f_year %in% years
   files[keep]
 }
 
-
 #' Where a discrete measurement file lives
 #'
-#' Mirrors product_path(), because a gauging measures the same quantity as the
-#' series does - the difference is that a person made it rather than an
-#' instrument on a schedule. So the two sit beside each other:
+#' Parallel to product_path(), because a gauging measures the same quantity
+#' as the series does - the difference is that a person made it rather than an
+#' instrument on a schedule. So the two sit in parallel places:
 #'
-#'     products/hydro/discharge/p2/   the series
-#'     discrete/hydro/discharge/      gaugings
+#'     products/p2/hydro/sr1_hydro/discharge/   the series
+#'     discrete/hydro/flowtracker2/             gaugings
 #'
 #' No product stages. A gauging is what it is - there is nothing to derive from
 #' it that would make a second version of the same measurement.

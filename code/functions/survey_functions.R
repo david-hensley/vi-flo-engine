@@ -306,8 +306,10 @@ read_trupulse_export <- function(path) {
 #' @return Character, e.g. "7.67 + 16.49 = 24.16 m"
 format_reach_arithmetic <- function(parsed) {
   u <- parsed$unit_code
-  sum_line <- paste0(paste(format(parsed$legs, nsmall = 2), collapse = " + "),
-                     " = ", format(round(parsed$total, 2), nsmall = 2), " ", u)
+  # sprintf, not format(): format() pads every leg to the widest one, which
+  # put a stray space in front of a short first leg
+  sum_line <- paste0(paste(sprintf("%.2f", parsed$legs), collapse = " + "),
+                     " = ", sprintf("%.2f", parsed$total), " ", u)
   if (u != "m") {
     sum_line <- paste0(sum_line, " = ", sprintf("%.2f", parsed$total_m), " m")
   }

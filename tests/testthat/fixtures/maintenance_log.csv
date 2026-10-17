@@ -1,0 +1,2 @@
+"timestamp","field_visit_date","station_id","station_type","device_serial","action_type","details","ports_updated","logged_by"
+"2026-10-14 20:00:00","2026-10-14","bta2_hydro","hydro","90000002","maintenance","Fixture entry",FALSE,"DAH"

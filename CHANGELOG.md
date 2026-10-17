@@ -3,6 +3,73 @@ All notable changes to the VI-FLO Engine project are documented here.
 
 ---
 
+## [Unreleased]
+
+### Added
+- **Product 2, piece 1: the variable registry and one reader for every
+  Product 1 shape**, in `code/functions/product2_functions.R`
+  - `data/variables.csv`: every measurement any logger reports, as kept or
+    dropped, with its VI-FLO name, unit, and kind - instantaneous,
+    accumulated or maximum, which decides how a finer interval reaches the
+    15-minute grid. A plain CSV, to read and correct without R
+  - Kept: the ATMOS measurements, TEROS water content, soil temperature and
+    bulk EC by depth, U20 absolute pressure and water temperature, the ZL6's
+    own barometer as `logger_pressure` - a last-resort barometric source -
+    and HOBOlink's pressure, temperature and barometer. HOBOlink's computed
+    level becomes `hobolink_level`, never `level`
+  - Dropped, and still in Product 1: battery, signal, logger temperature,
+    the ATMOS tilt axes and RH sensor temperature, raw VWC, and everything
+    ZENTRA computes - VPD, dew point, reference ET, saturation extract EC
+  - `read_p1_long()` reads all three shapes - ZL6 in UTC, U20 text with a
+    declared offset, HOBOlink in local time - into one long form in UTC
+  - `map_measurements()` names, converts and filters by the registry. Units
+    arrive spelled several ways and are recognized; psi, degF and hPa are
+    converted; an unknown unit stops the build rather than being guessed. A
+    nonzero ZL6 error code empties the value but keeps the row. A
+    measurement the registry has never heard of is reported, not silently
+    lost
+  - Pressure stays in kPa, the unit both the U20s and the ATMOS deliver
+- Real Product 1 fixtures for the suite: bta2b's U20, the UVI ZL6 serving a
+  weather and a vwc station at once, a vwc ZL6 fetched twice four minutes
+  apart, and 400 rows of SR1's HOBOlink logger
+- **A test suite**, in `tests/`, run by hand with `tests/run_tests.R` before a
+  change is called good. The engine stays a folder of function files;
+  `testthat` is the only new dependency
+  - Every test builds a throwaway data root - its own datamap, fixture
+    metadata and maintenance log - and points `VI_FLO_DATA_ROOT` at it, so
+    tests save, back up and log freely without real metadata in reach
+  - `with_inputs()` drives an interactive workflow with scripted answers, and
+    fails if the workflow asks more questions than supplied or fewer
+  - First tests aim at what has actually broken: metadata surviving a save
+    and reload, datetimes never written as epochs, project-local dates in
+    Product 1 filenames, writers touching one deployment rather than every
+    row with a serial, the survey arithmetic against BTA2's real readings and
+    TruPulse export, and both survey workflows end to end
+  - Checked by reintroducing the per-serial write bug: two tests fail
+
+### Changed
+- **Product files are filed by level, then station:**
+  `products/p<n>/<type>/<station>/<variable>/<station>_<variable>_p<n>_<year>.csv.gz`.
+  Each level has its own life - Product 2 rebuilt freely, Product 4 resting
+  on human decisions, a release shipping one level - and within a level a
+  station-year is what regenerates together. The name carries everything.
+  Nothing had been written under the old variable-first layout.
+  `variable_domain()` is gone: the station's type is the folder
+- The test runner detaches `testthat` when it finishes, so it no longer
+  masks functions such as `terra`'s `compare()` in the session
+
+### Fixed
+- The reach arithmetic printed a stray space before a short first leg -
+  `format()` pads every leg to the widest. Found by the new suite on its first
+  run
+- `README.md`'s Product 1 figure, "3.29 million readings across 282 files",
+  was given as the size of the 2021-2025 import, which was 1.46 million on
+  its own. It is gone rather than corrected: the archive grows every week, so
+  any count in the README is stale by the next download.
+  `validate_product1()` reports the current size
+
+---
+
 ## [v2.7.0] - 2026-10-17
 
 The network gains its first pond stations, Windsor (`srl1_pond`) and
@@ -74,7 +141,7 @@ Alongside, a gazetteer of VI-FLO's place names against everyone else's.
 - The `bta2_hydro` and `bta2_vwc` dossiers say which channel they are on, and
   point to the gazetteer
 - `README.md`: the gazetteer is listed in the repo layout, and the status
-  is brought up to date
+  is brought up to date.
 - The three migrations below are applied, listed in
   `tools/migrations/README.md`, and their scripts deleted
 

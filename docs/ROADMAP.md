@@ -279,34 +279,15 @@ be the constraint now that the job runs on a desktop.
 
 ## Engineering
 
-### The metadata manager has not been tested since September
+### Workflow tests for the rest of the metadata manager
 
-Raised on 7 October after a round of substantial changes — *"with this much
-alteration we need to do comprehensive testing of MM again"* — and it has been
-altered several times since: `expiry_date` added to the device details
-workflow, the roster and to-do views wired in under option 3, device renaming,
-and the propagation of per-device fields to co-located rows.
-
-A workflow pass means walking each one: establish, relocate, replace, remove,
-decommission, reactivate, correct details, port changes, and the co-located
-cases that have caused the most trouble historically.
-
-This is the same gap as the item below, seen from the other side. A test suite
-would make it unnecessary; until there is one, somebody walks the menu.
-
-### A testing strategy
-
-Raised in two sessions and unresolved in both. The engine is not a package, so
-`testthat` never landed.
-
-This is the most consequential item on the list. The failures of 11 October
-2026 were all in engine code — a POSIXct written as an epoch, three separate
-timezone mistakes, device facts computed per serial rather than per
-deployment — and every one was caught by running the code against real data
-and reading the output. A test suite would have caught them in seconds.
-
-The validators are a partial answer: `validate_metadata()` and
-`validate_product1()` check the DATA. Nothing checks the FUNCTIONS.
+The suite (October 2026, `tests/`) drives workflows with scripted answers and
+checks what they leave in the metadata and logs. So far it covers the paired
+and single-device surveys. Still walked by hand, and so still the gap raised
+on 7 October: establish, relocate, replace, remove, decommission, reactivate,
+correct details, port changes, and the co-located cases that have caused the
+most trouble historically. Each one becomes a test the next time it is
+touched, rather than all at once.
 
 ### Multi-user
 
