@@ -39,6 +39,70 @@ All notable changes to the VI-FLO Engine project are documented here.
     measurement the registry has never heard of is reported, not silently
     lost
   - Pressure stays in kPa, the unit both the U20s and the ATMOS deliver
+- **Product 2, piece 2: deduplication across overlapping downloads**
+  - Two downloads can hold the same moment - a re-run, a catch-up, an
+    offload repeating the end of the last. `dedupe_readings()` keeps one
+    reading per device, port, sensor, measurement and moment: the copy from
+    the LATER FETCH. Where copies disagree on the value, the kept row is
+    marked `conflict = TRUE` rather than resolved silently; a value against
+    an empty copy is a disagreement, two empty copies are not
+  - The fetch time comes from the download log's `timestamp_utc`, not
+    `run_id`, because a manual HOBO offload has no run_id. A file the log
+    does not know stops the build
+  - `read_p1_set()` joins the first two pieces: read, map and deduplicate a
+    set of Product 1 files, with one report of anything the registry did not
+    know across all of them
+  - A million-row station-year reads, maps and deduplicates in about six
+    seconds: lookups run once per distinct sensor, unit and series rather
+    than once per row, and the sort is on numbers rather than text
+  - Tested on z6-38175's real duplicate pair from 1 October, which collapses
+    to one copy with no conflict, and on a planted disagreement. Checked by
+    making the earliest fetch win instead: four tests fail
+- **Product 2, piece 3: attribution and the 15-minute grid**
+  - `attribute_readings()` gives each reading its station, through the
+    existing deployment and port windows, and names a depth sensor from its
+    port at that moment: `vwc` on a 30 cm port is `vwc_30cm`. Readings that
+    belong to no station - a logger before its deployment - are counted and
+    reported, never forced onto one
+  - A logger's own barometer, on an internal port no station lists, goes to
+    the weather station where the logger serves one, so a co-located ZL6
+    does not carry the same series twice, and otherwise to its one station
+  - `align_to_grid()` brings each device's readings to the quarter hour by
+    kind. Instantaneous: used as is on the quarter hour, otherwise
+    interpolated between the readings either side if both are real and no
+    more than 15 minutes apart - never across a gap, never from a series
+    coarser than 15 minutes. Accumulated, maximum and minimum from a finer
+    series: summed, highest or lowest over the 15 minutes ending at the
+    quarter hour, only when every reading is present. Anything that cannot
+    be aligned without inventing is reported
+  - `p2_series()` lays each device's stint onto one continuous grid from the
+    station's first reading to its last. A quarter hour nothing covers is a
+    row flagged `missing` with no device; one the logger recorded without a
+    usable value is `missing` with the device named
+  - `assemble_p2()` splits by station, variable and the project-local year
+  - Checked against the real loggers by hand: bta2b's 10:08:37 and 10:23:37
+    readings give 101.6809 kPa at 10:15. Checked by mutation: interpolating
+    across gaps fails four tests, allowing a partial rain sum fails one. A
+    year of U20 or of 5-minute rain aligns in a fraction of a second
+  - Fixture stations for the real loggers, and a fixture ports file
+- **Product 2, piece 4: writing it**
+  - `build_p2()` builds station-years from their devices' Product 1 files
+    and writes every variable to
+    `products/p2/<type>/<station>/<variable>/`, as plain local times,
+    gzipped, written to a temporary name and moved into place
+  - `products/p2/manifest.csv`: a row per file - observed and missing
+    counts, conflicts, how each device was aligned, each device's declared
+    interval against the one it actually logged, the Product 1 files that
+    went in, the hashes of the metadata, ports and registry, the timezone,
+    the unit, and the engine commit, marked `+uncommitted` when built from
+    code that was never committed
+  - A rebuild replaces a file and its manifest row. A file an earlier build
+    made that the current inputs would not - a reading reattributed, a
+    variable dropped - is removed with its row
+  - The README now defines Product 2: attributed, deduplicated, on the
+    15-minute grid, consistently named, neither judged nor invented
+  - Checked by mutation: a build that keeps stale files fails two tests, a
+    manifest that appends rather than replaces fails one
 - Real Product 1 fixtures for the suite: bta2b's U20, the UVI ZL6 serving a
   weather and a vwc station at once, a vwc ZL6 fetched twice four minutes
   apart, a full-history export, and 400 rows of SR1's HOBOlink logger

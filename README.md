@@ -139,6 +139,56 @@ Every value carries a flag: `observed`, `interpolated`, `substituted`,
 filled value is distinguishable from one resting on a measurement, and a user
 can see what proportion of a series was actually measured.
 
+### Product 2 - what it is
+
+One file per station, variable and year, where the series is:
+
+1. **attributed** - only readings that belonged to that station, by metadata
+   as it stood at that moment. A ZL6 serving two stations is split by port;
+   its own barometer goes to the weather station where there is one
+2. **deduplicated** - where downloads overlap, the later fetch wins, and a
+   disagreement is marked in the `conflict` column rather than resolved
+   silently
+3. **on the network's 15-minute grid** - every quarter hour from the
+   station's first reading of the year to its last has a row, and a gap is a
+   row flagged `missing`, not two rows far apart. Logger swaps and changes of
+   interval are absorbed here
+4. **consistently named and in consistent units**, by `data/variables.csv`
+5. **neither judged nor invented** - values as recorded, flagged only
+   `observed` or `missing`. No quality control, no filled gaps: that is
+   Product 3
+
+How a reading reaches the quarter hour depends on what it is. An
+instantaneous reading - pressure, temperature, water content - on the quarter
+hour is used as is; off it, as a U20 launched at 10:08:37 is, it is
+interpolated between the readings either side, but only between two real
+readings no more than 15 minutes apart, never across a gap. An accumulated
+reading finer than 15 minutes - 5-minute rain - is summed over the quarter
+hour it ends in, and a maximum or minimum takes the highest or lowest, only
+when every reading is present: a partial sum would undercount the rain
+without saying so. Nothing coarser than 15 minutes is spread onto the quarter
+hours between.
+
+```csv
+datetime,value,flag,device_serial,source_file,conflict
+2026-09-28 08:15:00,0.291,observed,z6-13368,z6-13368_..._raw.rds,FALSE
+2026-09-28 08:30:00,,missing,z6-13368,z6-13368_..._raw.rds,FALSE
+2026-09-28 08:45:00,,missing,,,FALSE
+```
+
+Times are plain local times in the project's zone, which the manifest
+records. A `missing` row with a device named is a moment the logger recorded
+and the sensor gave nothing usable - a ZL6 error code, for one; with no device
+it is a moment nothing recorded at all.
+
+`build_p2()` builds a station-year from its devices' Product 1 files, writes
+every variable, and removes anything an earlier build made that the current
+inputs would not. `products/p2/manifest.csv` has a row per file: what it
+holds, how many rows are observed and missing, how each device was aligned,
+each device's declared interval against the one it actually logged, which
+Product 1 files went in, the hashes of the metadata, ports and registry, and
+the engine commit that built it.
+
 ### Derived series
 
 Some variables are computed rather than measured, and the chain runs deeper

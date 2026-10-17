@@ -30,6 +30,8 @@ local_test_root <- function(env = parent.frame()) {
   meta <- dm$absolute_path[dm$named_path == "meta_internal"]
   file.copy(fixture_path("device_metadata.csv"), meta)
   file.copy(fixture_path("maintenance_log.csv"), meta)
+  file.copy(fixture_path("download_log.csv"), meta)
+  file.copy(fixture_path("zentra_ports.csv"), meta)
 
   old <- Sys.getenv("VI_FLO_DATA_ROOT")
   Sys.setenv(VI_FLO_DATA_ROOT = root)
@@ -90,4 +92,17 @@ meta_row <- function(unique_id) {
 read_log <- function() {
   read.csv(file.path(wds("meta_internal"), "maintenance_log.csv"),
            stringsAsFactors = FALSE)
+}
+
+#' Copies Product 1 fixtures into the test root where the archive keeps them
+#'
+#' @param files Character. Filenames under fixtures/p1/
+#' @return Character. Their paths in the test root
+place_p1 <- function(files) {
+  vapply(files, function(f) {
+    dir <- if (startsWith(f, "z6-")) wds("device_zentra") else wds("device_hobo")
+    to <- file.path(dir, f)
+    file.copy(fixture_path("p1", f), to, overwrite = TRUE)
+    to
+  }, character(1), USE.NAMES = FALSE)
 }

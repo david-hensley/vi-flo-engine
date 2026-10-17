@@ -173,22 +173,21 @@ wrapper, it moves to a Cloudflare Worker unchanged — which is what makes
 
 ## Product 2
 
-### Deduplication on timestamp
+### Running it on the whole archive
 
-Two downloads can cover the same window — a re-run, or a catch-up after a
-failure — and Product 1 records both by design. Product 2 must therefore
-decide: latest `run_id` wins, and a timestamp where two files disagree on the
-VALUE is flagged rather than silently resolved.
-
-There are eight such pairs in the archive, all from one afternoon of testing
-on 1 October.
+Product 2 exists (October 2026): `build_p2()` reads, maps, deduplicates,
+attributes, aligns and writes, and the suite exercises every step on real
+loggers. It has not yet been run on the full archive. The first full build is
+also the first real audit of the metadata - every unattributed reading, every
+declared interval a logger did not keep, every conflict between downloads is
+reported - so expect it to surface work rather than finish cleanly.
 
 ### HOBOlink level is recomputed, not carried
 
 A HOBOlink export holds the station's own computed water level alongside the
-raw pressures. Product 2 recomputes from pressure so every station derives the
-same way, with the computed column kept as a check. Decided 2026-10-11; not
-yet built.
+raw pressures. VI-FLO recomputes level from pressure so every station derives
+the same way. Product 2 carries HOBOlink's own as `hobolink_level`, a check;
+the derived `level` waits on the barometric pairing table.
 
 ### A query tool for `products/`
 

@@ -213,9 +213,11 @@ test_that("HOBOlink maps its own barometer to pressure and its level to hobolink
   expect_equal(unique(m$unit[m$variable == "hobolink_level"]), "m")
 })
 
-test_that("the two fetches of z6-38175 read identically", {
+test_that("the two fetches of z6-38175 read identically, bar the file they came from", {
   a <- map_measurements(read_p1_long(p1(VWC_A)))
   b <- map_measurements(read_p1_long(p1(VWC_B)))
+  expect_equal(unique(a$source_file), VWC_A)
+  a$source_file <- NULL; b$source_file <- NULL
   expect_identical(a, b)
 })
 
