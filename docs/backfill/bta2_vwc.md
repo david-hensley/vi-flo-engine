@@ -6,6 +6,9 @@ reconstructed October 2026
 Two stations forty metres apart in forest beside a gut, in the central plains of
 St Croix. Neither is a hillside site; both sit close to the channel.
 
+The gut is the western branch of the Bethlehem watershed, which other sources
+call River Gut. See `docs/PLACE_NAMES.md`.
+
 `bta2_vwc1` is the **Reference pit** — a four-depth profile with its own rain
 gauge, and the second four-depth pit installed in the network. `bta2_vwc2` is a
 six-sensor replicate plot whose history is **deferred**, not reconstructed here.

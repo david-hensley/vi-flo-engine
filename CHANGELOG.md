@@ -3,6 +3,43 @@ All notable changes to the VI-FLO Engine project are documented here.
 
 ---
 
+## [Unreleased]
+
+### Added
+- **`docs/PLACE_NAMES.md`**, a gazetteer. It sets out the naming convention:
+  a watershed is named for the gut at its mouth, its main stem carries that
+  name to the headwaters, and tributaries become areas. It records why, and
+  the three names that do not follow it Then, watershed by watershed, it gives the
+  names other sources use and the reason for each choice VI-FLO made
+  - **Bethlehem.** Adventure, `bta`, is the western branch that USGS and DPNR
+    call River Gut, and McGuire (1925) Jealousy Gut. VI-FLO does not use
+    "River Gut" in site names because USGS applies it to the trunk below the
+    confluence as well. The smaller tributary also called Adventure Gut,
+    joining just downstream of `bta2`, would be Bethlehem Adventure West,
+    `btw`. The watershed is Bethlehem rather than Fairplain because Fairplain
+    is falling out of use and recent DPNR documents use Bethlehem
+  - **Limetree**, the other exception: not one gut but several, draining
+    toward the former Krause Lagoon, which other sources group as the
+    Hovensa watershed. What unites them is the south shore industrial
+    complex downstream of them all
+  - **UVI**, named for the Albert A. Sheen campus, which lies within the
+    Bethlehem watershed. Its areas are campus projects, not tributaries
+  - **Caledonia, Creque, La Grange, Salt River, St. George, Dorothea,
+    Turpentine Run, Fish Bay and Reef Bay**, with their historical, upstream
+    and alternative names, drawing on McGuire's 1925 *Geographic Dictionary*
+    wherever it has an entry
+  - The spelling of gut, ghut and ghaut, in the words of Hensley (2025)
+
+### Changed
+- `DATA_DICTIONARY.md`: `area`'s example no longer implies that Adventure Gut
+  is the tributary `bta2` sits on. `watershed` and `area` both point to the
+  gazetteer
+- The `bta2_hydro` and `bta2_vwc` dossiers say which channel they are on, and
+  point to the gazetteer
+- `README.md`: the gazetteer is listed in the repo layout
+
+---
+
 ## [v2.6.0] - 2026-10-14
 
 The paired-gauge survey now goes from field notebook to metadata in one

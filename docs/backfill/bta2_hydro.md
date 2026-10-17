@@ -25,8 +25,14 @@ Bethlehem    mouth of the eastern tributary
 Adventure    mouth of the western tributary
 ```
 
-`bta2_hydro` is a **different, newer site further up the Adventure gut**, named
-under the modern scheme. The `bta` prefix postdates all three.
+`bta2_hydro` is a **different, newer site further up the same western branch**,
+named under the modern scheme. The `bta` prefix postdates all three.
+
+That western branch is what USGS and DPNR call **River Gut**. In VI-FLO it is
+the Adventure area of the Bethlehem watershed. The smaller stream that joins it
+just downstream of `bta2` is sometimes also called Adventure Gut; in VI-FLO it
+would be Bethlehem Adventure West. The names, and the reasons for them, are in
+`docs/PLACE_NAMES.md`.
 
 **The name `adv` was reused**, which is the trap here.
 

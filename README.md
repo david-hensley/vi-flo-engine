@@ -397,6 +397,7 @@ and goes straight to the menu.
 ├── data/         # Data dictionary and sample metadata
 ├── docs/
 │   ├── ROADMAP.md    # Open work, where it came from, what it waits on
+│   ├── PLACE_NAMES.md  # VI-FLO's names for guts and watersheds, and everyone else's
 │   ├── backfill/     # A dossier per station reconstructing its history
 │   └── ...           # Additional documentation and notes
 ├── tools/

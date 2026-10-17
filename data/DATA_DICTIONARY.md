@@ -13,8 +13,8 @@ Generally stored in a top-level directory alongside raw and processed databases.
 * `unique_id`: Identifies unique combination of device, station deployment, and location
 
   * Initial letter 'z' for Zentra data loggers, 'h' for Hobo data loggers
-* `watershed`: Name of broad watershed area, usually literal. Named after the largest DOWNSTREAM gut or the bay it reaches (e.g. Caledonia, Salt River, Dorothea) - so that a watershed is identified by where its water goes rather than by whichever tributary was instrumented first
-* `area`: Sub-watershed area name if applicable. Often a tributary basin name (e.g. for Adventure Gut in Bethlehem watershed).
+* `watershed`: Name of broad watershed area, usually literal. Named after the largest DOWNSTREAM gut or the bay it reaches (e.g. Caledonia, Salt River, Dorothea) - so that a watershed is identified by where its water goes rather than by whichever tributary was instrumented first. The main stem carries the watershed's name all the way to its headwaters, even where it goes by other names locally. Bethlehem is the one exception. Other names for each watershed and its parts, and the reasons for each choice, are in `docs/PLACE_NAMES.md`
+* `area`: Sub-watershed area name if applicable. Often a tributary basin name - e.g. Adventure, the western branch of the Bethlehem watershed, which USGS and DPNR call River Gut. VI-FLO's area names do not always match other sources; see `docs/PLACE_NAMES.md`. At UVI, which is a campus rather than a watershed, an area is a project on the campus, e.g. Breadfruit.
 * `site_full`: Full English name of the site including numeric. Lower numbers indicate a higher topographic position in the watershed.
 
   * If new sites are established between two integers, decimals must be used e.g. Salt River 0.5
