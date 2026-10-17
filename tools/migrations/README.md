@@ -78,4 +78,7 @@ a second machine already has the result through Box and never needs to run one.
 | `migrate_fishbay_correction.R` | 2026-10-11 | Replaced a removal that never happened. A further export showed Fish Bay's upstream logger ran five months longer than the dossier had it, and left the gut when it was dug out after Tropical Storm Philippe |
 | `migrate_device_facts_repair.R` | 2026-10-11 | Undid facts written per serial rather than per deployment, which had given a retired deployment its successor's dates. Restored declared logging intervals from a backup, and carried the Adventure elevation survey into metadata |
 | `migrate_datetime_repair.R` | 2026-10-11 | Formatted eighteen datetime values stored as UNIX epochs, filled `last_download_date` on every Zentra row, and renamed five Product 1 files whose span was a day ahead of their own data |
+| `migrate_u20_model_04.R` | 2026-10-17 | Corrected all 27 HOBO U20 stream gauge rows from `U20-001-01`, the 9 m model, to `U20-001-04`, the 4 m model they are. By explicit `unique_id`, because real `U20-001-01` loggers were joining at the ponds |
+| `migrate_add_sensor_height.R` | 2026-10-17 | Added `sensor_height_cm` after `elev_source`: 200 on every weather row, blank elsewhere. On hydro blank means not yet measured, on vwc not applicable |
+| `migrate_remove_windsor_note.R` | 2026-10-17 | Removed the Windsor Pond survey note logged as routine maintenance, before the survey was re-entered through the rebuilt single-device workflow |
 

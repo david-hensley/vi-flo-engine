@@ -3,13 +3,19 @@ All notable changes to the VI-FLO Engine project are documented here.
 
 ---
 
-## [Unreleased]
+## [v2.7.0] - 2026-10-17
+
+The network gains its first pond stations, Windsor (`srl1_pond`) and
+Hermitage (`bt1_pond`), and the metadata gains what they needed: the height of
+a sensor above the ground it is located by, a survey workflow that converts a
+GNSS height to sea level, and the right model for every water-level logger.
+Alongside, a gazetteer of VI-FLO's place names against everyone else's.
 
 ### Added
 - **`docs/PLACE_NAMES.md`**, a gazetteer. It sets out the naming convention:
   a watershed is named for the gut at its mouth, its main stem carries that
   name to the headwaters, and tributaries become areas. It records why, and
-  the three names that do not follow it Then, watershed by watershed, it gives the
+  the three names that do not follow it. Then, watershed by watershed, it gives the
   names other sources use and the reason for each choice VI-FLO made
   - **Bethlehem.** Adventure, `bta`, is the western branch that USGS and DPNR
     call River Gut, and McGuire (1925) Jealousy Gut. VI-FLO does not use
@@ -28,6 +34,8 @@ All notable changes to the VI-FLO Engine project are documented here.
     Turpentine Run, Fish Bay and Reef Bay**, with their historical, upstream
     and alternative names, drawing on McGuire's 1925 *Geographic Dictionary*
     wherever it has an entry
+  - The two ponds: Windsor on Lebanon Gut, Lebanon becoming a Salt River
+    area, and Hermitage in the headwaters of Bethlehem's main stem
   - The spelling of gut, ghut and ghaut, in the words of Hensley (2025)
 
 - **`sensor_height_cm`** in `device_metadata.csv`, after `elev_source`: the
@@ -65,7 +73,10 @@ All notable changes to the VI-FLO Engine project are documented here.
   gazetteer
 - The `bta2_hydro` and `bta2_vwc` dossiers say which channel they are on, and
   point to the gazetteer
-- `README.md`: the gazetteer is listed in the repo layout
+- `README.md`: the gazetteer is listed in the repo layout, and the status
+  is brought up to date
+- The three migrations below are applied, listed in
+  `tools/migrations/README.md`, and their scripts deleted
 
 ### Fixed
 - Removed the Windsor Pond elevation note logged as routine maintenance on

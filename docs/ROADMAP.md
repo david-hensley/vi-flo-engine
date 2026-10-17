@@ -7,7 +7,7 @@ recollection, which meant rediscovering it each time — and carrying at least
 one item that had never existed. Anything genuinely finished is deleted rather
 than struck through; `CHANGELOG.md` is the record of what was done.
 
-Last reviewed: **2026-10-14**
+Last reviewed: **2026-10-17**
 
 ---
 
@@ -41,7 +41,33 @@ only when a real survey needs it.
 
 ---
 
-## Design questions, open
+## Ponds
+
+Windsor (`srl1_pond`) and Hermitage (`bt1_pond`) were registered on 17
+October 2026: U20-001-01 loggers, launched 13 May at 15 minutes, which fill
+their memory around **Christmas Eve**. The first download is the deadline for
+everything here except the last item.
+
+- **The ingest path.** Product 0 and 1 are keyed by device, so a pond logger
+  should go through the HOBO import like any U20 - but nothing has ever sent
+  a `pond` station or a U20-001-01 through it. Audit each place the code
+  special-cases `hydro` before that download, not after
+- **Barometric pairing.** Both ponds are on St Croix, so in the STX zone. They
+  need declared sources like any gauge, and the pairing table has only ever
+  held hydro stations
+- **Hermitage's survey.** Its elevation is a 3DEP lookup at coordinates taken
+  before the RS4, and if the pond held water when the lidar was flown in late
+  2018, it is the water surface rather than the bed. Survey it and record it
+  through the single-device survey, as Windsor was
+- **Stage to volume.** A water level becomes stored volume through a
+  stage-volume curve from the bathymetry - a parameter set, as a rating curve
+  is for discharge. Product 2 and beyond; the bathymetry is still being
+  collected
+- **Surface temperature loggers.** Many and short-lived, so not stations:
+  their readings go to Product 0 and 1 like any logger's, and their positions,
+  depths and in-water times to a campaign record beside `device_metadata.csv`,
+  attributed through it at Product 2. Designed when the ponds hold water
+
 
 ### Role is time-varying, and metadata cannot say so
 

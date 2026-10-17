@@ -88,6 +88,10 @@ that usage survives locally. In VI-FLO, **Adventure** is the western branch,
 and the tributary, if it is ever gauged, will be **Bethlehem Adventure West**,
 `btw`.
 
+**Hermitage Pond** (`bt1_pond`) is in the headwaters of the main stem, the
+eastern branch. McGuire (1925) places Hermitage Estate in an enclosed valley
+near the sources of Bethlehem Gut.
+
 **Smaller names.** DPNR's Fountain Gut is a headwater of the western branch,
 on Fountain Estate near Carambola. McGuire's Love Gut is a western tributary
 running through Upper and Lower Love.
@@ -164,7 +168,7 @@ estates into Limetree Bay, which the French called Grandfond.
 
 ### Salt River
 
-`sr`
+`sr` · areas: Lebanon (`srl`)
 
 **Salt River**, or Salt River Gut, is the name at the mouth, and VI-FLO
 carries it up the main stem. Historically the upstream reaches were not called
@@ -174,6 +178,10 @@ on Canaan Estate northeast of Mount Eagle and taking the name Salt River where
 it reaches the bay. Its head stream is **Canaan Beck**. The main stem also has
 tributaries with names of their own, among them **Lebanon Gut**, also called
 **Lebanon Hill Gut**.
+
+**Lebanon** is a VI-FLO area: the basin of Lebanon Gut. Windsor Pond
+(`srl1_pond`) is on Lebanon Gut, though the pond itself lies in Estate Lebanon
+Hill rather than Windsor.
 
 ### St. George
 
