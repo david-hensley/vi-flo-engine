@@ -914,21 +914,46 @@ update_last_download_date <- function(device_serial, download_date) {
   })
 }
 
-#' Update elevation with a surveyed elevation for a single device
-#' @param device_serial Character. Device to update
-#' @param elevation Numeric. Surveyed elevation in meters
+#' Writes a single-device survey to the metadata
+#'
+#' Scoped to ONE row by unique_id. The version this replaces wrote to every
+#' row carrying the serial, retired deployments and other stations included.
+#'
+#' @param unique_id Character. The row to update
+#' @param elev Numeric. New ground elevation (meters), or NA to leave it
+#' @param elev_source Character. Written with the elevation
+#' @param sensor_height_cm Numeric. Written as given, NA included
+#' @param shift_unique_ids Character. Rows whose elevation moves by shift_by -
+#'   a hydro primary's surveyed partners, so their measured falls survive
+#' @param shift_by Numeric. Meters
 #' @return TRUE if successful, error message if failed
-survey_device_elevation <- function(device_serial, elevation) {
+survey_device_elevation <- function(unique_id, elev = NA, elev_source = NA,
+                                    sensor_height_cm = NA,
+                                    shift_unique_ids = character(0),
+                                    shift_by = NA) {
   tryCatch({
     metadata <- load_zentra_metadata()
-    
-    # Update device elevation
-    metadata$elev[metadata$device_serial == device_serial] <- elevation
+    idx <- which(metadata$unique_id == unique_id)
+    if (length(idx) != 1) return(paste0("Expected one row for ", unique_id,
+                                        ", found ", length(idx)))
+
+    if (!is.na(elev)) {
+      metadata$elev[idx] <- elev
+      if ("elev_source" %in% names(metadata)) metadata$elev_source[idx] <- elev_source
+    }
+    if ("sensor_height_cm" %in% names(metadata)) {
+      metadata$sensor_height_cm[idx] <- sensor_height_cm
+    }
+
+    if (length(shift_unique_ids) > 0 && !is.na(shift_by)) {
+      s_idx <- which(metadata$unique_id %in% shift_unique_ids)
+      metadata$elev[s_idx] <- round(as.numeric(metadata$elev[s_idx]) + shift_by, 4)
+    }
+
     save_device_metadata(metadata)
-    
-    return(TRUE)
+    TRUE
   }, error = function(e) {
-    return(paste0("Failed to update elevation: ", e$message))
+    paste0("Failed to update elevation: ", e$message)
   })
 }
 
@@ -1283,6 +1308,8 @@ add_new_device <- function(device_data) {
       lon = device_data$lon,
       elev = device_data$elev,
       elev_source = device_data$elev_source,
+      sensor_height_cm = if (is.null(device_data$sensor_height_cm)) NA_real_
+                         else device_data$sensor_height_cm,
       reach_length_m = if (is.null(device_data$reach_length_m)) NA_real_
                        else device_data$reach_length_m,
       interval_min = device_data$interval_min,
@@ -1309,6 +1336,10 @@ add_new_device <- function(device_data) {
       stringsAsFactors = FALSE
     )
     
+    # A file not yet migrated has no sensor_height_cm, and rbind needs the
+    # columns to match
+    new_row <- new_row[, intersect(names(new_row), names(metadata)), drop = FALSE]
+
     # Add to metadata
     metadata <- rbind(metadata, new_row)
     save_device_metadata(metadata)
@@ -1392,6 +1423,10 @@ relocate_station <- function(station_id, new_lat, new_lon, deploy_datetime,
       new_row$elev <- new_elev
       if ("elev_source" %in% names(new_row)) {
         new_row$elev_source <- new_elev_source
+      }
+      # Sensor height was measured at the old position too
+      if ("sensor_height_cm" %in% names(new_row)) {
+        new_row$sensor_height_cm <- NA_real_
       }
       # Reach length describes a distance to the primary from the old position
       if ("reach_length_m" %in% names(new_row)) {

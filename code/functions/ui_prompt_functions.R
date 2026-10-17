@@ -664,3 +664,82 @@ ui_prompt_elevation <- function(lat, lon, station_type = NA, device_role = NA) {
     return(list(elev = value, elev_source = src))
   }
 }
+
+
+#' Prompts for a sensor's height above the ground
+#'
+#' `elev` is the GROUND at the device's coordinates. Where a reading is turned
+#' into an elevation - a water level becoming a water-surface elevation - the
+#' height of the measuring point above that ground has to be added, so it is
+#' recorded here, in centimeters.
+#'
+#' Asked differently by station type:
+#'   - vwc: not asked. A soil moisture logger carries several sensors at
+#'     several depths, recorded per port as `depth_cm` in zentra_ports.csv
+#'   - weather: 200 cm suggested, the standard mounting height
+#'   - anything else, chiefly hydro and pond: the height of the logger's
+#'     measuring point above the streambed or ground. Blank when not yet
+#'     measured, which is the honest state for most stream gauges today
+#'
+#' @param station_type Character
+#' @param current Numeric. Value already on record, offered as the default
+#' @return Numeric cm, or NA
+ui_prompt_sensor_height <- function(station_type, current = NA) {
+
+  type <- tolower(trimws(as.character(station_type)))
+  current <- suppressWarnings(as.numeric(current))
+
+  if (!is.na(type) && type == "vwc") {
+    cat("\n\u2713 Sensor height: not applicable - soil sensor depths are recorded per port\n")
+    return(NA_real_)
+  }
+
+  cat("\n--- SENSOR HEIGHT ---\n\n")
+  if (!is.na(type) && type == "weather") {
+    default <- if (!is.na(current)) current else 200
+    cat("Height of the sensors above the ground, in centimeters.\n")
+    cat("Enter for ", default, " cm, 'none' to leave blank, or a value: ", sep = "")
+  } else {
+    default <- current
+    cat("Height of the logger's measuring point above the streambed or\n")
+    cat("ground at its coordinates, in centimeters.\n")
+    if (!is.na(default)) {
+      cat("Enter to keep ", default, " cm, 'none' to clear, or a value: ", sep = "")
+    } else {
+      cat("Enter if not yet measured, or a value: ")
+    }
+  }
+
+  repeat {
+    input <- trimws(readline())
+    if (input == "") {
+      if (is.na(default)) {
+        cat("\u2713 Sensor height not recorded\n")
+      } else {
+        cat("\u2713 Sensor height: ", default, " cm\n", sep = "")
+      }
+      return(default)
+    }
+    if (tolower(input) == "none") {
+      cat("\u2713 Sensor height not recorded\n")
+      return(NA_real_)
+    }
+    value <- suppressWarnings(as.numeric(input))
+    if (is.na(value)) {
+      cat("\u26a0\ufe0f  Not a number. Enter centimeters, e.g. 28: ")
+      next
+    }
+    # Below ground is possible - a sensor in a well - but unusual enough to
+    # confirm, as is anything above 5 m
+    if (value < 0 || value > 500) {
+      cat("\u26a0\ufe0f  ", value, " cm is unusual - ", if (value < 0) "below the ground" else "over 5 m up",
+          ".\n", sep = "")
+      if (ui_yes_no("Is that right?", allow_quit = FALSE) == "N") {
+        cat("Enter centimeters: ")
+        next
+      }
+    }
+    cat("\u2713 Sensor height: ", value, " cm\n", sep = "")
+    return(value)
+  }
+}

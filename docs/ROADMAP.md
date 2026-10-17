@@ -309,6 +309,15 @@ Raised three times in September, parked each time.
 
 ## Field and QA
 
+### Streambed to measuring point at every gauge
+
+`sensor_height_cm` exists (October 2026) and is blank on every stream gauge.
+`elev` is the ground, and a water level becomes a water-surface elevation only
+once the height of the logger's measuring point above the bed is added. On a
+gut that is a few centimeters and has been ignored - but measure it at each
+gauge on its next visit and record it with 'Correct device details', so
+Product 2 does not have to keep ignoring it.
+
 ### The flat 10 cm sensor at `sr1_vwc2`
 
 `z6-38174`'s shallowest sensor has produced sixteen distinct values across

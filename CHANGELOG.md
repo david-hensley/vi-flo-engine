@@ -30,7 +30,36 @@ All notable changes to the VI-FLO Engine project are documented here.
     wherever it has an entry
   - The spelling of gut, ghut and ghaut, in the words of Hensley (2025)
 
+- **`sensor_height_cm`** in `device_metadata.csv`, after `elev_source`: the
+  height of a device's measuring point above the ground at its coordinates.
+  `elev` is the ground, and a water level becomes a water-surface elevation
+  only once this is added. A stream gauge's few centimeters have been ignored,
+  but a pond logger's measuring point can sit 28 cm up
+  - Added by `tools/migrations/migrate_add_sensor_height.R`: 200 on every
+    weather row, the known mounting height, and blank everywhere else. On
+    hydro, blank means not yet measured - no gauge has had it taken, and a
+    guess would never be questioned. On vwc it means not applicable
+  - Asked when a device is added, including as a replacement, since a new
+    logger can sit higher or lower than the old one. Weather suggests
+    200 cm; vwc is not asked, because its sensor depths are per port in
+    `zentra_ports.csv`. Correctable under 'Correct device details', and
+    cleared on relocation, since it was measured at the old position
+
 ### Changed
+- **The single-device survey is rebuilt** (field surveyed elevation,
+  option 2), as `ui_survey_single_device()`
+  - Sensor height first, then the elevation by one of three routes: typed as
+    an orthometric height; computed from a NAD83(2011) ellipsoidal height and
+    the GEOID18 geoid height, H = h - N, with the NGS link printed for the
+    device's own coordinates; or kept. A shot on the measuring point has the
+    sensor height taken off, because `elev` is the ground
+  - Writes `elev_source` with the value, takes an optional note, and logs as
+    `elevation_survey` with the full arithmetic
+  - A hydro secondary or tertiary is sent to the paired survey - its
+    elevation is the fall. Moving a hydro primary moves its surveyed
+    partners by the same amount, so the measured falls are kept
+- Registering a station or device asks for a note, which goes into its
+  `station_established` or `device_added` entry rather than a second one
 - `DATA_DICTIONARY.md`: `area`'s example no longer implies that Adventure Gut
   is the tributary `bta2` sits on. `watershed` and `area` both point to the
   gazetteer
@@ -39,6 +68,21 @@ All notable changes to the VI-FLO Engine project are documented here.
 - `README.md`: the gazetteer is listed in the repo layout
 
 ### Fixed
+- Removed the Windsor Pond elevation note logged as routine maintenance on
+  2026-10-17, by `tools/migrations/migrate_remove_windsor_note.R`. It stood in
+  for a survey the old workflow could not record; the survey is re-entered
+  through the rebuilt one, so keeping both would log it twice
+- **The old single-device survey wrote to every row with the serial**, other
+  stations and retired deployments included, and never touched
+  `elev_source` - so a surveyed elevation kept claiming to be a DEM lookup.
+  `survey_device_elevation()` now writes one row, by `unique_id`
+- `DATA_DICTIONARY.md` said `usgs_3dep_1m` elevations are NAVD88, which does
+  not extend to the Virgin Islands. They come from the 2018 post-Maria lidar,
+  on VIVD09. The `gnss` entry now says how a receiver's ellipsoidal height
+  reaches the same datum: GEOID18, from the NAD83(2011) ellipsoid. The
+  stored `elev_source` value names the source, not the datum, so no data
+  changes; the header of `elevation_functions.R` carried the same wrong note
+  and is corrected
 - **Every HOBO U20 stream gauge was recorded as the wrong model.** All 27
   rows, active and retired, said `U20-001-01`, the 9 m (30 ft) range logger.
   They are `U20-001-04`, the 4 m (13 ft) model, so any check of a reading

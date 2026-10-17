@@ -11,7 +11,9 @@
 # sounds - a lookup site that returned 22, 26 and 28 m for one point is why    #
 # this exists.                                                                 #
 #                                                                              #
-# Datum: NAVD88 vertical, NAD83/WGS84 horizontal.                              #
+# Datum: whatever the underlying lidar was delivered on. In the Virgin         #
+# Islands that is VIVD09, from the 2018 post-Maria lidar - not NAVD88, which   #
+# does not extend here. NAD83/WGS84 horizontal.                                #
 #                                                                              #
 # No API key, no rate limit, and no hard dependency - jsonlite is used when    #
 # present, with a regex fallback when it is not. A failed lookup is not an     #

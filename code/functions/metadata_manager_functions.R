@@ -636,7 +636,7 @@ ui_survey_elevations <- function() {
   cat("--- SURVEY TYPE ---\n\n")
   cat("What type of elevation survey?\n")
   cat("  1. Paired stream gauge - fall and reach length between two loggers\n")
-  cat("  2. Single device (direct elevation entry)\n")
+  cat("  2. Single device - elevation and sensor height\n")
   cat("  q. Cancel\n\n")
   cat("Enter selection: ")
   
@@ -662,160 +662,9 @@ ui_survey_elevations <- function() {
   ################################################################################
   
   else if (survey_type == "2") {
-    cat("\n--- SINGLE DEVICE ELEVATION SURVEY ---\n\n")
-    
-    metadata <- load_zentra_metadata()
-    
-    # Get all stations
-    station_list <- get_station_list()
-    station_options <- sapply(station_list, function(s) {
-      paste0(s$station_id, " (", s$label, ")")
-    })
-    
-    selected <- ui_select_from_menu("Select station:", station_options)
-    if (is.null(selected)) {
-      cat("❌ Canceled\n")
-      return(NULL)
-    }
-    
-    # Extract station_id
-    station_id <- sub(" \\(.*\\)$", "", selected)
-    cat("✓ Station:", station_id, "\n\n")
-    
-    # Get devices at station
-    station_devices <- get_station_devices(station_id)
-    
-    # Show device options
-    device_options <- paste0(station_devices$device_serial, 
-                             " (", station_devices$mfger, 
-                             " - ", station_devices$status, ")")
-    
-    selected_device <- ui_select_from_menu("Select device:", device_options)
-    if (is.null(selected_device)) {
-      cat("❌ Canceled\n")
-      return(NULL)
-    }
-    
-    # Extract device_serial
-    device_serial <- sub(" \\(.*\\)$", "", selected_device)
-    device_row <- station_devices[station_devices$device_serial == device_serial, ][1, ]
-    
-    cat("✓ Device:", device_serial, "\n")
-    cat("  Manufacturer:", device_row$mfger, "\n")
-    cat("  Status:", device_row$status, "\n\n")
-    
-    #### Get elevation ####
-    cat("--- ELEVATION ---\n\n")
-    
-    if (!is.na(device_row$elev)) {
-      cat("Current elevation: ", device_row$elev, " m\n\n", sep = "")
-    } else {
-      cat("No elevation currently recorded\n\n")
-    }
-    
-    repeat {
-      cat("Enter surveyed elevation (meters): ")
-      elev_input <- trimws(readline())
-      
-      if (tolower(elev_input) == "q") {
-        cat("❌ Canceled\n")
-        return(NULL)
-      }
-      
-      new_elevation <- suppressWarnings(as.numeric(elev_input))
-      
-      if (!is.na(new_elevation)) {
-        cat("✓ New elevation: ", new_elevation, " m\n\n", sep = "")
-        break
-      } else {
-        cat("⚠️  Invalid number. Please enter elevation in meters.\n\n")
-      }
-    }
-    
-    #### Confirmation ####
-    cat("============================================\n")
-    cat("Ready to save elevation:\n")
-    cat("  Station: ", station_id, "\n", sep = "")
-    cat("  Device: ", device_serial, "\n", sep = "")
-    cat("  New elevation: ", new_elevation, " m\n", sep = "")
-    cat("============================================\n\n")
-    
-    confirm <- ui_yes_no("Confirm and save?", allow_quit = FALSE)
-    if (confirm != "Y") {
-      cat("❌ Canceled - elevation not saved\n")
-      return(NULL)
-    }
-    
-    #### Call logic function ####
-    result <- survey_device_elevation(device_serial, new_elevation)
-    
-    if (!isTRUE(result)) {
-      cat("❌ Error:", result, "\n")
-      return(NULL)
-    }
-    
-    cat("✓ Elevation saved successfully\n")
-    
-    #### Log to maintenance ####
-    survey_date <- ui_prompt_date("When was this survey performed?", allow_today = TRUE)
-    if (is.null(survey_date)) {
-      cat("⚠️  Warning: Elevation saved but not logged to maintenance\n")
-      return(TRUE)
-    }
-    
-    # Get who logged
-    cat("\nWho is logging this survey?\n")
-    cat("  1. DAH\n")
-    cat("  2. Enter custom initials (3 letters)\n")
-    cat("\nEnter selection: ")
-    logged_by_input <- trimws(readline())
-    
-    if (logged_by_input == "1") {
-      logged_by <- "DAH"
-    } else if (logged_by_input == "2") {
-      repeat {
-        cat("Enter 3-letter initials: ")
-        custom_initials <- toupper(trimws(readline()))
-        if (nchar(custom_initials) == 3) {
-          logged_by <- custom_initials
-          break
-        } else {
-          cat("⚠️  Please enter exactly 3 letters\n")
-        }
-      }
-    } else {
-      logged_by <- "DAH"  # Default
-    }
-    
-    # Log
-    details <- paste0("Elevation survey: ", new_elevation, "m")
-    
-    log_result <- create_maintenance_entry(
-      field_visit_date = survey_date,
-      station_id = station_id,
-      station_type = device_row$station_type,
-      device_serial = device_serial,
-      action_type = "elevation_survey",
-      details = details,
-      ports_updated = FALSE,
-      logged_by = logged_by
-    )
-    
-    if (!isTRUE(log_result)) {
-      cat("⚠️  Warning: Elevation saved but maintenance log entry failed\n")
-    } else {
-      cat("✓ Survey logged to maintenance\n")
-    }
-    
-    # Update last_visit
-    visit_result <- update_last_visit(station_id, survey_date)
-    if (!isTRUE(visit_result)) {
-      cat("⚠️  Warning: could not update last_visit: ", visit_result, "\n", sep = "")
-    }
-    
-    cat("\n✓ Single device elevation survey complete!\n")
-    
-    return(TRUE)
+    # Its own workflow: one exact row, sensor height, elevation by GNSS
+    # directly or through GEOID18, and the arithmetic logged.
+    return(ui_survey_single_device())
   }
   
   ################################################################################
@@ -826,6 +675,290 @@ ui_survey_elevations <- function() {
     cat("⚠️  Invalid selection\n")
     return(NULL)
   }
+}
+
+
+#' Interactive single-device survey: elevation and sensor height
+#'
+#' For a device that stands alone - a pond logger, a weather station, the
+#' primary of a paired gauge - where the elevation is measured directly rather
+#' than as a fall from a partner. A hydro secondary or tertiary is sent to the
+#' paired survey instead: its elevation IS the fall, and setting it directly
+#' would make the slope meaningless.
+#'
+#' Sensor height is asked first, because a GNSS shot is taken either on the
+#' ground or on the measuring point, and `elev` is always the GROUND: a shot
+#' on the measuring point has the sensor height taken off.
+#'
+#' Elevation by one of three routes: typed as an orthometric height, computed
+#' here from an ellipsoidal height and the GEOID18 geoid height (H = h - N,
+#' NAD83(2011) to VIVD09), or kept as it is. Moving a hydro primary moves its
+#' surveyed partners by the same amount, so the measured falls survive.
+#'
+#' @return TRUE if saved, NULL if canceled
+ui_survey_single_device <- function() {
+
+  cancel <- function(msg = "Canceled - nothing saved") {
+    cat("\n\u274c ", msg, "\n", sep = "")
+    invisible(NULL)
+  }
+  read_or_quit <- function(prompt) {
+    cat(prompt)
+    x <- trimws(readline())
+    if (tolower(x) == "q") return(NULL)
+    x
+  }
+  read_number <- function(prompt) {
+    repeat {
+      x <- read_or_quit(prompt)
+      if (is.null(x)) return(NULL)
+      v <- suppressWarnings(as.numeric(x))
+      if (!is.na(v)) return(v)
+      cat("\u26a0\ufe0f  Not a number\n")
+    }
+  }
+  show <- function(x, unit, d = 3) {
+    x <- suppressWarnings(as.numeric(x))
+    if (length(x) == 0 || is.na(x)) "(blank)" else paste0(formatC(x, format = "f", digits = d), " ", unit)
+  }
+
+  cat("\n--- SINGLE DEVICE SURVEY ---\n\n")
+  cat("Elevation and sensor height for one device. Nothing is saved until\n")
+  cat("the end, and 'q' at any prompt cancels.\n\n")
+
+  #### When and who ####
+  survey_date <- ui_prompt_date("When was this survey performed?", allow_today = TRUE)
+  if (is.null(survey_date)) return(cancel())
+  cat("\u2713 Survey date: ", survey_date, "\n", sep = "")
+
+  cat("\nWho is logging this survey?\n")
+  cat("  1. DAH\n")
+  cat("  2. Enter custom initials (3 letters)\n")
+  cat("\nEnter selection: ")
+  logged_by <- "DAH"
+  if (trimws(readline()) == "2") {
+    repeat {
+      cat("Enter 3-letter initials: ")
+      ini <- toupper(trimws(readline()))
+      if (nchar(ini) == 3) { logged_by <- ini; break }
+      cat("\u26a0\ufe0f  Please enter exactly 3 letters\n")
+    }
+  }
+  cat("\u2713 Logged by: ", logged_by, "\n\n", sep = "")
+
+  #### Station and device: active rows only ####
+  terminal <- c("removed", "replaced", "relocated", "decommissioned")
+  metadata <- load_zentra_metadata()
+  active <- metadata[!tolower(metadata$status) %in% terminal, ]
+  stations <- sort(unique(active$station_id))
+  if (length(stations) == 0) return(cancel("No active stations"))
+
+  station_options <- vapply(stations, function(sid) {
+    n <- sum(active$station_id == sid)
+    paste0(sid, " (", active$site_full[active$station_id == sid][1], " - ",
+           n, " active device", if (n != 1) "s", ")")
+  }, character(1), USE.NAMES = FALSE)
+  pick <- ui_select_from_menu("Select station:", station_options)
+  if (is.null(pick)) return(cancel())
+  station_id <- sub(" \\(.*\\)$", "", pick)
+  cat("\u2713 Station: ", station_id, "\n", sep = "")
+
+  here <- active[active$station_id == station_id, ]
+  if (nrow(here) == 1) {
+    dev <- here[1, ]
+  } else {
+    labels <- vapply(seq_len(nrow(here)), function(i)
+      device_label(here[i, ], with_role = TRUE), character(1))
+    d_pick <- ui_select_from_menu("Which device?", labels)
+    if (is.null(d_pick)) return(cancel())
+    dev <- here[which(labels == d_pick)[1], ]
+  }
+  cat("\u2713 Device: ", device_label(dev, with_role = TRUE), "\n\n", sep = "")
+
+  type <- tolower(trimws(as.character(dev$station_type)))
+  role <- tolower(trimws(as.character(dev$device_role)))
+  role <- if (is.na(role)) "" else role
+
+  if (type == "hydro" && role %in% c("secondary", "tertiary")) {
+    cat("A ", role, " logger's elevation is the primary's plus a surveyed fall,\n", sep = "")
+    cat("so it is set by the paired gauge survey, not here. Use option 1.\n")
+    return(invisible(NULL))
+  }
+
+  old_elev   <- suppressWarnings(as.numeric(dev$elev))
+  old_source <- if ("elev_source" %in% names(dev)) as.character(dev$elev_source) else NA
+  old_height <- if ("sensor_height_cm" %in% names(dev)) suppressWarnings(as.numeric(dev$sensor_height_cm)) else NA
+
+  cat("Current elevation:     ", show(old_elev, "m"),
+      if (!is.na(old_source)) paste0("  (", old_source, ")") else "", "\n", sep = "")
+  cat("Current sensor height: ", show(old_height, "cm", 0), "\n", sep = "")
+
+  #### Sensor height ####
+  new_height <- ui_prompt_sensor_height(dev$station_type, old_height)
+
+  #### Elevation ####
+  cat("\n--- ELEVATION ---\n\n")
+  cat("`elev` is the GROUND at the device's coordinates.\n\n")
+  cat("  1. GNSS - an orthometric height, meters above sea level (VIVD09)\n")
+  cat("  2. GNSS - an ellipsoidal height, converted here with GEOID18\n")
+  cat("  3. Not surveyed this time - keep ", show(old_elev, "m"), "\n", sep = "")
+  method <- NULL
+  repeat {
+    method <- read_or_quit("\nEnter selection: ")
+    if (is.null(method)) return(cancel())
+    if (method %in% c("1", "2", "3")) break
+    cat("\u26a0\ufe0f  Choose 1, 2 or 3\n")
+  }
+
+  new_elev <- NA_real_; new_source <- NA_character_; arithmetic <- NULL
+  if (method %in% c("1", "2")) {
+    if (method == "1") {
+      H <- read_number("Orthometric height, meters: ")
+      if (is.null(H)) return(cancel())
+      arithmetic <- sprintf("H %.3f m", H)
+    } else {
+      cat("\nThe NAD83(2011) ellipsoidal height, as the receiver or its\n")
+      cat("post-processing reported it. It will look tens of meters too low.\n")
+      h <- read_number("Ellipsoidal height h, meters: ")
+      if (is.null(h)) return(cancel())
+      cat("\nThe GEOID18 geoid height at this device - from NGS:\n\n")
+      cat(sprintf("     https://geodesy.noaa.gov/api/geoid/ght?lat=%.6f&lon=%.6f&model=14\n\n",
+                  as.numeric(dev$lat), as.numeric(dev$lon)))
+      N <- read_number("Geoid height N, meters (negative here): ")
+      if (is.null(N)) return(cancel())
+      H <- h - N
+      cat(sprintf("\n  H = h - N = %.3f - (%.3f) = %.3f m\n", h, N, H))
+      arithmetic <- sprintf("h %.3f m NAD83(2011) - GEOID18 N %.3f m = H %.3f m", h, N, H)
+    }
+
+    # In the Virgin Islands an ellipsoidal height is negative where the land
+    # is well above sea level - the classic way a GNSS elevation goes wrong
+    if (H < -5 || H > 900) {
+      cat(sprintf("\n\u26a0\ufe0f  %.3f m is outside the plausible range here.", H))
+      if (method == "1" && H < -5) {
+        cat(" That looks like an\n   ellipsoidal height - choose route 2 instead.")
+      }
+      cat("\n")
+      if (ui_yes_no("Use it anyway?", allow_quit = FALSE) != "Y") return(cancel())
+    }
+
+    #### Ground or measuring point ####
+    where <- ui_select_from_menu("Where was the shot taken?",
+                                 c("On the ground at the device",
+                                   "On the device's measuring point"))
+    if (is.null(where)) return(cancel())
+    if (grepl("measuring point", where)) {
+      if (is.na(new_height)) {
+        cat("\n\u26a0\ufe0f  A shot on the measuring point needs the sensor height to get\n")
+        cat("   back to the ground, and none is recorded. Nothing saved.\n")
+        return(invisible(NULL))
+      }
+      new_elev <- round(H - new_height / 100, 3)
+      cat(sprintf("\u2713 Ground = measuring point - sensor height = %.3f - %.2f = %.3f m\n",
+                  H, new_height / 100, new_elev))
+      arithmetic <- paste0(arithmetic, sprintf(" at the measuring point, less %.0f cm = ground %.3f m",
+                                               new_height, new_elev))
+    } else {
+      new_elev <- round(H, 3)
+      arithmetic <- paste0(arithmetic, ", ground shot")
+    }
+    new_source <- "gnss"
+  }
+
+  #### A hydro primary carries its partners ####
+  partners <- here[0, ]
+  delta <- NA_real_
+  if (type == "hydro" && role == "primary" && !is.na(new_elev) && !is.na(old_elev)) {
+    delta <- new_elev - old_elev
+    p_role <- tolower(as.character(here$device_role))
+    src <- if ("elev_source" %in% names(here)) as.character(here$elev_source) else rep(NA, nrow(here))
+    partners <- here[!is.na(p_role) & p_role %in% c("secondary", "tertiary") &
+                       !is.na(src) & src == "surveyed_relative" &
+                       !is.na(suppressWarnings(as.numeric(here$elev))), ]
+  }
+
+  #### Note ####
+  note <- read_or_quit("\nAnything else worth recording? (Enter to skip): ")
+  if (is.null(note)) return(cancel())
+
+  #### Nothing to do? ####
+  height_changed <- !identical(is.na(new_height), is.na(old_height)) ||
+                    (!is.na(new_height) && !is.na(old_height) && new_height != old_height)
+  if (is.na(new_elev) && !height_changed) {
+    return(cancel("Neither elevation nor sensor height changed - nothing to save"))
+  }
+
+  #### Summary ####
+  cat("\n============================================\n")
+  cat("  Station:       ", station_id, "  (", survey_date, ")\n", sep = "")
+  cat("  Device:        ", device_label(dev, with_role = TRUE), "\n\n", sep = "")
+  if (!is.na(new_elev)) {
+    cat("  Elevation:     ", show(old_elev, "m"), " -> ", show(new_elev, "m"),
+        "  (", new_source, ")\n", sep = "")
+    cat("                 ", arithmetic, "\n", sep = "")
+  } else {
+    cat("  Elevation:     unchanged, ", show(old_elev, "m"), "\n", sep = "")
+  }
+  cat("  Sensor height: ", show(old_height, "cm", 0), " -> ", show(new_height, "cm", 0), "\n", sep = "")
+  if (nrow(partners) > 0) {
+    cat(sprintf("\n  Moving the primary by %+.3f m moves its surveyed partners with it,\n", delta))
+    cat("  so the measured falls are kept:\n")
+    for (i in seq_len(nrow(partners))) {
+      pe <- as.numeric(partners$elev[i])
+      cat("    ", device_label(partners[i, ], with_role = TRUE), ": ",
+          show(pe, "m"), " -> ", show(pe + delta, "m"), "\n", sep = "")
+    }
+  }
+  if (nzchar(note)) cat("  Note:          ", note, "\n", sep = "")
+  cat("============================================\n\n")
+
+  if (ui_yes_no("Save?", allow_quit = FALSE) != "Y") return(cancel())
+
+  #### Write ####
+  backup_metadata()
+  result <- survey_device_elevation(
+    unique_id        = dev$unique_id,
+    elev             = new_elev,
+    elev_source      = new_source,
+    sensor_height_cm = new_height,
+    shift_unique_ids = partners$unique_id,
+    shift_by         = delta
+  )
+  if (!isTRUE(result)) return(cancel(paste0(result, " - nothing saved")))
+  cat("\u2713 Metadata saved\n")
+
+  bits <- character(0)
+  if (!is.na(new_elev)) {
+    bits <- c(bits, sprintf("elev %s -> %.3f m VIVD09 (%s)", show(old_elev, "m"), new_elev, arithmetic))
+  }
+  if (height_changed) {
+    bits <- c(bits, sprintf("sensor height %s -> %s", show(old_height, "cm", 0), show(new_height, "cm", 0)))
+  }
+  if (nrow(partners) > 0) {
+    bits <- c(bits, sprintf("surveyed partners shifted %+.3f m: %s", delta,
+                            paste(partners$device_serial, collapse = ", ")))
+  }
+  if (nzchar(note)) bits <- c(bits, note)
+
+  log_result <- create_maintenance_entry(
+    field_visit_date = survey_date,
+    station_id       = station_id,
+    station_type     = dev$station_type,
+    device_serial    = dev$device_serial,
+    action_type      = "elevation_survey",
+    details          = paste0("Single-device survey: ", paste(bits, collapse = "; ")),
+    ports_updated    = FALSE,
+    logged_by        = logged_by
+  )
+  if (!isTRUE(log_result)) {
+    cat("\u26a0\ufe0f  Saved, but the maintenance log entry failed: ", log_result, "\n", sep = "")
+  }
+
+  visit <- update_last_visit(station_id, survey_date)
+  if (!isTRUE(visit)) cat("\u26a0\ufe0f  Could not update last_visit: ", visit, "\n", sep = "")
+
+  cat("\n\u2713 Survey complete\n")
+  invisible(TRUE)
 }
 
 
@@ -2132,6 +2265,12 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL,
         cat("  Elevation: Not recorded\n")
       }
     }
+
+    ## Sensor height
+    # Per device, not per station: a replacement logger can sit higher or
+    # lower than the one it replaced, so it is asked fresh rather than
+    # inherited.
+    sensor_height_cm <- ui_prompt_sensor_height(station_type)
     
     ################################################################################
     #### SECTION D: TIMING ####
@@ -2273,6 +2412,9 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL,
     } else {
       cat("  Elevation: not set\n")
     }
+    if (!is.na(sensor_height_cm)) {
+      cat("  Sensor height:", sensor_height_cm, "cm above ground\n")
+    }
     cat("  Deploy:", format(deploy_datetime), "\n")
     cat("  Status:", status, "\n")
     # The metadata review is not shown here - it is asked after the ports and
@@ -2318,6 +2460,7 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL,
     lon = lon,
     elev = elev,
     elev_source = elev_source,
+    sensor_height_cm = sensor_height_cm,
     interval_min = interval,
     timezone = timezone,
     deploy_datetime = deploy_datetime,
@@ -2338,6 +2481,14 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL,
   
   # Log to maintenance (unless suppressed by parent workflow)
   if (!suppress_logging) {
+    # Anything about the installation worth keeping - how the elevation was
+    # got, where the logger sits - goes into the same entry, not a second
+    cat("\nAnything worth noting about this installation? (Enter to skip): ")
+    install_note <- trimws(readline())
+    with_note <- function(text) {
+      if (nzchar(install_note)) paste0(text, ". ", install_note) else text
+    }
+
     if (is_new_station) {
       log_result <- create_maintenance_entry(
         field_visit_date = as.Date(deploy_datetime),
@@ -2345,7 +2496,7 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL,
         station_type = station_type,
         device_serial = device_serial,
         action_type = "station_established",
-        details = paste0("New station established: ", site_full),
+        details = with_note(paste0("New station established: ", site_full)),
         ports_updated = FALSE,
         logged_by = ui_ask_whois_logging()
       )
@@ -2361,7 +2512,7 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL,
         station_type = station_type,
         device_serial = device_serial,
         action_type = "device_added",
-        details = paste0("Device added to existing station"),
+        details = with_note("Device added to existing station"),
         ports_updated = FALSE,
         logged_by = ui_ask_whois_logging()
       )
@@ -5137,7 +5288,8 @@ ui_correct_device_details <- function() {
   # but note that lat/lon changing because the DEVICE MOVED is an event, and
   # belongs in the relocation or replacement workflow so it leaves a log entry.
   editable <- c("model", "device_name", "device_role", "interval_min",
-                "deploy_datetime", "lat", "lon", "elev", "expiry_date")
+                "deploy_datetime", "lat", "lon", "elev", "sensor_height_cm",
+                "expiry_date")
   editable <- editable[editable %in% names(metadata)]
 
   # A device already in a terminal state can have that state CORRECTED here -
@@ -5235,6 +5387,9 @@ ui_correct_device_details <- function() {
       }
       # elev_source travels with the value
       metadata$elev_source[idx] <- res$elev_source
+
+    } else if (field == "sensor_height_cm") {
+      new_value <- ui_prompt_sensor_height(metadata$station_type[idx], current)
 
     } else if (field == "expiry_date") {
       # When the device's ZentraCloud subscription runs out. Read off the
