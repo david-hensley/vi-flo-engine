@@ -1,7 +1,8 @@
-# Product 2, piece 1: the variable registry, and one reader for all three
+# Product 2, piece 1: the variable registry, and one reader for all four
 # shapes of Product 1. The fixtures are real Product 1 files: bta2b's U20, the
 # UVI ZL6 serving a weather and a vwc station at once, a vwc-only ZL6 fetched
-# twice four minutes apart, and the first 400 rows of SR1's HOBOlink logger.
+# twice four minutes apart, a full-history export, and the first 400 rows of
+# SR1's HOBOlink logger.
 
 p1 <- function(f) fixture_path("p1", f)
 U20      <- "21652379_20260828_20260902_raw.rds"
@@ -9,12 +10,20 @@ UVI      <- "z6-13368_20260928_20260928_20260928T134705_raw.rds"
 VWC_A    <- "z6-38175_20261001_20261001_20261001T171036_raw.rds"
 VWC_B    <- "z6-38175_20261001_20261001_20261001T171457_raw.rds"
 HOBOLINK <- "21180078_20230802_20230803_raw.rds"
+EXPORT   <- "z6-30133_20241212_20241212_20260914T000000_raw.rds"
 
 #### The registry ####
 
-test_that("the registry names each source's measurement once", {
+test_that("the registry names each source, sensor and measurement once", {
   reg <- load_variable_registry()
-  expect_false(any(duplicated(paste(reg$source, reg$measurement))))
+  expect_false(any(duplicated(paste(reg$source, reg$sensor, reg$measurement))))
+})
+
+test_that("the registry describes the network's sensors, not a catalog", {
+  reg <- load_variable_registry()
+  z <- unique(reg$sensor[reg$source == "zentra"])
+  expect_setequal(z, c("ATMOS 41", "ATMOS 41 G2", "TEROS 10", "Barometer", "Battery",
+                       "Signal Strength", "ECRN-50", "TEROS 21", "Unrecognized Sensor"))
 })
 
 test_that("every kept measurement has a variable, a known unit and a kind", {
@@ -148,7 +157,53 @@ test_that("a measurement the registry has never heard of is reported, not silent
   m <- map_measurements(read_p1_long(f, device_serial = "z6-38175"))
   un <- attr(m, "unmapped")
   expect_equal(un$measurement, "Matric Potential")
+  expect_equal(un$sensor, "Barometer")
   expect_false("Matric Potential" %in% m$measurement)
+})
+
+test_that("a full-history export reads from its UTC column, and maps like the live API", {
+  l <- read_p1_long(p1(EXPORT))
+  expect_equal(format(min(l$datetime), "%Y-%m-%d %H:%M", tz = "UTC"), "2024-12-12 19:15")
+  expect_true(all(l$source == "zentra"))
+  m <- map_measurements(l)
+  expect_equal(unique(m$variable), "logger_pressure")
+  expect_equal(round(m$value[1], 2), 91.99)
+  expect_equal(nrow(attr(m, "unmapped")), 0)
+})
+
+test_that("an export's long sensor names and older measurement names are recognized", {
+  x <- readRDS(p1(EXPORT))
+  x$sensor <- "ATMOS 41 All-in-one Weather Station"
+  x$measurement <- "Activity"; x$unit <- "Lightning"
+  f <- withr::local_tempfile(fileext = "_raw.rds"); saveRDS(x, f)
+  m <- map_measurements(read_p1_long(f, device_serial = "z6-30133"))
+  expect_true(all(m$variable == "lightning_count"))
+  expect_true(all(m$sensor == "ATMOS 41"))
+})
+
+test_that("ECRN-50 rain never lands in the ATMOS precip series", {
+  x <- readRDS(p1(UVI))
+  rain <- x$measurement == "Precipitation"
+  x$sensor_name[rain] <- "ECRN-50"
+  f <- withr::local_tempfile(fileext = "_raw.rds"); saveRDS(x, f)
+  m <- map_measurements(read_p1_long(f, device_serial = "z6-13368"))
+  expect_false("precip" %in% m$variable)
+  expect_equal(nrow(attr(m, "unmapped")), 0)    # dropped by decision, not unknown
+})
+
+test_that("an ATMOS 41 G2 is not mistaken for an ATMOS 41, and keeps its extremes", {
+  x <- readRDS(p1(UVI))
+  atmos <- x$sensor_name == "ATMOS 41"
+  x$sensor_name[atmos] <- "ATMOS 41 G2"
+  x$measurement[atmos & x$measurement == "X-axis Level"] <- "Max Air Temperature"
+  x$unit[x$measurement == "Max Air Temperature"] <- "\u00b0C"
+  f <- withr::local_tempfile(fileext = "_raw.rds"); saveRDS(x, f)
+  m <- map_measurements(read_p1_long(f, device_serial = "z6-13368"))
+  expect_true(all(m$sensor[m$variable == "temp"] == "ATMOS 41 G2"))
+  expect_true("temp_max" %in% m$variable)
+  expect_equal(unique(m$kind[m$variable == "temp_max"]), "maximum")
+  # The G2 has no X-axis Level row; Y-axis Level falls through as unknown
+  expect_equal(attr(m, "unmapped")$measurement, "Y-axis Level")
 })
 
 test_that("HOBOlink maps its own barometer to pressure and its level to hobolink_level", {

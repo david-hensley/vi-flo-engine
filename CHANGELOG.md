@@ -8,20 +8,30 @@ All notable changes to the VI-FLO Engine project are documented here.
 ### Added
 - **Product 2, piece 1: the variable registry and one reader for every
   Product 1 shape**, in `code/functions/product2_functions.R`
-  - `data/variables.csv`: every measurement any logger reports, as kept or
-    dropped, with its VI-FLO name, unit, and kind - instantaneous,
-    accumulated or maximum, which decides how a finer interval reaches the
-    15-minute grid. A plain CSV, to read and correct without R
-  - Kept: the ATMOS measurements, TEROS water content, soil temperature and
-    bulk EC by depth, U20 absolute pressure and water temperature, the ZL6's
-    own barometer as `logger_pressure` - a last-resort barometric source -
-    and HOBOlink's pressure, temperature and barometer. HOBOlink's computed
-    level becomes `hobolink_level`, never `level`
-  - Dropped, and still in Product 1: battery, signal, logger temperature,
-    the ATMOS tilt axes and RH sensor temperature, raw VWC, and everything
-    ZENTRA computes - VPD, dew point, reference ET, saturation extract EC
-  - `read_p1_long()` reads all three shapes - ZL6 in UTC, U20 text with a
-    declared offset, HOBOlink in local time - into one long form in UTC
+  - `data/variables.csv`: every measurement any logger in the network
+    reports, keyed by source, SENSOR and measurement - an ATMOS 41 and an
+    ECRN-50 both report "Precipitation", and they are not one series. Each
+    row is kept or dropped, with its VI-FLO name, unit, and kind -
+    instantaneous, accumulated, maximum or minimum, which decides how a finer
+    interval reaches the 15-minute grid. Built from what the archive actually
+    holds, checked across all 198 ZL6 files and the ports file. A plain CSV,
+    to read and correct without R
+  - Kept: the ATMOS 41 and 41 G2 measurements, the G2's interval maximum and
+    minimum air temperature, TEROS 10 water content by depth, U20 absolute
+    pressure and water temperature, the ZL6's own barometer as
+    `logger_pressure` - a last-resort barometric source - and HOBOlink's
+    pressure, temperature and barometer. HOBOlink's computed level becomes
+    `hobolink_level`, never `level`
+  - Dropped, and still in Product 1: diagnostics (battery, signal, logger
+    temperature, tilt, RH sensor temperature), raw VWC, everything ZENTRA
+    computes (VPD, dew point, reference ET), the G2's drop counts, spoon tips
+    and rain conductivity - noted as evidence for Product 3 rain QC - the
+    ECRN-50s, deployed but their data judged unbelievable, and the TEROS 21,
+    on no station's ports
+  - `read_p1_long()` reads all four shapes - ZL6 in UTC, the full-history
+    exports with their own column names and spelled-out sensors, U20 text
+    with a declared offset, HOBOlink in local time - into one long form in
+    UTC
   - `map_measurements()` names, converts and filters by the registry. Units
     arrive spelled several ways and are recognized; psi, degF and hPa are
     converted; an unknown unit stops the build rather than being guessed. A
@@ -31,7 +41,7 @@ All notable changes to the VI-FLO Engine project are documented here.
   - Pressure stays in kPa, the unit both the U20s and the ATMOS deliver
 - Real Product 1 fixtures for the suite: bta2b's U20, the UVI ZL6 serving a
   weather and a vwc station at once, a vwc ZL6 fetched twice four minutes
-  apart, and 400 rows of SR1's HOBOlink logger
+  apart, a full-history export, and 400 rows of SR1's HOBOlink logger
 - **A test suite**, in `tests/`, run by hand with `tests/run_tests.R` before a
   change is called good. The engine stays a folder of function files;
   `testthat` is the only new dependency

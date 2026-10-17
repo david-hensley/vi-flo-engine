@@ -1,38 +1,66 @@
-source,measurement,keep,variable,unit,kind,depth,source_unit,note
-zentra,Air Temperature,TRUE,temp,degC,instantaneous,FALSE,,ATMOS 41
-zentra,Relative Humidity,TRUE,rh,%,instantaneous,FALSE,,ATMOS 41
-zentra,Atmospheric Pressure,TRUE,pressure,kPa,instantaneous,FALSE,,ATMOS 41. The barometric source for level
-zentra,Vapor Pressure,TRUE,vapor_pressure,kPa,instantaneous,FALSE,,ATMOS 41
-zentra,Wind Speed,TRUE,wind_speed,m/s,instantaneous,FALSE,,ATMOS 41. Averaged by the sensor over its interval
-zentra,Gust Speed,TRUE,gust_speed,m/s,maximum,FALSE,,ATMOS 41. Highest over the interval
-zentra,Wind Direction,TRUE,wind_direction,deg,instantaneous,FALSE,,ATMOS 41. Degrees from north
-zentra,Solar Radiation,TRUE,solar_radiation,W/m2,instantaneous,FALSE,,ATMOS 41. Averaged by the sensor over its interval
-zentra,Precipitation,TRUE,precip,mm,accumulated,FALSE,,Total over the interval
-zentra,Max Precip Rate,TRUE,precip_rate_max,mm/h,maximum,FALSE,,ATMOS 41. Highest over the interval
-zentra,Lightning Activity,TRUE,lightning_count,count,accumulated,FALSE,,ATMOS 41. Strikes over the interval
-zentra,Lightning Distance,TRUE,lightning_distance,km,instantaneous,FALSE,,ATMOS 41
-zentra,Water Content,TRUE,vwc,m3/m3,instantaneous,TRUE,,TEROS 10/11/12. Named with its depth
-zentra,Soil Temperature,TRUE,soil_temp,degC,instantaneous,TRUE,,TEROS 11/12. Named with its depth
-zentra,Bulk EC,TRUE,soil_ec,dS/m,instantaneous,TRUE,,TEROS 12. Named with its depth
-zentra,Reference Pressure,TRUE,logger_pressure,kPa,instantaneous,FALSE,,The ZL6's own barometer. Coarser than the ATMOS; a last-resort barometric source
-zentra,Saturation Extract EC,FALSE,,,,,,Computed by ZENTRA from Bulk EC
-zentra,Raw VWC,FALSE,,,,,,Raw counts behind Water Content
-zentra,VPD,FALSE,,,,,,Computed by ZENTRA
-zentra,Dew Point,FALSE,,,,,,Computed by ZENTRA
-zentra,Reference ET,FALSE,,,,,,Computed by ZENTRA
-zentra,Hourly Reference ET,FALSE,,,,,,Computed by ZENTRA
-zentra,RH Sensor Temp,FALSE,,,,,,Diagnostic
-zentra,X-axis Level,FALSE,,,,,,Diagnostic: ATMOS tilt
-zentra,Y-axis Level,FALSE,,,,,,Diagnostic: ATMOS tilt
-zentra,Logger Temperature,FALSE,,,,,,Diagnostic
-zentra,Battery Percent,FALSE,,,,,,Diagnostic
-zentra,Battery Voltage,FALSE,,,,,,Diagnostic
-zentra,Signal,FALSE,,,,,,Diagnostic
-hobo,Abs Pres,TRUE,abs_pressure,kPa,instantaneous,FALSE,,HOBO U20. Absolute pressure; level is derived from it
-hobo,Temp,TRUE,water_temp,degC,instantaneous,FALSE,,HOBO U20
-hobolink,water_pressure_kpa,TRUE,abs_pressure,kPa,instantaneous,FALSE,kPa,HOBOlink MX2001
-hobolink,water_temp_c,TRUE,water_temp,degC,instantaneous,FALSE,degC,HOBOlink MX2001
-hobolink,barometric_kpa,TRUE,pressure,kPa,instantaneous,FALSE,kPa,HOBOlink MX2001's own barometer at the gauge
-hobolink,water_level_m,TRUE,hobolink_level,m,instantaneous,FALSE,m,HOBOlink's own computed level. Kept as a check on VI-FLO's level - never called level
-hobolink,diff_pressure_kpa,FALSE,,,,,,Computed by HOBOlink: water minus barometric
-hobolink,line_no,FALSE,,,,,,Row counter
+source,sensor,measurement,keep,variable,unit,kind,depth,source_unit,note
+zentra,ATMOS 41,Air Temperature,TRUE,temp,degC,instantaneous,FALSE,,
+zentra,ATMOS 41,Relative Humidity,TRUE,rh,%,instantaneous,FALSE,,
+zentra,ATMOS 41,Atmospheric Pressure,TRUE,pressure,kPa,instantaneous,FALSE,,The barometric source for level
+zentra,ATMOS 41,Vapor Pressure,TRUE,vapor_pressure,kPa,instantaneous,FALSE,,
+zentra,ATMOS 41,Wind Speed,TRUE,wind_speed,m/s,instantaneous,FALSE,,Averaged by the sensor over its interval
+zentra,ATMOS 41,Gust Speed,TRUE,gust_speed,m/s,maximum,FALSE,,Highest over the interval
+zentra,ATMOS 41,Wind Direction,TRUE,wind_direction,deg,instantaneous,FALSE,,Degrees from north
+zentra,ATMOS 41,Solar Radiation,TRUE,solar_radiation,W/m2,instantaneous,FALSE,,Averaged by the sensor over its interval
+zentra,ATMOS 41,Precipitation,TRUE,precip,mm,accumulated,FALSE,,Total over the interval
+zentra,ATMOS 41,Max Precip Rate,TRUE,precip_rate_max,mm/h,maximum,FALSE,,Highest over the interval
+zentra,ATMOS 41,Lightning Activity,TRUE,lightning_count,count,accumulated,FALSE,,Strikes over the interval
+zentra,ATMOS 41,Lightning Distance,TRUE,lightning_distance,km,instantaneous,FALSE,,
+zentra,ATMOS 41,RH Sensor Temp,FALSE,,,,,,Diagnostic
+zentra,ATMOS 41,VPD,FALSE,,,,,,Computed by ZENTRA
+zentra,ATMOS 41,Dew Point,FALSE,,,,,,Computed by ZENTRA
+zentra,ATMOS 41,Reference ET,FALSE,,,,,,Computed by ZENTRA
+zentra,ATMOS 41,Hourly Reference ET,FALSE,,,,,,Computed by ZENTRA
+zentra,ATMOS 41,Daily Reference ET,FALSE,,,,,,Computed by ZENTRA
+zentra,ATMOS 41 G2,Air Temperature,TRUE,temp,degC,instantaneous,FALSE,,
+zentra,ATMOS 41 G2,Relative Humidity,TRUE,rh,%,instantaneous,FALSE,,
+zentra,ATMOS 41 G2,Atmospheric Pressure,TRUE,pressure,kPa,instantaneous,FALSE,,The barometric source for level
+zentra,ATMOS 41 G2,Vapor Pressure,TRUE,vapor_pressure,kPa,instantaneous,FALSE,,
+zentra,ATMOS 41 G2,Wind Speed,TRUE,wind_speed,m/s,instantaneous,FALSE,,Averaged by the sensor over its interval
+zentra,ATMOS 41 G2,Gust Speed,TRUE,gust_speed,m/s,maximum,FALSE,,Highest over the interval
+zentra,ATMOS 41 G2,Wind Direction,TRUE,wind_direction,deg,instantaneous,FALSE,,Degrees from north
+zentra,ATMOS 41 G2,Solar Radiation,TRUE,solar_radiation,W/m2,instantaneous,FALSE,,Averaged by the sensor over its interval
+zentra,ATMOS 41 G2,Precipitation,TRUE,precip,mm,accumulated,FALSE,,Total over the interval
+zentra,ATMOS 41 G2,Max Precip Rate,TRUE,precip_rate_max,mm/h,maximum,FALSE,,Highest over the interval
+zentra,ATMOS 41 G2,Lightning Activity,TRUE,lightning_count,count,accumulated,FALSE,,Strikes over the interval
+zentra,ATMOS 41 G2,Lightning Distance,TRUE,lightning_distance,km,instantaneous,FALSE,,
+zentra,ATMOS 41 G2,RH Sensor Temp,FALSE,,,,,,Diagnostic
+zentra,ATMOS 41 G2,VPD,FALSE,,,,,,Computed by ZENTRA
+zentra,ATMOS 41 G2,Dew Point,FALSE,,,,,,Computed by ZENTRA
+zentra,ATMOS 41 G2,Reference ET,FALSE,,,,,,Computed by ZENTRA
+zentra,ATMOS 41 G2,Hourly Reference ET,FALSE,,,,,,Computed by ZENTRA
+zentra,ATMOS 41 G2,Daily Reference ET,FALSE,,,,,,Computed by ZENTRA
+zentra,ATMOS 41,Activity,TRUE,lightning_count,count,accumulated,FALSE,,The full-history exports' name for Lightning Activity
+zentra,ATMOS 41,X-axis Level,FALSE,,,,,,Diagnostic: tilt
+zentra,ATMOS 41,Y-axis Level,FALSE,,,,,,Diagnostic: tilt
+zentra,ATMOS 41 G2,Max Air Temperature,TRUE,temp_max,degC,maximum,FALSE,,G2 only. Highest over the interval
+zentra,ATMOS 41 G2,Min Air Temperature,TRUE,temp_min,degC,minimum,FALSE,,G2 only. Lowest over the interval
+zentra,ATMOS 41 G2,Tilt Angle,FALSE,,,,,,Diagnostic: tilt
+zentra,ATMOS 41 G2,Drop Counts,FALSE,,,,,,G2 only. Candidate evidence for P3 rain QC - read from Product 1
+zentra,ATMOS 41 G2,Spoon Tips,FALSE,,,,,,G2 only. Candidate evidence for P3 rain QC - read from Product 1
+zentra,ATMOS 41 G2,EC,FALSE,,,,,,G2 only. Electrical conductivity of the rain. Candidate evidence for P3 rain QC - read from Product 1
+zentra,TEROS 10,Water Content,TRUE,vwc,m3/m3,instantaneous,TRUE,,Named with its depth
+zentra,TEROS 10,Raw VWC,FALSE,,,,,,Raw counts behind Water Content
+zentra,Barometer,Reference Pressure,TRUE,logger_pressure,kPa,instantaneous,FALSE,,The ZL6's own barometer. Coarser than the ATMOS; a last-resort barometric source
+zentra,Barometer,Logger Temperature,FALSE,,,,,,Diagnostic
+zentra,Battery,Battery Percent,FALSE,,,,,,Diagnostic
+zentra,Battery,Battery Voltage,FALSE,,,,,,Diagnostic
+zentra,Signal Strength,Signal,FALSE,,,,,,Diagnostic
+zentra,ECRN-50,Precipitation,FALSE,,,,,,Deployed; data judged unbelievable and never used (DAH). Still in Product 1
+zentra,ECRN-50,Max Precip Rate,FALSE,,,,,,Deployed; data judged unbelievable and never used (DAH). Still in Product 1
+zentra,TEROS 21,Matric Potential,FALSE,,,,,,Not a sensor on any VI-FLO station's ports. Still in Product 1
+zentra,TEROS 21,Soil Temperature,FALSE,,,,,,Not a sensor on any VI-FLO station's ports. Still in Product 1
+zentra,Unrecognized Sensor,Output,FALSE,,,,,,ZENTRA could not identify the sensor
+hobo,,Abs Pres,TRUE,abs_pressure,kPa,instantaneous,FALSE,,HOBO U20. Absolute pressure; level is derived from it
+hobo,,Temp,TRUE,water_temp,degC,instantaneous,FALSE,,HOBO U20
+hobolink,,water_pressure_kpa,TRUE,abs_pressure,kPa,instantaneous,FALSE,kPa,HOBOlink MX2001
+hobolink,,water_temp_c,TRUE,water_temp,degC,instantaneous,FALSE,degC,HOBOlink MX2001
+hobolink,,barometric_kpa,TRUE,pressure,kPa,instantaneous,FALSE,kPa,HOBOlink MX2001's own barometer at the gauge
+hobolink,,water_level_m,TRUE,hobolink_level,m,instantaneous,FALSE,m,HOBOlink's own computed level. Kept as a check on VI-FLO's level - never called level
+hobolink,,diff_pressure_kpa,FALSE,,,,,,Computed by HOBOlink: water minus barometric
+hobolink,,line_no,FALSE,,,,,,Row counter
