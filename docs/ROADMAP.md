@@ -7,7 +7,34 @@ recollection, which meant rediscovering it each time — and carrying at least
 one item that had never existed. Anything genuinely finished is deleted rather
 than struck through; `CHANGELOG.md` is the record of what was done.
 
-Last reviewed: **2026-10-17**
+Last reviewed: **2026-10-18**
+
+---
+
+## Versions ahead
+
+Engine versions follow the product ladder. The dataset release that gets
+cited - a DOI, its own station list - is numbered separately, on its own
+clock.
+
+- **v2.8** - Product 2 built for the whole archive and kept up to date by the
+  weekly job
+- **v2.9** - the metadata in git, so every version is a commit and any
+  product can be rebuilt exactly as it was. Before Product 3, whose decisions
+  rest on the metadata (see *Metadata into git* below)
+- **v3** - Product 3 automatic and unattended: QC under declared parameters,
+  gap filling by declared rules, and the first derived series, level, from
+  Product 2 pressure and the barometric pairing table
+- **After v3** - the computed variables beyond level (discharge, storage and
+  the rest), and v4, Product 4: the workflow for human decisions. Discharge
+  sits here, resting on rating curves that are partly experimental
+
+**Pin the weekly job to a release** once the engine settles. Today the job
+pulls the newest commit, so any change under `code/functions/` makes every
+Product 2 file stale and the next run rebuilds the archive - about twenty
+unattended minutes. Pinned to a tag, day-to-day engine work stops touching the
+products, bumping the release is the deliberate rebuild, and the manifest's
+`engine` names a release rather than a passing commit.
 
 ---
 
