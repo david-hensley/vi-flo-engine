@@ -145,14 +145,14 @@ view_device <- function(device_serial, from = NULL, to = NULL, variables = NULL,
 #   UNEXPLAINED          everything else - look at these                       #
 #   KNOWN                a period in metadata/internal/known_unattributed.csv  #
 #   AROUND INSTALLATIONS up to 7 days before a deployment starts - a desk      #
-#                        launch, a test - or in its first 2 hours, before a    #
-#                        port's window opens while a sensor settles           #
+#                        launch, a test - or in its first 24 hours, before     #
+#                        its sensors' port windows open                        #
 #                                                                              #
 # Within each, the last 12 months come first, then older, newest first.        #
 ################################################################################
 
 INSTALL_BEFORE <- 7 * 86400    # seconds before a deployment starts
-INSTALL_AFTER  <- 2 * 3600     # seconds after it starts
+INSTALL_AFTER  <- 24 * 3600    # seconds after it starts: a deployment's first day
 
 #' Loads known_unattributed.csv - an absent file means none are known
 #'
@@ -211,24 +211,38 @@ classify_unattributed <- function(u, windows, known) {
     }
   }
 
-  #### Unexplained: runs split wherever a day passes with nothing ####
-  for (key in unique(paste(u$device_serial, u$port)[u$category == "unexplained"])) {
-    rows <- which(u$category == "unexplained" & paste(u$device_serial, u$port) == key)
+  #### Unexplained: per logger, runs split where a week passes with nothing ####
+  # A logger's ports nearly always go together - one story, one episode - and
+  # a logger in storage may report only a few times a week
+  for (dev in unique(u$device_serial[u$category == "unexplained"])) {
+    rows <- which(u$category == "unexplained" & u$device_serial == dev)
     rows <- rows[order(t[rows])]
-    run <- cumsum(c(TRUE, diff(t[rows]) > 86400))
-    u$episode[rows] <- paste0("open:", key, ":", run)
+    run <- cumsum(c(TRUE, diff(t[rows]) > EPISODE_GAP))
+    u$episode[rows] <- paste0("open:", dev, ":", run)
   }
   u
+}
+
+EPISODE_GAP <- 7 * 86400       # seconds of silence that end an unexplained episode
+
+#' Ports as a compact list: 1, 2, 3, 4, 6, 8 -> "1-4, 6, 8"
+compact_ports <- function(p) {
+  p <- sort(unique(p[!is.na(p)]))
+  if (length(p) == 0) return("")
+  runs <- split(p, cumsum(c(1, diff(p) != 1)))
+  paste(vapply(runs, function(r) if (length(r) == 1) as.character(r)
+                                 else paste0(r[1], "-", r[length(r)]), character(1)),
+        collapse = ", ")
 }
 
 #' Unattributed readings as episodes: one line per logger, port and episode
 #'
 #' @param u Data frame from classify_unattributed()
-#' @return Data frame: category, device_serial, port, episode, first, last,
-#'   moments (distinct times), variables
+#' @return Data frame: category, device_serial, ports (compact), episode,
+#'   first, last, moments (distinct times), variables
 unattributed_episodes <- function(u) {
   if (nrow(u) == 0) return(NULL)
-  key <- paste(u$category, u$device_serial, u$port, u$episode, sep = "|")
+  key <- paste(u$category, u$device_serial, u$episode, sep = "|")
   k <- unique(key)
   i <- match(k, key)
   t <- as.numeric(u$datetime)
@@ -236,7 +250,7 @@ unattributed_episodes <- function(u) {
   ep <- data.frame(
     category      = u$category[i],
     device_serial = u$device_serial[i],
-    port          = u$port[i],
+    ports         = as.character(tapply(u$port, f, compact_ports)),
     episode       = u$episode[i],
     first   = as.POSIXct(as.numeric(tapply(t, f, min)), origin = "1970-01-01", tz = "UTC"),
     last    = as.POSIXct(as.numeric(tapply(t, f, max)), origin = "1970-01-01", tz = "UTC"),
@@ -269,7 +283,10 @@ print_unattributed <- function(ep, metadata, known, now = Sys.time()) {
   recent <- as.numeric(ep$last) >= as.numeric(now) - 365 * 86400
   who <- function(i) paste0(device_short_name(ep$device_serial[i], metadata),
                             " (", ep$device_serial[i], ")")
-  port_of <- function(i) if (is.na(ep$port[i])) "" else paste0("port ", ep$port[i])
+  port_of <- function(i) {
+    p <- ep$ports[i]
+    if (is.na(p) || !nzchar(p)) "" else paste0(if (grepl("[-,]", p)) "ports " else "port ", p)
+  }
 
   cat("\nUnattributed - read from these stations' loggers, belonging to no station.\n")
   cat("view_device(serial, from, to) draws any of them against its deployments.\n")
@@ -288,7 +305,7 @@ print_unattributed <- function(ep, metadata, known, now = Sys.time()) {
   cat("\n  UNEXPLAINED - look at these\n")
   if (!any(sel)) cat("    none\n")
   periods(sel, function(i) {
-    cat(sprintf("      %-30s %-7s %s to %s  %8s moments  %s\n", who(i), port_of(i),
+    cat(sprintf("      %-30s %-13s %s to %s  %8s moments  %s\n", who(i), port_of(i),
                 d(ep$first[i]), d(ep$last[i]), format(ep$moments[i], big.mark = ","),
                 ep$variables[i]))
   })
@@ -299,7 +316,7 @@ print_unattributed <- function(ep, metadata, known, now = Sys.time()) {
     cat("\n  KNOWN - metadata/internal/known_unattributed.csv\n")
     periods(sel, function(i) {
       k <- known[as.integer(sub("^known:", "", ep$episode[i])), ]
-      cat(sprintf("      %-30s %-7s %s to %s  %8s moments  %s\n", who(i), port_of(i),
+      cat(sprintf("      %-30s %-13s %s to %s  %8s moments  %s\n", who(i), port_of(i),
                   d(ep$first[i]), d(ep$last[i]), format(ep$moments[i], big.mark = ","),
                   k$reason))
     })
@@ -308,7 +325,7 @@ print_unattributed <- function(ep, metadata, known, now = Sys.time()) {
   #### Around installations: one line per period ####
   sel <- ep$category == "installation"
   if (any(sel)) {
-    cat("\n  AROUND INSTALLATIONS - up to 7 days before a deployment, or its first 2 hours\n")
+    cat("\n  AROUND INSTALLATIONS - up to 7 days before a deployment, or its first 24 hours\n")
     for (when in c("last 12 months", "older")) {
       rows <- which(sel & if (when == "last 12 months") recent else !recent)
       if (length(rows) == 0) next

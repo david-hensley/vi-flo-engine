@@ -47,8 +47,12 @@ test_that("the manifest says what each file holds and what built it", {
   expect_equal(r$alignment, "21652379 interpolated to the quarter hour")
   expect_equal(r$intervals, "21652379 15 min")
   expect_equal(r$source_files, U20)
-  expect_equal(r$metadata_md5,
-               unname(tools::md5sum(file.path(wds("meta_internal"), "device_metadata.csv"))))
+  expect_equal(r$inputs, U20)
+  fp <- p2_fingerprints("zzb_hydro", 2026, load_zentra_metadata(), load_zentra_ports_data(),
+                        deployment_windows())
+  expect_equal(r$metadata_fingerprint, fp$metadata)
+  expect_equal(r$ports_fingerprint, fp$ports)
+  expect_false(any(grepl("md5|uncommitted", c(names(r), unlist(r)))))
   expect_equal(as.integer(r$rows), as.integer(r$observed) + as.integer(r$missing))
 })
 
@@ -205,4 +209,67 @@ test_that("a logger removed and later redeployed belongs to no station in betwee
   u <- attr(out, "unattributed")
   expect_true(all(as.numeric(u$first) >= as.numeric(as.POSIXct("2026-08-30", tz = "America/Puerto_Rico"))))
   expect_true(all(as.numeric(u$last) < as.numeric(as.POSIXct("2026-09-01 12:00", tz = "America/Puerto_Rico"))))
+})
+
+#### Fingerprints and commits ####
+
+set_meta <- function(edit) {
+  path <- file.path(wds("meta_internal"), "device_metadata.csv")
+  m <- read.csv(path, stringsAsFactors = FALSE)
+  write.csv(edit(m), path, row.names = FALSE)
+}
+fps <- function(st, yr) p2_fingerprints(st, yr, load_zentra_metadata(), load_zentra_ports_data(),
+                                        deployment_windows())
+
+test_that("a battery reading or a download date changes no fingerprint", {
+  local_test_root()
+  before <- fps("zzb_hydro", 2026)
+  set_meta(function(m) { m$battery[m$unique_id == "t-0007"] <- 77
+                         m$last_download_date[m$unique_id == "t-0007"] <- "2026-10-19 08:00:00"; m })
+  expect_identical(fps("zzb_hydro", 2026), before)
+})
+
+test_that("a station's own deployment date changes its fingerprint, and no one else's", {
+  local_test_root()
+  zzb <- fps("zzb_hydro", 2026); uvi <- fps("zzu_weather", 2026)
+  set_meta(function(m) { m$deploy_datetime[m$unique_id == "t-0007"] <- "2026-08-02 12:00:00"; m })
+  expect_false(identical(fps("zzb_hydro", 2026)$metadata, zzb$metadata))
+  expect_identical(fps("zzu_weather", 2026), uvi)
+})
+
+test_that("a port change changes its logger's stations' ports fingerprint", {
+  local_test_root()
+  before <- fps("zzu_vwc1", 2026)
+  path <- file.path(wds("meta_internal"), "zentra_ports.csv")
+  p <- read.csv(path, stringsAsFactors = FALSE)
+  p$depth_cm[p$sn == "z6-13368" & p$port == 3] <- 25
+  write.csv(p, path, row.names = FALSE, na = "")
+  after <- fps("zzu_vwc1", 2026)
+  expect_identical(after$metadata, before$metadata)
+  expect_false(identical(after$ports, before$ports))
+})
+
+test_that("outside the test suite, nothing is built on code that is not a commit", {
+  local_test_root(); place_p1(U20)
+  old <- options(viflo.test_build = FALSE); on.exit(options(old))
+  expect_error(build_p2("zzb_hydro", 2026, quiet = TRUE), "Not building Product 2")
+  expect_length(list_product_files(2), 0)
+})
+
+test_that("a clean commit is named, and any change at all - a document included - blocks", {
+  skip_if(Sys.which("git") == "", "git is not installed here")
+  repo <- withr::local_tempdir()
+  run <- function(...) system2("git", c("-C", shQuote(repo), ...), stdout = FALSE, stderr = FALSE)
+  run("init", "-q"); run("config", "user.email", "t@t"); run("config", "user.name", "t")
+  writeLines("x", file.path(repo, "README.md")); run("add", "."); run("commit", "-q", "-m", "first")
+  withr::local_envvar(VI_FLO_ENGINE_ROOT = repo)
+
+  clean <- engine_commit()
+  expect_true(is.na(clean$problem))
+  expect_match(clean$commit, "^[0-9a-f]{7,}$")
+
+  writeLines("y", file.path(repo, "README.md"))              # a docs edit, uncommitted
+  dirty <- engine_commit()
+  expect_true(is.na(dirty$commit))
+  expect_match(dirty$problem, "uncommitted")
 })

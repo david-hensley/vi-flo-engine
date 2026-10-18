@@ -177,14 +177,15 @@ wrapper, it moves to a Cloudflare Worker unchanged — which is what makes
 
 ## Product 2
 
-### Running it on the whole archive
+### Metadata into git - v2.9, before Product 3
 
-Product 2 exists (October 2026): `build_p2()` reads, maps, deduplicates,
-attributes, aligns and writes, and the suite exercises every step on real
-loggers. It has not yet been run on the full archive. The first full build is
-also the first real audit of the metadata - every unattributed reading, every
-declared interval a logger did not keep, every conflict between downloads is
-reported - so expect it to surface work rather than finish cleanly.
+Product 2's manifest says whether a file was built from the current metadata
+- each row holds fingerprints of what decided it - but cannot recover the
+metadata of an older build, except by searching the backups. Moving
+`metadata/internal/` into a git repository, as *Where the archive lives* has
+it, makes every version a commit: the manifest gains one column, the metadata
+commit, and any product can be rebuilt exactly as it was. Do this before
+Product 3, whose human decisions will rest on the metadata.
 
 ### HOBOlink level is recomputed, not carried
 

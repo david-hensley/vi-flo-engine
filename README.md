@@ -197,12 +197,26 @@ every variable, and removes anything an earlier build made that the current
 inputs would not. Its summary sorts readings that belong to no station three
 ways - UNEXPLAINED, KNOWN (periods in `metadata/internal/known_unattributed.csv`)
 and AROUND INSTALLATIONS - each with the last 12 months first and newest
-first. Nothing is hidden; only what is new is set out for attention. `products/p2/manifest.csv` has a row per file: what it
-holds, how many rows are observed and missing, how many conflicts and repeats,
-any rain set aside in a repeat, how each device was aligned,
-each device's declared interval against the one it actually logged, which
-Product 1 files went in, the hashes of the metadata, ports and registry, and
-the engine commit that built it.
+first. Nothing is hidden; only what is new is set out for attention. `products/p2/manifest.csv` has a row per file - one row,
+replaced when the file is rebuilt - saying what it holds (rows observed and
+missing, conflicts, repeats, any rain set aside in a repeat), how each logger
+was aligned and the interval it actually kept, every Product 1 file read for
+it, fingerprints of the metadata and ports of the loggers deployed there that
+year, and the engine commit that built it.
+
+Products are only ever built from a commit. `build_p2()` refuses while the
+engine repo has any uncommitted change - code, docs, anything - because a
+product must name the code that made it.
+
+`build_p2_stale()` rebuilds exactly the station-years that are out of date:
+never built, fed by a Product 1 file they were not built from, built from
+metadata or ports of their loggers that have since changed, built by Product 2
+code that has since changed, or no longer made by the current inputs. A
+fingerprint covers only what decides Product 2 - which logger was where, from
+when to when - so a battery reading rebuilds nothing, and correcting one
+station's deployment rebuilds that station alone. The weekly job runs it after
+every download; run it by hand after ingesting a HOBO offload or correcting
+metadata, or `build_p2_stale(dry_run = TRUE)` to see what it would do.
 
 ### Derived series
 

@@ -93,3 +93,65 @@ test_that("the summary puts the last 12 months first, newest first, with names a
   expect_true(recent[1] < older[1] && older[1] < known)        # within unexplained: recent, then older
   expect_true(any(grepl("real ZL6 \\(z6-13368\\).*port 2.*retired port 2", printed)))
 })
+
+test_that("a logger's ports in one story are one episode, listed compactly", {
+  local_test_root()
+  u <- rbind(reading("z6-13368", 3L, "2024-03-01 10:00"), reading("z6-13368", 4L, "2024-03-01 10:00"),
+             reading("z6-13368", 5L, "2024-03-01 10:00"), reading("z6-13368", 8L, "2024-03-01 10:00", "logger_pressure"))
+  ep <- unattributed_episodes(classify_unattributed(u, deployment_windows(), load_known_unattributed()))
+  expect_equal(nrow(ep), 1)
+  expect_equal(ep$ports, "3-5, 8")
+  expect_equal(ep$variables, "logger_pressure, vwc")
+})
+
+test_that("a logger reporting a few times a week is one episode until a week passes", {
+  local_test_root()
+  u <- rbind(reading("z6-13368", 3L, "2024-03-01 10:00"), reading("z6-13368", 3L, "2024-03-05 10:00"),
+             reading("z6-13368", 3L, "2024-03-10 10:00"), reading("z6-13368", 3L, "2024-03-25 10:00"))
+  ep <- unattributed_episodes(classify_unattributed(u, deployment_windows(), load_known_unattributed()))
+  expect_equal(sort(ep$moments), c(1L, 3L))
+})
+
+test_that("a deployment's whole first day counts as its installation", {
+  local_test_root()
+  c <- classify_unattributed(reading("21652379", NA_integer_, "2026-08-01 18:00", "abs_pressure"),
+                             deployment_windows(), load_known_unattributed())
+  expect_equal(c$category, "installation")           # six hours after it began
+  c <- classify_unattributed(reading("21652379", NA_integer_, "2026-08-02 14:00", "abs_pressure"),
+                             deployment_windows(), load_known_unattributed())
+  expect_equal(c$category, "unexplained")            # past the first day
+})
+
+#### A logger's barometer follows its ports ####
+
+close_port <- function(sn, port, when) {
+  path <- file.path(wds("meta_internal"), "zentra_ports.csv")
+  p <- read.csv(path, stringsAsFactors = FALSE)
+  p$valid_to[p$sn == sn & p$port %in% port] <- when
+  write.csv(p, path, row.names = FALSE, na = "")
+}
+barometer_station <- function() {
+  r <- read_p1_set(file.path(wds("device_zentra"), "z6-13368_20260928_20260928_20260928T134705_raw.rds"))
+  a <- attribute_readings(r)
+  list(station = unique(a$station_id[a$variable == "logger_pressure"]),
+       lost = sum(attr(a, "unattributed")$variable == "logger_pressure"))
+}
+
+test_that("the barometer goes to weather while weather's port is open", {
+  local_test_root(); place_p1("z6-13368_20260928_20260928_20260928T134705_raw.rds")
+  expect_equal(barometer_station()$station, "zzu_weather")
+})
+
+test_that("once weather's sensor has moved on, the barometer goes to the station still served", {
+  local_test_root(); place_p1("z6-13368_20260928_20260928_20260928T134705_raw.rds")
+  close_port("z6-13368", 1, "2026-09-01 12:00:00")
+  expect_equal(barometer_station()$station, "zzu_vwc1")
+})
+
+test_that("a logger serving no station through any port has a barometer belonging to none", {
+  local_test_root(); place_p1("z6-13368_20260928_20260928_20260928T134705_raw.rds")
+  close_port("z6-13368", 1:6, "2026-09-01 12:00:00")
+  b <- barometer_station()
+  expect_length(b$station, 0)
+  expect_equal(b$lost, 1)
+})

@@ -106,3 +106,4 @@ place_p1 <- function(files) {
     to
   }, character(1), USE.NAMES = FALSE)
 }
+options(viflo.test_build = TRUE)   # tests build in throwaway roots without a commit

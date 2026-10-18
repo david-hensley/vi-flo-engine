@@ -6,6 +6,28 @@ All notable changes to the VI-FLO Engine project are documented here.
 ## [Unreleased]
 
 ### Added
+- **Product 2 in the weekly job.** After it downloads, the job runs
+  `build_p2_stale()`, which rebuilds exactly the station-years out of date -
+  never built; fed by a Product 1 file they were not built from, this week's
+  or a HOBO offload ingested by hand; built from metadata or ports of their
+  loggers that have since changed; built by Product 2 code that has since
+  changed; or no longer made by the current inputs, in which case rebuilding
+  removes them. A failure is reported and never stops the push to Box.
+  `build_p2_stale(dry_run = TRUE)` says what it would do
+- **Products are only built from a commit.** `build_p2()` refuses while the
+  engine repo has any uncommitted change, docs included, or cannot name its
+  commit at all: a product must name the code that made it. The manifest's
+  `engine` column is always a plain commit
+- The manifest records every Product 1 file read for a station-year,
+  `inputs`, beside `source_files`, the files its kept values came from - a
+  download wholly superseded by a later one was read but not named
+- `metadata_md5`, `ports_md5` and `registry_md5` become
+  `metadata_fingerprint` and `ports_fingerprint`: fingerprints of only what
+  decides Product 2 - which logger was where, from when to when - for the
+  loggers deployed at that station that year. The weekly job writes battery
+  and download dates to the metadata every run, and a whole-file hash would
+  have rebuilt everything every week. The registry needs no fingerprint: it is
+  in the repo, and the commit names it
 - The backfill README records the plantain experiment's five loggers -
   confirmed from their records - and the dossier for SR1 records Backup's
   emergency placement of 2023-10-28 and its proper deployment on 2023-11-14,
@@ -28,7 +50,14 @@ All notable changes to the VI-FLO Engine project are documented here.
     verified in October 2026. The port narrows a period, so UVI's retired
     port 2 cannot hide something new on its other ports
   - AROUND INSTALLATIONS: up to 7 days before one of a logger's
-    deployments, or in its first 2 hours - recognized without a row
+    deployments, or in its first 24 hours, before its sensors' port windows
+    open - recognized without a row
+  - One line per episode: a logger's ports merged (`ports 1-6, 8`), and an
+    unexplained episode runs on until a week passes with nothing, so a logger
+    reporting a few times a week from storage is one story, not four
+  - SR2 Hillside's weeks in storage after its replacement in January 2024
+    added to the known periods; the migration now adds any period the file
+    does not hold and keeps the rest, including rows added by hand
 - **`view_device()`**, in the new `inspect_functions.R`: everything a logger
   recorded over a period, one panel per variable and port, drawn in local
   time against its deployments and port windows - so whether unattributed
@@ -179,6 +208,10 @@ All notable changes to the VI-FLO Engine project are documented here.
   masks functions such as `terra`'s `compare()` in the session
 
 ### Fixed
+- **A replaced logger's barometer kept being attributed** to its station for
+  days after its sensors had moved to the new logger, overlapping the new
+  one's - at Cal1 and SR2 Hillside. A logger's own barometer now belongs to a
+  station only while one of its ports is open there
 - **Every conflict in the first full Product 2 build was a ZL6 writing two
   records with one timestamp,** not two downloads disagreeing. Three weather
   loggers - DiscoveryG, Fish Bay, R2R Farm - and the soil loggers write an

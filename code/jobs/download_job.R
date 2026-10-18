@@ -1,7 +1,8 @@
 ################################################################################
 #  VI-FLO download job
 #
-#  Pull from Box, fetch whatever is new from ZentraCloud, push back.
+#  Pull from Box, fetch whatever is new from ZentraCloud, bring Product 2 up
+#  to date, push back.
 #
 #  One implementation, two triggers: the weekly scheduled task, and
 #  tools/download/run_download.bat for when you want the data now. Nothing
@@ -203,11 +204,27 @@ result <- tryCatch(zentra_download(),
 
 if (is.null(result)) quit(status = 1)
 
-#### 4. Push ####
+#### 4. Product 2 - rebuild whatever is now out of date ####
+# Station-years fed by what was just downloaded, by a HOBO offload ingested
+# midweek, by metadata corrected since the last run, or by a change to the
+# engine's Product 2 code. A failure here is reported and never stops the
+# push: the downloaded data still has to reach Box. On a machine whose engine
+# repo has uncommitted changes, build_p2() refuses to build, by design - the
+# products would not name the code that made them.
+cat("\nProduct 2 - rebuilding what is out of date\n")
+p2_ok <- tryCatch({
+  build_p2_stale()
+  TRUE
+}, error = function(e) {
+  cat("X Product 2 not rebuilt: ", conditionMessage(e), "\n", sep = "")
+  FALSE
+})
+
+#### 5. Push ####
 cat("\nBox - pushing what changed\n")
 pushed <- box_transfer("push")
 
-#### 5. What needs attention ####
+#### 6. What needs attention ####
 # The job has just asked the API about every device, so the answers are as
 # fresh as they will ever be. Cheap to say here rather than wait to be asked.
 if (exists("print_network_todo")) {
@@ -215,6 +232,7 @@ if (exists("print_network_todo")) {
 }
 
 cat("\n============================================\n")
+if (!p2_ok) cat("  Product 2 was NOT brought up to date - see above.\n")
 if (pushed) {
   cat("  Done.\n")
 } else {

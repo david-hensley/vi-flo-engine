@@ -601,11 +601,27 @@ attribute_readings <- function(readings, windows = NULL, pwindows = NULL,
       utc <- function(x) { attr(x, "tzone") <- "UTC"; x }
       # Weather deployments first, then by station id, so the first match wins
       dw <- dw[order(dw$station_type != "weather", dw$station_id), , drop = FALSE]
+      # The barometer belongs to a station only while one of the logger's
+      # ports is open there. A logger whose sensors have moved to its
+      # replacement is no longer serving the station, though its deployment
+      # row may run on for days until it is collected - and its barometer
+      # would otherwise overlap the new logger's
+      pw <- pwindows[pwindows$device_serial == dev, , drop = FALSE]
       for (i in seq_len(nrow(dw))) {
         open <- is.na(readings$station_id[dr])
         inside <- when >= utc(dw$starts[i]) &
                   (is.na(dw$ends[i]) | when < utc(dw$ends[i]))
         inside[is.na(inside)] <- FALSE
+        if (nrow(pw) > 0) {
+          q <- pw[pw$type == dw$station_type[i], , drop = FALSE]
+          serving <- rep(FALSE, length(when))
+          for (j in seq_len(nrow(q))) {
+            s <- if (is.na(q$starts[j])) -Inf else as.numeric(q$starts[j])
+            e <- if (is.na(q$ends[j])) Inf else as.numeric(q$ends[j])
+            serving <- serving | (as.numeric(when) >= s & as.numeric(when) < e)
+          }
+          inside <- inside & serving
+        }
         readings$station_id[dr[open & inside]] <- dw$station_id[i]
       }
     }
@@ -896,19 +912,89 @@ assemble_p2 <- function(readings, tz = "America/Puerto_Rico") {
 
 P2_COLUMNS <- c("datetime", "value", "flag", "device_serial", "source_file", "conflict")
 
-#' Which commit of the engine built something
+#' The commit products are built from - or why they cannot be built
 #'
-#' With "+uncommitted" when the working copy has changes - a file built from
-#' code that was never committed cannot be rebuilt exactly, and should say so.
+#' A product has to name the code that made it, so it can be made again.
+#' Any uncommitted change in the engine repo - code, docs, anything - means
+#' the working copy is not a commit anyone could check out, and nothing is
+#' built. Commit first.
 #'
-#' @return Character, NA where git is not available
-engine_version <- function() {
+#' @return List: commit (short hash, or NA) and problem (NA, or why not)
+engine_commit <- function() {
   repo <- Sys.getenv("VI_FLO_ENGINE_ROOT")
-  if (!exists("git_run")) return(NA_character_)
-  head <- git_run(c("rev-parse", "--short", "HEAD"), repo)
-  if (is.null(head) || length(head) == 0) return(NA_character_)
+  head <- if (exists("git_run")) git_run(c("rev-parse", "--short", "HEAD"), repo) else NULL
+  if (is.null(head) || length(head) == 0) {
+    return(list(commit = NA_character_,
+                problem = "the engine here is not a git repository, so its commit cannot be named"))
+  }
   dirty <- git_run(c("status", "--porcelain"), repo)
-  paste0(trimws(head[1]), if (length(dirty) > 0) "+uncommitted" else "")
+  if (length(dirty) > 0) {
+    return(list(commit = NA_character_,
+                problem = paste0(length(dirty), " uncommitted change(s) in the engine repo. ",
+                                 "Commit them first: a product must name the code that built it")))
+  }
+  list(commit = trimws(head[1]), problem = NA_character_)
+}
+
+
+#### Fingerprints: has anything a station-year depends on changed? ####
+
+# The device_metadata columns that decide Product 2: which logger was where,
+# from when to when. Battery, download dates, elevation, roles and names do
+# not change what is built, so changing them changes no fingerprint.
+P2_METADATA_COLUMNS <- c("unique_id", "station_id", "station_type", "device_serial",
+                         "deploy_datetime", "status", "last_visit", "timezone")
+
+#' An MD5 fingerprint of a table's content
+#' @param df Data frame
+#' @return Character
+fingerprint <- function(df) {
+  df[] <- lapply(df, function(x) {
+    if (inherits(x, "POSIXct")) format(x, "%Y-%m-%d %H:%M:%S", tz = "America/Puerto_Rico")
+    else as.character(x)
+  })
+  f <- tempfile(fileext = ".csv")
+  on.exit(unlink(f))
+  utils::write.csv(df, f, row.names = FALSE, na = "")
+  unname(tools::md5sum(f))
+}
+
+#' The loggers deployed at a station at any point in a year
+#'
+#' @param station Character
+#' @param year Integer
+#' @param windows Data frame from deployment_windows()
+#' @return Character serials
+station_year_devices <- function(station, year, windows) {
+  tz <- "America/Puerto_Rico"
+  y0 <- as.POSIXct(paste0(year, "-01-01 00:00:00"), tz = tz)
+  y1 <- as.POSIXct(paste0(year + 1, "-01-01 00:00:00"), tz = tz)
+  w <- windows[windows$station_id == station, , drop = FALSE]
+  w <- w[w$starts < y1 & (is.na(w$ends) | w$ends >= y0), , drop = FALSE]
+  sort(unique(w$device_serial))
+}
+
+#' Fingerprints of everything a station-year was attributed from
+#'
+#' Scoped to the station-year: every metadata row and every port of the
+#' loggers deployed there that year. A logger's other rows count too, since
+#' where its next deployment begins decides where this one ends. Correcting
+#' a Fish Bay date changes Fish Bay's fingerprints and no one else's.
+#'
+#' @param station Character
+#' @param year Integer
+#' @param metadata Data frame
+#' @param ports Data frame from load_zentra_ports_data()
+#' @param windows Data frame from deployment_windows()
+#' @return List: metadata, ports - each an MD5 fingerprint
+p2_fingerprints <- function(station, year, metadata, ports, windows) {
+  devices <- station_year_devices(station, year, windows)
+  m <- metadata[metadata$device_serial %in% devices,
+                intersect(P2_METADATA_COLUMNS, names(metadata)), drop = FALSE]
+  m <- m[order(m$unique_id), , drop = FALSE]
+  p <- ports[ports$sn %in% devices, , drop = FALSE]
+  p <- p[order(p$sn, p$port, as.numeric(p$valid_from)), , drop = FALSE]
+  list(metadata = fingerprint(m), ports = fingerprint(p))
 }
 
 #' Writes one Product 2 file
@@ -1016,9 +1102,7 @@ p1_files_for <- function(station, year, windows, logged = NULL) {
   tz <- "America/Puerto_Rico"
   y0 <- as.POSIXct(paste0(year, "-01-01 00:00:00"), tz = tz)
   y1 <- as.POSIXct(paste0(year + 1, "-01-01 00:00:00"), tz = tz)
-  w <- windows[windows$station_id == station, , drop = FALSE]
-  w <- w[w$starts < y1 & (is.na(w$ends) | w$ends >= y0), , drop = FALSE]
-  devices <- unique(w$device_serial)
+  devices <- station_year_devices(station, year, windows)
   if (length(devices) == 0) return(structure(character(0), unlogged = character(0)))
 
   files <- c(list.files(wds("device_zentra"), pattern = "_raw\\.rds$", full.names = TRUE),
@@ -1097,13 +1181,16 @@ build_p2 <- function(stations = NULL, years = NULL, quiet = FALSE) {
   registry <- load_variable_registry()
   log      <- load_download_log()
 
-  meta_dir <- wds("meta_internal")
-  md5 <- function(f) if (file.exists(f)) unname(tools::md5sum(f)) else NA_character_
-  inputs <- list(
-    metadata = md5(file.path(meta_dir, "device_metadata.csv")),
-    ports    = md5(file.path(meta_dir, "zentra_ports.csv")),
-    registry = md5(file.path(Sys.getenv("VI_FLO_ENGINE_ROOT"), "data", "variables.csv")),
-    engine   = engine_version())
+  # Never on code that is not a commit - except in the test suite's throwaway
+  # data roots, which are never products
+  eng <- engine_commit()
+  if (!is.na(eng$problem)) {
+    if (!isTRUE(getOption("viflo.test_build"))) {
+      stop("Not building Product 2: ", eng$problem, call. = FALSE)
+    }
+    eng$commit <- NA_character_
+  }
+  ports <- load_zentra_ports_data()
 
   if (is.null(stations)) stations <- sort(unique(windows$station_id))
   manifest <- read_manifest(product)
@@ -1124,6 +1211,8 @@ build_p2 <- function(stations = NULL, years = NULL, quiet = FALSE) {
 
       # Keep what this station-year shares with the last; let the rest go
       for (k in setdiff(ls(cache), files)) rm(list = k, envir = cache)
+
+      fp <- p2_fingerprints(st, yr, metadata, ports, windows)
 
       if (length(files) > 0) {
         r <- read_p1_set(files, log, registry, cache)
@@ -1177,8 +1266,9 @@ build_p2 <- function(stations = NULL, years = NULL, quiet = FALSE) {
             intervals    = paste(interval_check(ra), collapse = "; "),
             problems     = paste(c(probs, notes), collapse = "; "),
             source_files = paste(sort(unique(s$source_file[!is.na(s$source_file)])), collapse = "; "),
-            metadata_md5 = inputs$metadata, ports_md5 = inputs$ports,
-            registry_md5 = inputs$registry, engine = inputs$engine,
+            inputs       = paste(sort(basename(files)), collapse = "; "),
+            metadata_fingerprint = fp$metadata, ports_fingerprint = fp$ports,
+            engine       = eng$commit,
             built_utc    = format(Sys.time(), "%Y-%m-%d %H:%M:%S", tz = "UTC"),
             stringsAsFactors = FALSE)
           row[] <- lapply(row, as.character)
@@ -1261,4 +1351,127 @@ build_p2 <- function(stations = NULL, years = NULL, quiet = FALSE) {
     }
   }
   invisible(out)
+}
+
+
+#### Keeping Product 2 up to date ####
+
+# What Product 2 is made by: a change here between a file's commit and now
+# means the file may no longer be what the engine would make. Docs are not
+# here - a README edit rebuilds nothing.
+P2_CODE_PATHS <- c("code/functions", "data/variables.csv")
+
+#' Whether the engine's Product 2 code changed after a commit
+#'
+#' @param commit Character, a short hash from the manifest
+#' @return TRUE, FALSE, or NA where git cannot tell
+p2_code_changed_since <- function(commit) {
+  if (is.na(commit) || !nzchar(commit) || !exists("git_run")) return(NA)
+  repo <- Sys.getenv("VI_FLO_ENGINE_ROOT")
+  head <- git_run(c("rev-parse", "--short", "HEAD"), repo)
+  if (is.null(head)) return(NA)
+  if (identical(trimws(head[1]), commit)) return(FALSE)
+  known <- git_run(c("cat-file", "-e", paste0(commit, "^{commit}")), repo)
+  if (is.null(known)) return(TRUE)                 # a commit this repo has never seen
+  diff <- git_run(c("diff", "--name-only", commit, "HEAD", "--", P2_CODE_PATHS), repo)
+  !is.null(diff) && length(diff) > 0
+}
+
+#' The station-years whose Product 2 files are out of date, and why
+#'
+#' A station-year is stale when any of these holds:
+#'
+#'   - it has never been built, or was built before the manifest recorded
+#'     fingerprints
+#'   - a Product 1 file feeds it that was not among the files it was built
+#'     from - this week's download, or a HOBO offload ingested by hand
+#'   - the metadata or ports of the loggers deployed there that year differ
+#'     from what it was built from
+#'   - the engine's Product 2 code has changed since the commit that built it
+#'   - it is in the products but the current inputs no longer make it -
+#'     rebuilding removes it
+#'
+#' @return Data frame: station_id, year, reason. Empty when all is current
+p2_stale <- function() {
+  metadata <- load_zentra_metadata()
+  windows  <- deployment_windows(metadata)
+  ports    <- load_zentra_ports_data()
+  logged   <- basename(load_download_log()$filepath)
+  m <- read_manifest(2)
+
+  out <- list()
+  add <- function(st, yr, why) out[[length(out) + 1]] <<- data.frame(
+    station_id = st, year = as.integer(yr), reason = why, stringsAsFactors = FALSE)
+
+  wanted <- character(0)
+  code_changed <- list()
+  for (st in sort(unique(windows$station_id))) {
+    for (yr in p2_years_for(st, windows)) {
+      wanted <- c(wanted, paste(st, yr))
+      rows <- if (is.null(m)) NULL else m[m$station_id == st & m$year == as.character(yr), , drop = FALSE]
+      if (is.null(rows) || nrow(rows) == 0) { add(st, yr, "not built yet"); next }
+      if (!all(c("metadata_fingerprint", "inputs") %in% names(rows)) ||
+          any(is.na(rows$metadata_fingerprint))) {
+        add(st, yr, "built before fingerprints were recorded"); next
+      }
+      files <- basename(p1_files_for(st, yr, windows, logged))
+      had <- unique(unlist(strsplit(rows$inputs, "; ", fixed = TRUE)))
+      fresh <- setdiff(files, had)
+      if (length(fresh) > 0) { add(st, yr, paste0(length(fresh), " new Product 1 file(s)")); next }
+      fp <- p2_fingerprints(st, yr, metadata, ports, windows)
+      if (!all(rows$metadata_fingerprint == fp$metadata)) { add(st, yr, "its loggers' metadata changed"); next }
+      if (!all(rows$ports_fingerprint == fp$ports)) { add(st, yr, "its loggers' ports changed"); next }
+      for (cm in unique(rows$engine)) {
+        if (is.null(code_changed[[as.character(cm)]])) {
+          code_changed[[as.character(cm)]] <- p2_code_changed_since(cm)
+        }
+        if (isTRUE(code_changed[[as.character(cm)]])) { add(st, yr, "the Product 2 code changed"); break }
+      }
+    }
+  }
+
+  #### In the products, but no longer made ####
+  if (!is.null(m) && nrow(m) > 0) {
+    gone <- unique(m[!paste(m$station_id, m$year) %in% wanted, c("station_id", "year")])
+    for (i in seq_len(nrow(gone))) add(gone$station_id[i], gone$year[i], "no longer made by the current inputs")
+  }
+
+  if (length(out) == 0) {
+    return(data.frame(station_id = character(0), year = integer(0), reason = character(0)))
+  }
+  do.call(rbind, out)
+}
+
+#' Rebuilds every stale station-year
+#'
+#' What the weekly job runs after it downloads, and what to run by hand after
+#' ingesting a HOBO offload or correcting metadata. Refuses, like build_p2(),
+#' on code that is not a commit.
+#'
+#' @param dry_run Logical. Say what would be rebuilt, and build nothing
+#' @param quiet Logical
+#' @return Invisibly, the stale list, with the build's report as attribute
+#'   "built"
+build_p2_stale <- function(dry_run = FALSE, quiet = FALSE) {
+  stale <- p2_stale()
+  if (!quiet) {
+    if (nrow(stale) == 0) {
+      cat("Product 2 is up to date.\n")
+    } else {
+      cat(nrow(stale), " station-year(s) to rebuild:\n", sep = "")
+      for (i in seq_len(nrow(stale))) {
+        cat(sprintf("  %-14s %d  %s\n", stale$station_id[i], stale$year[i], stale$reason[i]))
+      }
+    }
+  }
+  if (dry_run || nrow(stale) == 0) return(invisible(stale))
+
+  if (!quiet) cat("\n")
+  built <- list()
+  for (st in unique(stale$station_id)) {
+    b <- build_p2(st, stale$year[stale$station_id == st], quiet = quiet)
+    if (!is.null(b)) built[[st]] <- b
+  }
+  attr(stale, "built") <- if (length(built) > 0) do.call(rbind, built) else NULL
+  invisible(stale)
 }
