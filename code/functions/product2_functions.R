@@ -451,19 +451,31 @@ dedupe_readings <- function(readings, fetched) {
 #' @param paths Character. Product 1 files
 #' @param log Data frame from load_download_log(), or NULL to load
 #' @param registry Data frame, or NULL to load
+#' @param cache Environment, or NULL. Mapped readings by path: a file found
+#'   here is not read again. build_p2() keeps the files one station-year
+#'   shares with the next, so a five-year export is read once per station
+#'   rather than once per year
 #' @return Data frame from dedupe_readings(), with attributes "dedup" and
 #'   "unmapped"
-read_p1_set <- function(paths, log = NULL, registry = NULL) {
+read_p1_set <- function(paths, log = NULL, registry = NULL, cache = NULL) {
   if (is.null(registry)) registry <- load_variable_registry()
   if (is.null(log)) log <- load_download_log()
 
   fetched <- p1_fetch_times(paths, log)
   parts <- list(); unmapped <- list()
   for (i in seq_along(paths)) {
-    # A file that cannot be mapped says which file it is
-    m <- tryCatch(map_measurements(read_p1_long(paths[i]), registry),
-                  error = function(e) stop(basename(paths[i]), ": ", conditionMessage(e),
-                                           call. = FALSE))
+    if (!is.null(cache) && exists(paths[i], envir = cache, inherits = FALSE)) {
+      m <- get(paths[i], envir = cache, inherits = FALSE)
+    } else {
+      # A file that cannot be mapped says which file it is
+      m <- tryCatch(map_measurements(read_p1_long(paths[i]), registry),
+                    error = function(e) stop(basename(paths[i]), ": ", conditionMessage(e),
+                                             call. = FALSE))
+      if (!is.null(cache)) {
+        assign(paths[i], m, envir = cache)
+        cache$.reads <- c(cache$.reads, basename(paths[i]))
+      }
+    }
     if (nrow(attr(m, "unmapped")) > 0) {
       unmapped[[length(unmapped) + 1]] <- cbind(source_file = basename(paths[i]),
                                                 attr(m, "unmapped"))
@@ -486,6 +498,10 @@ read_p1_set <- function(paths, log = NULL, registry = NULL) {
 
 #### Attribution ####
 
+# Station types whose series are kept one per deployment: the water level
+# loggers. See attribute_readings().
+DEPLOYMENT_KEYED_TYPES <- c("hydro", "pond")
+
 # Measured by the logger itself, not by a sensor on a port - the ZL6's
 # barometer, on an internal port that no station's ports list. Attributed by
 # device and moment alone (see attribute_readings).
@@ -503,6 +519,17 @@ DEVICE_LEVEL_VARIABLES <- c("logger_pressure")
 #' station where the logger serves one - a co-located ZL6 would otherwise
 #' carry the same series twice - and otherwise to the one station it serves.
 #'
+#' At a hydro or pond station - a water level logger - each DEPLOYMENT is its
+#' own series, named by its row in device_metadata: `abs_pressure_h-0021`. A
+#' paired gauge's loggers measure at the same time in different places, so
+#' they cannot share a series; and a deployment is one logger in one place,
+#' with one elevation and one sensor height, which is the unit anything
+#' computing level needs. Roles stay out of Product 2: how deployments are
+#' combined into a station's level or discharge is a decision made later,
+#' and each series is one row's lookup away from its role, elevation and
+#' everything else. Unique ids run in order of creation, so the name says
+#' which deployment is older.
+#'
 #' Readings that belong to no station are not an error - a logger before its
 #' deployment, or in a life metadata never recorded. They are returned
 #' separately, counted, never forced onto a station.
@@ -510,13 +537,16 @@ DEVICE_LEVEL_VARIABLES <- c("logger_pressure")
 #' @param readings Data frame from read_p1_set()
 #' @param windows,pwindows From deployment_windows() and port_windows(), or
 #'   NULL to compute
+#' @param metadata Data frame, or NULL to load
 #' @return Data frame: the readings that resolved, with station_id and the
 #'   full variable name. Attribute "unattributed": device, port, variable,
 #'   first, last and count of readings that resolved to no station. Attribute
 #'   "unattributed_readings": those readings themselves - device, port,
 #'   variable, datetime - so a caller can count them over its own period
-attribute_readings <- function(readings, windows = NULL, pwindows = NULL) {
-  if (is.null(windows))  windows  <- deployment_windows()
+attribute_readings <- function(readings, windows = NULL, pwindows = NULL,
+                               metadata = NULL) {
+  if (is.null(metadata)) metadata <- load_zentra_metadata()
+  if (is.null(windows))  windows  <- deployment_windows(metadata)
   if (is.null(pwindows)) pwindows <- port_windows()
 
   readings$station_id <- NA_character_
@@ -561,6 +591,29 @@ attribute_readings <- function(readings, windows = NULL, pwindows = NULL) {
   # sensors would collide on one series. Treated as unattributed and reported.
   no_depth <- readings$depth %in% TRUE & is.na(readings$depth_cm)
   readings$station_id[no_depth] <- NA
+
+  #### The deployment, at every station; into the name at level stations ####
+  readings$deployment <- NA_character_
+  utc <- function(x) { attr(x, "tzone") <- "UTC"; x }
+  placed <- which(!is.na(readings$station_id))
+  if (length(placed) > 0) {
+    combos <- unique(readings[placed, c("device_serial", "station_id")])
+    for (i in seq_len(nrow(combos))) {
+      rows <- placed[readings$device_serial[placed] == combos$device_serial[i] &
+                       readings$station_id[placed] == combos$station_id[i]]
+      w <- windows[windows$device_serial == combos$device_serial[i] &
+                     windows$station_id == combos$station_id[i], , drop = FALSE]
+      when <- utc(readings$datetime[rows])
+      for (j in seq_len(nrow(w))) {
+        inside <- when >= utc(w$starts[j]) & (is.na(w$ends[j]) | when < utc(w$ends[j]))
+        inside[is.na(inside)] <- FALSE
+        readings$deployment[rows[inside]] <- w$unique_id[j]
+      }
+    }
+  }
+  level <- !is.na(readings$deployment) &
+    station_type_of(readings$station_id) %in% DEPLOYMENT_KEYED_TYPES
+  readings$variable[level] <- paste0(readings$variable[level], "_", readings$deployment[level])
 
   #### What resolved to nothing ####
   lost <- is.na(readings$station_id)
@@ -881,6 +934,22 @@ manifest_path <- function(product) {
   file.path(wds("products"), paste0("p", product), "manifest.csv")
 }
 
+#' Two manifest tables as one, matched by column name
+#'
+#' A manifest written before a column existed has to take rows that carry
+#' it, so missing columns are added, empty, on either side.
+#'
+#' @param a,b Data frames, either may be NULL
+#' @return Data frame
+bind_manifest <- function(a, b) {
+  if (is.null(a)) return(b)
+  if (is.null(b)) return(a)
+  cols <- union(names(a), names(b))
+  for (c in setdiff(cols, names(a))) a[[c]] <- if (nrow(a) > 0) NA_character_ else character(0)
+  for (c in setdiff(cols, names(b))) b[[c]] <- if (nrow(b) > 0) NA_character_ else character(0)
+  rbind(a[, cols, drop = FALSE], b[, cols, drop = FALSE])
+}
+
 read_manifest <- function(product) {
   p <- manifest_path(product)
   if (!file.exists(p)) return(NULL)
@@ -904,18 +973,25 @@ write_manifest <- function(manifest, product) {
 #' margin either side, because a filename's dates are local and a file's
 #' first or last reading can sit either side of midnight.
 #'
+#' Only files the download log names: the log is the archive of record. A
+#' file it does not know - an old name restored from Box beside a renamed
+#' one, most often - is left out and returned as the attribute "unlogged",
+#' to be listed rather than to stop a build.
+#'
 #' @param station Character
 #' @param year Integer
 #' @param windows Data frame from deployment_windows()
-#' @return Character paths
-p1_files_for <- function(station, year, windows) {
+#' @param logged Character. Basenames the download log names, or NULL to read
+#' @return Character paths, with attribute "unlogged"
+p1_files_for <- function(station, year, windows, logged = NULL) {
+  if (is.null(logged)) logged <- basename(load_download_log()$filepath)
   tz <- "America/Puerto_Rico"
   y0 <- as.POSIXct(paste0(year, "-01-01 00:00:00"), tz = tz)
   y1 <- as.POSIXct(paste0(year + 1, "-01-01 00:00:00"), tz = tz)
   w <- windows[windows$station_id == station, , drop = FALSE]
   w <- w[w$starts < y1 & (is.na(w$ends) | w$ends >= y0), , drop = FALSE]
   devices <- unique(w$device_serial)
-  if (length(devices) == 0) return(character(0))
+  if (length(devices) == 0) return(structure(character(0), unlogged = character(0)))
 
   files <- c(list.files(wds("device_zentra"), pattern = "_raw\\.rds$", full.names = TRUE),
              list.files(wds("device_hobo"),   pattern = "_raw\\.rds$", full.names = TRUE))
@@ -924,7 +1000,9 @@ p1_files_for <- function(station, year, windows) {
     !is.null(p) && !is.na(p$device_serial) && p$device_serial %in% devices &&
       p$start <= as.Date(y1) && p$end >= as.Date(y0) - 1
   }, logical(1), USE.NAMES = FALSE)
-  files[keep]
+  files <- files[keep]
+  known <- basename(files) %in% logged
+  structure(files[known], unlogged = basename(files)[!known])
 }
 
 #' The years a station has readings in, by its devices' files
@@ -954,30 +1032,19 @@ p2_years_for <- function(station, windows) {
   yrs[yrs >= first & yrs <= last]
 }
 
-#' Each device's declared interval against the one it actually logged
+#' The interval each device actually logged at
 #'
-#' A disagreement means the metadata is wrong or the logger is, and either is
-#' worth knowing - it is reported, not resolved.
+#' Recorded, not judged. `interval_min` in the metadata is the TARGET - the
+#' interval a logger is meant to run at - and a logger running at another,
+#' 10 minutes say, is not an error: Product 2 brings any interval that divides
+#' the quarter hour onto the grid, and reports any it cannot.
 #'
 #' @param readings Attributed readings for one station-variable
-#' @param station Character
-#' @param metadata Data frame
-#' @return Character, one entry per device: "21652379 15 min" or
-#'   "21652379 declared 15 min, logged 5 min"
-interval_check <- function(readings, station, metadata) {
+#' @return Character, one entry per device: "21652379 15 min"
+interval_check <- function(readings) {
   vapply(unique(readings$device_serial), function(dev) {
     obs <- observed_interval(readings$datetime[readings$device_serial == dev])
-    obs_min <- if (is.na(obs)) NA else round(obs / 60, 2)
-    dec <- suppressWarnings(as.numeric(metadata$interval_min[
-      metadata$station_id == station & metadata$device_serial == dev]))
-    dec <- unique(dec[!is.na(dec)])
-    if (length(dec) == 0 || is.na(obs_min)) {
-      paste0(dev, " logged ", if (is.na(obs_min)) "?" else obs_min, " min, none declared")
-    } else if (any(abs(dec - obs_min) < 0.01)) {
-      paste0(dev, " ", obs_min, " min")
-    } else {
-      paste0(dev, " declared ", paste(dec, collapse = "/"), " min, logged ", obs_min, " min")
-    }
+    paste0(dev, " ", if (is.na(obs)) "?" else round(obs / 60, 2), " min")
   }, character(1), USE.NAMES = FALSE)
 }
 
@@ -1014,17 +1081,25 @@ build_p2 <- function(stations = NULL, years = NULL, quiet = FALSE) {
   manifest <- read_manifest(product)
   report <- list()
   lost <- list()
+  logged <- basename(log$filepath)
+  unlogged <- character(0)
+  cache <- new.env()
+  cache$.reads <- character(0)
 
   for (st in stations) {
     yrs <- if (is.null(years)) p2_years_for(st, windows) else years
     for (yr in yrs) {
-      files <- p1_files_for(st, yr, windows)
+      files <- p1_files_for(st, yr, windows, logged)
+      unlogged <- c(unlogged, attr(files, "unlogged"))
       written <- character(0)
       notes <- character(0)
 
+      # Keep what this station-year shares with the last; let the rest go
+      for (k in setdiff(ls(cache), files)) rm(list = k, envir = cache)
+
       if (length(files) > 0) {
-        r <- read_p1_set(files, log, registry)
-        a <- attribute_readings(r, windows, pwindows)
+        r <- read_p1_set(files, log, registry, cache)
+        a <- attribute_readings(r, windows, pwindows, metadata)
         # Readings that belonged to no station at all, gathered for the
         # summary. A co-located logger's are seen from both its stations, so
         # the summary counts each device, variable and year once
@@ -1049,6 +1124,7 @@ build_p2 <- function(stations = NULL, years = NULL, quiet = FALSE) {
           written <- c(written, path)
 
           ra <- a[a$variable == variable, , drop = FALSE]
+          probs <- parts[[key]]$problems
           row <- data.frame(
             station_id   = st, variable = variable, year = as.character(yr),
             file         = sub(paste0("^", wds("products"), "/?"), "", path),
@@ -1059,11 +1135,16 @@ build_p2 <- function(stations = NULL, years = NULL, quiet = FALSE) {
             first        = format(min(s$datetime), "%Y-%m-%d %H:%M", tz = "America/Puerto_Rico"),
             last         = format(max(s$datetime), "%Y-%m-%d %H:%M", tz = "America/Puerto_Rico"),
             timezone     = "America/Puerto_Rico",
-            unit         = registry$unit[match(sub("_[0-9]+cm$", "", variable), registry$variable)],
+            unit         = registry$unit[match(sub("_[0-9]+cm$", "", sub("_[a-z]-[0-9]+$", "", variable)),
+                                                registry$variable)],
             devices      = paste(unique(s$device_serial[!is.na(s$device_serial)]), collapse = "; "),
+            deployments  = paste(sort(unique(ra$deployment[!is.na(ra$deployment)])), collapse = "; "),
+            device_names = paste(unique(metadata$device_name[match(
+                             sort(unique(ra$deployment[!is.na(ra$deployment)])), metadata$unique_id)]),
+                             collapse = "; "),
             alignment    = paste(paste(names(parts[[key]]$methods), parts[[key]]$methods), collapse = "; "),
-            intervals    = paste(interval_check(ra, st, metadata), collapse = "; "),
-            problems     = paste(c(parts[[key]]$problems, notes), collapse = "; "),
+            intervals    = paste(interval_check(ra), collapse = "; "),
+            problems     = paste(c(probs, notes), collapse = "; "),
             source_files = paste(sort(unique(s$source_file[!is.na(s$source_file)])), collapse = "; "),
             metadata_md5 = inputs$metadata, ports_md5 = inputs$ports,
             registry_md5 = inputs$registry, engine = inputs$engine,
@@ -1075,7 +1156,7 @@ build_p2 <- function(stations = NULL, years = NULL, quiet = FALSE) {
             manifest <- manifest[!(manifest$station_id == st & manifest$variable == variable &
                                      manifest$year == as.character(yr)), , drop = FALSE]
           }
-          manifest <- if (is.null(manifest)) row else rbind(manifest, row)
+          manifest <- bind_manifest(manifest, row)
           report[[length(report) + 1]] <- row[, c("station_id", "variable", "year", "rows",
                                                   "observed", "missing", "conflicts",
                                                   "intervals", "problems")]
@@ -1110,13 +1191,31 @@ build_p2 <- function(stations = NULL, years = NULL, quiet = FALSE) {
     # Each reading once: a co-located logger is read from both its stations
     u <- u[!duplicated(u), , drop = FALSE]
     unattributed <- summarize_unattributed(u)
+    unattributed <- unattributed[order(unattributed$device_serial, unattributed$port,
+                                       unattributed$variable), , drop = FALSE]
+    rownames(unattributed) <- NULL
   }
-  if (!is.null(out)) attr(out, "unattributed") <- unattributed
+  if (!is.null(out)) {
+    attr(out, "unattributed") <- unattributed
+    attr(out, "unlogged") <- sort(unique(unlogged))
+    attr(out, "reads") <- cache$.reads
+  }
+  if (!quiet && length(unlogged) > 0) {
+    cat("\nSkipped - not in the download log, so not part of the archive of record:\n")
+    for (f in sort(unique(unlogged))) cat("  ", f, "\n", sep = "")
+    cat("  print_orphan_raw_files() says whether each duplicates a logged file\n")
+  }
   if (!quiet && !is.null(unattributed) && nrow(unattributed) > 0) {
-    cat("\nUnattributed - read from these stations' loggers, belonging to no station:\n")
+    cat("\nUnattributed - read from these stations' loggers, belonging to no station.\n")
+    cat("view_device(serial, from, to) draws any of them against its deployments.\n")
+    names_of <- device_names_for(unique(unattributed$device_serial), metadata)
+    names(names_of) <- unique(unattributed$device_serial)
     for (i in seq_len(nrow(unattributed))) {
       x <- unattributed[i, ]
-      cat(sprintf("  %-10s %-7s %-20s %8s readings  %s to %s\n", x$device_serial,
+      if (i == 1 || x$device_serial != unattributed$device_serial[i - 1]) {
+        cat("\n  ", x$device_serial, "  ", names_of[[x$device_serial]], "\n", sep = "")
+      }
+      cat(sprintf("    %-7s %-20s %8s readings  %s to %s\n",
                   if (is.na(x$port)) "" else paste("port", x$port), x$variable,
                   format(x$rows, big.mark = ","),
                   format(x$first, "%Y-%m-%d", tz = "America/Puerto_Rico"),
@@ -1124,14 +1223,13 @@ build_p2 <- function(stations = NULL, years = NULL, quiet = FALSE) {
     }
   }
   if (!quiet && !is.null(out)) {
-    flagged <- out[nzchar(out$problems) | grepl("declared", out$intervals) | out$conflicts != "0", ]
+    flagged <- out[nzchar(out$problems) | out$conflicts != "0", ]
     if (nrow(flagged) > 0) {
       cat("\nWorth a look:\n")
       for (i in seq_len(nrow(flagged))) {
         f <- flagged[i, ]
-        cat(sprintf("  %s %s %s: %s%s%s\n", f$station_id, f$variable, f$year,
+        cat(sprintf("  %s %s %s: %s%s\n", f$station_id, f$variable, f$year,
                     if (f$conflicts != "0") paste0(f$conflicts, " conflict(s) ") else "",
-                    if (grepl("declared", f$intervals)) paste0(f$intervals, " ") else "",
                     f$problems))
       }
     }

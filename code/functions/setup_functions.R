@@ -290,6 +290,14 @@ parse_datetime_flexible <- function(datetime_vector, tz) {
   # Handle mixed formats: try each format on elements that haven't parsed yet
   result <- as.POSIXct(as_text, format = "%Y-%m-%d %H:%M:%S", tz = tz)
 
+  # The same without seconds - what a person types. Missing this, a typed
+  # "2023-11-06 10:45" fell through to the date-only parser and came back as
+  # midnight, the time silently dropped
+  still_na <- is.na(result) & !is.na(as_text) & nzchar(as_text)
+  if (any(still_na)) {
+    result[still_na] <- as.POSIXct(as_text[still_na], format = "%Y-%m-%d %H:%M", tz = tz)
+  }
+
   # For any that failed, try Excel format with AM/PM (M/D/YYYY H:MM:SS AM/PM)
   still_na <- is.na(result) & !is.na(as_text) & nzchar(as_text)
   if (any(still_na)) {

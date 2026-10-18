@@ -267,6 +267,25 @@ ends, one of them containing Tropical Storm Philippe. The logger demonstrably
 ran across the first gap - its temperature swings match its neighbour's from
 the first reading - so the exports were made and mislaid, not never taken.
 
+**Unattributed readings, explained** (October 2026, from the first full
+Product 2 builds). Readings that belong to no station are listed by every
+build. These are known, and stay unattributed by decision:
+
+- **z6-14635, DiscoveryG Weather, October 2021 to 2022-09-13.** It stood
+  in the La Grange breadfruit orchard first (`sr1_2024-09-23.R`). Not made a
+  station
+- **z6-14637, R2R Farm, the old `cal1_weather` logger**, after its
+  replacement in September 2026. It sits in a storage shed, still logging
+- **21352827, SR1_low, 2023-09-13 to 09-19:** logging at one minute by
+  accident, before deployment
+- **21751136, TR1's HOBOlink, after 2024-08-14:** destroyed in Ernesto, still
+  reporting
+- **Launch and installation days** everywhere: desk launches, and the hour a
+  port's `valid_from` deliberately skips while a sensor settles
+
+Level offsets and the few known old sensor heights are in
+`LEVEL_CORRECTIONS.md`.
+
 **A device can keep transmitting after it is removed.** `z6-13388` was taken out
 of the Salt River 2 hillside pit on 2024-01-22 and reported for another nineteen
 days from wherever it went. Deployment windows are what stop those readings

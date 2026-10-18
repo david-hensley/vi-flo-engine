@@ -73,11 +73,15 @@ everything here except the last item.
 
 `device_role` records what a logger is now. Fish Bay's pair inverted in
 February 2024 — the upstream logger came out and went back in downstream — so
-for 2021 to 2023 both rows read `secondary` with no primary.
+for 2021 to 2023 both rows read `secondary` with no primary. SR1's HOBOlink
+was primary until Backup went in, then secondary, with no new row.
 
-Surfaced during the backfill and left alone deliberately: adding a second row
-would assert a redeployment that did not happen. Barometric pairing and reach
-length have the same shape. See `docs/backfill/fb2_hydro.md`.
+Less pressing since October 2026: Product 2 keys a level logger's series by
+deployment, not role, so roles only matter to whatever later combines
+deployments into a station's level or discharge - and that work is still
+experimental. A role history file was built and withdrawn the same day. If a
+derived product needs past roles, the maintenance log and the dossiers hold
+them. Barometric pairing and reach length have the same shape.
 
 Survey geometry is the clearest case. A survey describes a pair at a moment,
 and a re-survey overwrites the metadata. For now that is deliberate: the
@@ -316,6 +320,10 @@ Raised three times in September, parked each time.
 ## Field and QA
 
 ### Streambed to measuring point at every gauge
+
+When this is done, read `docs/backfill/LEVEL_CORRECTIONS.md` first: the
+prototype's level offsets at SR1, SR2, Fish Bay and Dorothea, and the only old
+sensor heights on record.
 
 `sensor_height_cm` exists (October 2026) and is blank on every stream gauge.
 `elev` is the ground, and a water level becomes a water-surface elevation only

@@ -10,9 +10,9 @@ HOBOLINK <- "21180078_20230802_20230803_raw.rds"
 test_that("a station-year is written where the layout says, in plain local time", {
   local_test_root(); place_p1(U20)
   build_p2("zzb_hydro", 2026, quiet = TRUE)
-  path <- product_path(2, "zzb_hydro", "abs_pressure", 2026)
+  path <- product_path(2, "zzb_hydro", "abs_pressure_t-0007", 2026)
   expect_true(file.exists(path))
-  expect_true(file.exists(product_path(2, "zzb_hydro", "water_temp", 2026)))
+  expect_true(file.exists(product_path(2, "zzb_hydro", "water_temp_t-0007", 2026)))
 
   raw <- read.csv(path, colClasses = "character")
   expect_equal(names(raw), P2_COLUMNS)
@@ -25,8 +25,8 @@ test_that("what is written reads back as what was built", {
   local_test_root(); place_p1(U20)
   build_p2("zzb_hydro", 2026, quiet = TRUE)
   built <- assemble_p2(attribute_readings(read_p1_set(file.path(wds("device_hobo"), U20))))
-  s <- built[["zzb_hydro|abs_pressure|2026"]]$series
-  back <- read_p2_file(product_path(2, "zzb_hydro", "abs_pressure", 2026))
+  s <- built[["zzb_hydro|abs_pressure_t-0007|2026"]]$series
+  back <- read_p2_file(product_path(2, "zzb_hydro", "abs_pressure_t-0007", 2026))
   expect_equal(as.numeric(back$datetime), as.numeric(s$datetime))
   expect_equal(back$value, s$value, tolerance = 1e-12)
   expect_equal(back$flag, s$flag)
@@ -37,8 +37,10 @@ test_that("the manifest says what each file holds and what built it", {
   build_p2("zzb_hydro", 2026, quiet = TRUE)
   m <- read_manifest(2)
   expect_equal(nrow(m), 2)
-  r <- m[m$variable == "abs_pressure", ]
-  expect_equal(r$file, "p2/hydro/zzb_hydro/abs_pressure/zzb_hydro_abs_pressure_p2_2026.csv.gz")
+  r <- m[m$variable == "abs_pressure_t-0007", ]
+  expect_equal(r$file, "p2/hydro/zzb_hydro/abs_pressure_t-0007/zzb_hydro_abs_pressure_t-0007_p2_2026.csv.gz")
+  expect_equal(r$deployments, "t-0007")
+  expect_equal(r$device_names, "real U20")
   expect_equal(r$unit, "kPa")
   expect_equal(r$timezone, "America/Puerto_Rico")
   expect_equal(r$devices, "21652379")
@@ -88,14 +90,15 @@ test_that("the duplicate fetches build one series, with no conflict", {
   expect_true(all(s$source_file == VWC_B))
 })
 
-test_that("a declared interval the logger did not keep is reported", {
+test_that("a logger running off its target interval is recorded, not flagged", {
   local_test_root(); place_p1(HOBOLINK)
   path <- file.path(wds("meta_internal"), "device_metadata.csv")
   m <- read.csv(path, stringsAsFactors = FALSE)
-  m$interval_min[m$unique_id == "t-0008"] <- 15   # it logged every 5
+  m$interval_min[m$unique_id == "t-0008"] <- 15   # the target; it logged every 5
   write.csv(m, path, row.names = FALSE)
   out <- build_p2("zzs_hydro", 2023, quiet = TRUE)
-  expect_true(all(grepl("declared 15 min, logged 5 min", out$intervals)))
+  expect_true(all(out$intervals == "21180078 5 min"))
+  expect_true(all(!nzchar(out$problems)))
 })
 
 test_that("a station's years come from its devices' files", {
@@ -141,4 +144,65 @@ test_that("unattributed readings are counted once, however many builds read them
   expect_equal(sum(u$rows), 5 * 3)               # five ports, three readings each
   expect_setequal(u$port, 2:6)
   expect_true(all(u$device_serial == "z6-13368"))
+})
+
+test_that("a file the download log does not name is skipped and listed, not fatal", {
+  local_test_root(); place_p1(U20)
+  stray <- file.path(wds("device_hobo"), "21652379_20260828_20260903_raw.rds")
+  file.copy(file.path(wds("device_hobo"), U20), stray)     # an old name, unlogged
+  out <- build_p2("zzb_hydro", 2026, quiet = TRUE)
+  expect_equal(attr(out, "unlogged"), basename(stray))
+  expect_length(list_product_files(2, station = "zzb_hydro"), 2)
+  expect_equal(read_manifest(2)$source_files[1], U20)
+})
+
+test_that("a logger shared by two stations is read once in a build", {
+  local_test_root(); place_p1(UVI)
+  out <- build_p2(c("zzu_vwc1", "zzu_weather"), 2026, quiet = TRUE)
+  expect_equal(attr(out, "reads"), UVI)
+  expect_true(length(list_product_files(2, station = "zzu_vwc1")) > 0)
+  expect_true(length(list_product_files(2, station = "zzu_weather")) > 0)
+})
+
+test_that("a manifest written before a column existed takes rows that carry it", {
+  local_test_root(); place_p1(U20)
+  old <- data.frame(station_id = "zzs_hydro", variable = "abs_pressure", year = "2023",
+                    file = "p2/hydro/zzs_hydro/abs_pressure/zzs_hydro_abs_pressure_p2_2023.csv.gz",
+                    rows = "10", stringsAsFactors = FALSE)
+  dir.create(dirname(manifest_path(2)), recursive = TRUE, showWarnings = FALSE)
+  write.csv(old, manifest_path(2), row.names = FALSE)
+  expect_no_error(build_p2("zzb_hydro", 2026, quiet = TRUE))
+  m <- read_manifest(2)
+  expect_true(all(c("deployments", "device_names") %in% names(m)))
+  expect_true("zzs_hydro" %in% m$station_id)          # the old row kept
+  expect_true(is.na(m$deployments[m$station_id == "zzs_hydro"]) ||
+              m$deployments[m$station_id == "zzs_hydro"] == "")
+})
+
+test_that("a logger removed and later redeployed belongs to no station in between", {
+  local_test_root(); place_p1(U20)
+  # 21652379: removed from zzb_hydro on 29 August, redeployed there on 1 September.
+  # Its readings from the 30th and 31st were taken in storage.
+  path <- file.path(wds("meta_internal"), "device_metadata.csv")
+  m <- read.csv(path, stringsAsFactors = FALSE)
+  m$status[m$unique_id == "t-0007"] <- "removed"
+  m$last_visit[m$unique_id == "t-0007"] <- "2026-08-29"
+  again <- m[m$unique_id == "t-0007", ]
+  again$unique_id <- "t-0014"; again$status <- "manual"; again$last_visit <- NA
+  again$deploy_datetime <- "2026-09-01 12:00:00"
+  write.csv(rbind(m, again), path, row.names = FALSE)
+
+  w <- deployment_windows()
+  w <- w[w$unique_id == "t-0007", ]
+  expect_equal(w$end_basis, "last visit")
+  expect_equal(format(w$ends, "%Y-%m-%d %H:%M"), "2026-08-29 23:59")
+
+  out <- build_p2("zzb_hydro", 2026, quiet = TRUE)
+  first <- read_p2_file(product_path(2, "zzb_hydro", "abs_pressure_t-0007", 2026))
+  second <- read_p2_file(product_path(2, "zzb_hydro", "abs_pressure_t-0014", 2026))
+  expect_true(max(first$datetime) < as.POSIXct("2026-08-30", tz = "America/Puerto_Rico"))
+  expect_true(min(second$datetime) >= as.POSIXct("2026-09-01 12:00", tz = "America/Puerto_Rico"))
+  u <- attr(out, "unattributed")
+  expect_true(all(as.numeric(u$first) >= as.numeric(as.POSIXct("2026-08-30", tz = "America/Puerto_Rico"))))
+  expect_true(all(as.numeric(u$last) < as.numeric(as.POSIXct("2026-09-01 12:00", tz = "America/Puerto_Rico"))))
 })

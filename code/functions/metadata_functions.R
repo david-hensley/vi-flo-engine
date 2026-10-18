@@ -2108,3 +2108,4 @@ set_record_confirmed <- function(station_id, confirmed_from, reason) {
   write.csv(rc, f, row.names = FALSE)
   invisible(TRUE)
 }
+

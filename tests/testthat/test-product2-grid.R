@@ -59,7 +59,7 @@ test_that("a HOBO is attributed by device and moment", {
 test_that("the U20's :08:37 readings are interpolated onto the quarter hour", {
   local_test_root()
   p <- assemble_p2(attributed(U20))
-  s <- p[["zzb_hydro|abs_pressure|2026"]]$series
+  s <- p[["zzb_hydro|abs_pressure_t-0007|2026"]]$series
   # First reading 10:08:37 AST is 14:08:37 UTC; the first quarter hour after it is 14:15
   expect_equal(s$datetime[1], utc("2026-08-28 14:15:00"))
   expect_true(all(as.numeric(s$datetime) %% 900 == 0))
@@ -71,13 +71,13 @@ test_that("the U20's :08:37 readings are interpolated onto the quarter hour", {
   t0 <- as.numeric(pr$datetime[1]); t1 <- as.numeric(pr$datetime[2])
   expected <- pr$value[1] + (pr$value[2] - pr$value[1]) * (as.numeric(utc("2026-08-28 14:15:00")) - t0) / (t1 - t0)
   expect_equal(s$value[1], expected)
-  expect_equal(p[["zzb_hydro|abs_pressure|2026"]]$methods[["21652379"]], "interpolated to the quarter hour")
+  expect_equal(p[["zzb_hydro|abs_pressure_t-0007|2026"]]$methods[["21652379"]], "interpolated to the quarter hour")
 })
 
 test_that("HOBOlink's 5-minute readings keep the one on each quarter hour", {
   local_test_root()
   p <- assemble_p2(attributed(HOBOLINK))
-  s <- p[["zzs_hydro|abs_pressure|2023"]]$series
+  s <- p[["zzs_hydro|abs_pressure_t-0008|2023"]]$series
   raw <- read_p1_long(fixture_path("p1", HOBOLINK))
   raw <- raw[raw$measurement == "water_pressure_kpa", ]
   at <- match(as.numeric(s$datetime), as.numeric(raw$datetime))
@@ -100,7 +100,7 @@ test_that("a gap in the readings becomes rows flagged missing, with no device", 
   local_test_root()
   paths <- place_p1(U20)
   x <- readRDS(paths); x <- x[-(100:111), ]; saveRDS(x, paths)
-  s <- assemble_p2(attribute_readings(read_p1_set(paths)))[["zzb_hydro|abs_pressure|2026"]]$series
+  s <- assemble_p2(attribute_readings(read_p1_set(paths)))[["zzb_hydro|abs_pressure_t-0007|2026"]]$series
   gap <- s[s$flag == "missing", ]
   expect_true(nrow(gap) >= 10)
   expect_true(all(is.na(gap$device_serial)))

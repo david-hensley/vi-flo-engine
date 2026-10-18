@@ -153,7 +153,15 @@ One file per station, variable and year, where the series is:
    station's first reading of the year to its last has a row, and a gap is a
    row flagged `missing`, not two rows far apart. Logger swaps and changes of
    interval are absorbed here
-4. **consistently named and in consistent units**, by `data/variables.csv`
+4. **consistently named and in consistent units**, by `data/variables.csv`.
+   At a hydro or pond station each deployment is its own series, named by
+   its row in `device_metadata.csv`: `abs_pressure_h-0021`. A paired gauge's
+   loggers measure at the same time in different places, and a deployment is
+   one logger in one place, with one elevation and one sensor height - the
+   unit anything computing level needs. Roles stay out of Product 2: how
+   deployments combine into a station's level or discharge is decided
+   later, and each series is one lookup from its role and everything else.
+   Row ids run in order of creation, so the name also says which is older
 5. **neither judged nor invented** - values as recorded, flagged only
    `observed` or `missing`. No quality control, no filled gaps: that is
    Product 3
@@ -425,6 +433,13 @@ run a week-old downloader. See
 `tools/launcher/metadata-manager.Rproj`. It opens RStudio, loads everything,
 and goes straight to the menu.
 
+**To look at a logger**, `view_device("z6-14635", "2021-07-01", "2022-10-01")`
+draws everything it recorded in that period, one panel per variable and port,
+against where metadata says it was - its deployments as solid and dashed
+lines, labeled by station. Readings outside them are the ones Product 2 leaves
+unattributed, and the picture usually says why: a sensor reading air in a
+storeroom looks nothing like one in soil.
+
 **To run the tests**, before calling a change good, after `start.R`:
 
 ```r
@@ -462,7 +477,8 @@ have caught it.
 │       ├── orphan_functions.R       # Archived files with no log row
 │       ├── validate_product1_functions.R  # The archive against the log
 │       ├── survey_functions.R       # Paired-gauge survey arithmetic, Product 0 writers
-│       ├── product2_functions.R     # Product 2: the variable registry and Product 1 readers
+│       ├── product2_functions.R     # Product 2: registry, readers, grid, build_p2()
+│       ├── inspect_functions.R      # Names for loggers; view_device() draws one's record
 │       └── backup_restore_functions.R
 │   └── jobs/
 │       └── download_job.R           # Pull, fetch, push - scheduled or on demand

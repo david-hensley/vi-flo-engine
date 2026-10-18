@@ -27,7 +27,10 @@
 #   1. the next row for the same device AND station type - not simply the next #
 #      row, because uvi_vwc1 starting in 2023 did not end uvi_weather, which   #
 #      began in 2021 and runs still                                            #
-#   2. for a terminal row with no successor, its last_visit                    #
+#   2. for a terminal row, its last_visit - the day it came out - if that is   #
+#      earlier. A logger removed in October and redeployed in February spent   #
+#      the months between out of the water, often still logging in storage,   #
+#      and those readings belong to no station                                 #
 #   3. otherwise open - the deployment continues                               #
 #                                                                              #
 # A derived end is softer evidence than a recorded start, and (2) in           #
@@ -80,10 +83,19 @@ deployment_windows <- function(metadata = NULL) {
   for (i in seq_len(nrow(m))) {
     later <- which(m$key == m$key[i] & m$deploy_datetime > m$deploy_datetime[i])
 
+    terminal <- tolower(m$status[i]) %in% TERMINAL_STATUSES
     if (length(later) > 0) {
       ends[i] <- min(m$deploy_datetime[later])
       basis[i] <- "successor"
-    } else if (tolower(m$status[i]) %in% TERMINAL_STATUSES) {
+      # Removed before its successor went in: it ends the day it came out
+      if (terminal && !is.na(m$last_visit[i])) {
+        out <- as.POSIXct(paste(m$last_visit[i], "23:59:59"), tz = "America/Puerto_Rico")
+        if (out < ends[i]) {
+          ends[i] <- out
+          basis[i] <- "last visit"
+        }
+      }
+    } else if (terminal) {
       if (!is.na(m$last_visit[i])) {
         ends[i] <- as.POSIXct(paste(m$last_visit[i], "23:59:59"),
                               tz = "America/Puerto_Rico")

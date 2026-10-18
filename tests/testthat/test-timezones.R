@@ -32,3 +32,12 @@ test_that("metadata datetimes are formatted in project-local time", {
 test_that("an all-blank datetime column formats without error", {
   expect_equal(format_datetime_safe(c(NA, NA)), c(NA_character_, NA_character_))
 })
+
+test_that("a typed date and time without seconds keeps its time", {
+  tz <- "America/Puerto_Rico"
+  expect_equal(format(coerce_datetime_flexible("2023-11-06 10:45", tz), "%Y-%m-%d %H:%M:%S"),
+               "2023-11-06 10:45:00")
+  expect_equal(format(parse_datetime_flexible("2023-11-06 10:45", tz), "%H:%M"), "10:45")
+  # A bare date is still midnight
+  expect_equal(format(coerce_datetime_flexible("2023-11-06", tz), "%H:%M"), "00:00")
+})

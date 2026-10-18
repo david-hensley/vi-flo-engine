@@ -6,6 +6,19 @@ All notable changes to the VI-FLO Engine project are documented here.
 ## [Unreleased]
 
 ### Added
+- **`docs/backfill/LEVEL_CORRECTIONS.md`**: every level offset and sensor
+  height in the prototype's import scripts - SR1's scour and reading
+  corrections, SR2's backup offsets, the Fish Bay and Dorothea slope logger
+  heights - for the day modern streambed-to-sensor heights are surveyed. The
+  backfill README lists the unattributed readings explained so far and kept
+  unattributed by decision
+- **`view_device()`**, in the new `inspect_functions.R`: everything a logger
+  recorded over a period, one panel per variable and port, drawn in local
+  time against its deployments and port windows - so whether unattributed
+  readings were storage, testing or an unrecorded deployment is something to
+  look at rather than guess. `device_names_for()` gives every name and
+  station a serial has had, and the build summary now groups unattributed
+  readings under each logger with them
 - **Product 2, piece 1: the variable registry and one reader for every
   Product 1 shape**, in `code/functions/product2_functions.R`
   - `data/variables.csv`: every measurement any logger in the network
@@ -128,6 +141,14 @@ All notable changes to the VI-FLO Engine project are documented here.
   - Checked by reintroducing the per-serial write bug: two tests fail
 
 ### Changed
+- **A paired gauge is no longer merged into one series.** The first full
+  Product 2 build put both loggers of every hydro pair into one file, keeping
+  only the later deployment's value wherever both had one - silently dropping
+  half of dor2, fb2, rb2, sr1 and tr1. At hydro and pond stations each
+  deployment is now its own series, named by its row in device_metadata:
+  `abs_pressure_h-0021`. A logger moved within a station is two series, as it
+  is two rows. Roles play no part - how deployments combine is decided
+  later. The manifest names each file's deployments, serials and device names
 - **Product files are filed by level, then station:**
   `products/p<n>/<type>/<station>/<variable>/<station>_<variable>_p<n>_<year>.csv.gz`.
   Each level has its own life - Product 2 rebuilt freely, Product 4 resting
@@ -139,6 +160,33 @@ All notable changes to the VI-FLO Engine project are documented here.
   masks functions such as `terra`'s `compare()` in the session
 
 ### Fixed
+- **A logger removed and later redeployed was attributed through the months
+  between.** `deployment_windows()` ended a row at its successor's start even
+  when the row was removed long before - so 21179105, out of Fish Bay from
+  October 2023 to February 2024, had its storage readings filed as Fish Bay
+  data. A removed row now ends the day it came out, and the readings between
+  are unattributed, listed in the build summary
+- A manifest written before a column existed could not take a row carrying
+  it, and the build stopped at once. Rows are now merged by column name, the
+  missing columns left empty
+- `build_p2()` flagged every logger whose actual interval differed from
+  `interval_min` - five HOBOs logging at 10 minutes, among them. But
+  `interval_min` is the target, not a claim about the logger, so the manifest
+  now records the interval each logger kept without judging it, and the data
+  dictionary says what `interval_min` is
+- **A typed date and time without seconds lost its time.**
+  `parse_datetime_flexible()` knew `2023-11-06 10:45:00` but not
+  `2023-11-06 10:45`, which fell through to the date-only parser and came
+  back as midnight, silently. Every metadata manager prompt that takes a
+  datetime goes through it
+- The first full Product 2 build stopped on a file the download log did not
+  name: an old filename restored from Box beside its renamed, logged twin.
+  `build_p2()` now builds only from files the log names - the archive of
+  record - and lists any others it finds rather than stopping. Three such
+  duplicates, byte-identical to logged files, were removed here and on Box
+- `build_p2()` reads each Product 1 file once per run of station-years that
+  need it, rather than once per year and once per station: a five-year
+  export is read once per station, and a co-located logger's once for both
 - Some HOBO Product 1 files carry the degree sign mangled by an encoding round
   trip, as "Â°C", which stopped the first real Product 2 build. It is now
   recognized, and an error mapping a file names the file
