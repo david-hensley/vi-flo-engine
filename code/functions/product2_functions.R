@@ -386,27 +386,38 @@ p1_fetch_times <- function(files, log = NULL) {
 
 #' One reading per device, port, measurement and moment
 #'
-#' Product 1 keeps every download whole, so two that overlap - a re-run, a
-#' catch-up after a failure, an offload that repeats the end of the last -
-#' hold some moments twice. The copy from the LATER FETCH is kept: it has
-#' been through the same logger and more recent handling, and is the one a
-#' re-download was made to get.
+#' A moment can be held twice for two quite different reasons, and they are
+#' kept apart:
 #'
-#' Where the copies disagree on the value, the kept row is marked
-#' `conflict = TRUE` rather than the disagreement being resolved silently.
-#' Two copies that are both empty agree. A moment repeated within a single
-#' file keeps its last occurrence, and is marked the same way if the copies
-#' differ.
+#'   BETWEEN DOWNLOADS - two files that overlap: a re-run, a catch-up after a
+#'     failure, an offload repeating the end of the last. The copy from the
+#'     LATER FETCH is kept: the one a re-download was made to get. Where the
+#'     downloads disagree on the value, the kept row is marked
+#'     `conflict = TRUE` - a download changing data deserves attention. Two
+#'     empty copies agree; a value against an empty copy does not
+#'
+#'   WITHIN ONE FILE - a REPEAT: the logger itself wrote two records with one
+#'     timestamp. ZL6s do this at 00:15 on scattered nights, with consecutive
+#'     record numbers in ZENTRA's own export - an extra measurement, most
+#'     likely at the nightly clock sync, over a fragment of an interval. The
+#'     FIRST record, the scheduled one, is kept. A repeat is not a conflict:
+#'     it is counted on the kept row as `repeats`, and for an accumulated
+#'     variable the amount in the records set aside as `repeat_dropped`, so a
+#'     fragment of rain is recorded rather than moved or lost unseen
 #'
 #' @param readings Data frame from map_measurements(), with source_file
 #' @param fetched POSIXct, one per row - when that row's file was fetched
-#' @return Data frame: the readings, one row per key, plus `conflict`.
-#'   Attribute "dedup": rows in, rows out, duplicate rows removed, conflicts
+#' @return Data frame: the readings, one row per key, plus `conflict`,
+#'   `repeats` and `repeat_dropped`. Attribute "dedup": rows in, rows out,
+#'   duplicate rows removed, conflicts, repeats
 dedupe_readings <- function(readings, fetched) {
   n_in <- nrow(readings)
   if (n_in == 0) {
     readings$conflict <- logical(0)
-    attr(readings, "dedup") <- c(rows_in = 0, rows_out = 0, removed = 0, conflicts = 0)
+    readings$repeats <- integer(0)
+    readings$repeat_dropped <- numeric(0)
+    attr(readings, "dedup") <- c(rows_in = 0, rows_out = 0, removed = 0,
+                                 conflicts = 0, repeats = 0)
     return(readings)
   }
 
@@ -416,28 +427,45 @@ dedupe_readings <- function(readings, fetched) {
                   readings$measurement, sep = "|")
   sid <- match(series, unique(series))
   when <- as.numeric(readings$datetime)
+  fid <- match(readings$source_file, unique(readings$source_file))
 
-  # Latest fetch first, and within a file the last occurrence first
-  ord <- order(sid, when, -as.numeric(fetched), -seq_len(n_in))
-  s_o <- sid[ord]; w_o <- when[ord]
-  first <- c(TRUE, s_o[-1] != s_o[-length(s_o)] | w_o[-1] != w_o[-length(w_o)])
+  # Latest fetch first; within a fetch, file by file; within a file, the
+  # FIRST occurrence first - the scheduled record before a repeat
+  ord <- order(sid, when, -as.numeric(fetched), fid, seq_len(n_in))
+  s_o <- sid[ord]; w_o <- when[ord]; f_o <- fid[ord]
+  n <- length(ord)
+  new_key  <- c(TRUE, s_o[-1] != s_o[-n] | w_o[-1] != w_o[-n])
+  new_file <- new_key | c(TRUE, f_o[-1] != f_o[-n])
+  run <- cumsum(new_key)
 
-  # Each copy compared with the copy its key keeps - the first of its run
-  run <- cumsum(first)
+  #### Repeats: second and later records of a key within one file ####
+  is_repeat <- !new_file
   v <- readings$value[ord]
-  k <- v[first][run]
-  same <- (is.na(v) & is.na(k)) | (!is.na(v) & !is.na(k) & v == k)
-  conflicted_run <- unique(run[!same])
+  n_rep <- tabulate(run[is_repeat], max(run))
+  accumulated <- if ("kind" %in% names(readings)) readings$kind[ord] %in% "accumulated"
+                 else rep(FALSE, n)
+  # rowsum(), not tapply(): one pass over half a million keys rather than a
+  # factor of that many levels
+  amount <- ifelse(is_repeat & accumulated & !is.na(v), v, 0)
+  dropped <- rowsum(amount, run, reorder = FALSE)[, 1]
 
-  out <- readings[ord[first], , drop = FALSE]
-  out$conflict <- seq_len(sum(first)) %in% conflicted_run
+  #### Conflicts: each file's own copy against the copy kept ####
+  k <- v[new_key][run]
+  same <- (is.na(v) & is.na(k)) | (!is.na(v) & !is.na(k) & v == k)
+  conflicted_run <- unique(run[new_file & !same])
+
+  out <- readings[ord[new_key], , drop = FALSE]
+  out$conflict <- seq_len(sum(new_key)) %in% conflicted_run
+  out$repeats <- as.integer(n_rep)
+  out$repeat_dropped <- as.numeric(dropped)
   out <- out[order(out$device_serial, out$measurement, out$datetime), , drop = FALSE]
   rownames(out) <- NULL
 
   attr(out, "dedup") <- c(rows_in   = n_in,
                           rows_out  = nrow(out),
                           removed   = n_in - nrow(out),
-                          conflicts = sum(out$conflict))
+                          conflicts = sum(out$conflict),
+                          repeats   = sum(out$repeats))
   out
 }
 
@@ -1132,6 +1160,9 @@ build_p2 <- function(stations = NULL, years = NULL, quiet = FALSE) {
             observed     = sum(s$flag == "observed"),
             missing      = sum(s$flag == "missing"),
             conflicts    = sum(s$conflict),
+            repeats      = sum(ra$repeats, na.rm = TRUE),
+            repeat_dropped = if (any(ra$kind %in% "accumulated"))
+                               round(sum(ra$repeat_dropped, na.rm = TRUE), 4) else NA,
             first        = format(min(s$datetime), "%Y-%m-%d %H:%M", tz = "America/Puerto_Rico"),
             last         = format(max(s$datetime), "%Y-%m-%d %H:%M", tz = "America/Puerto_Rico"),
             timezone     = "America/Puerto_Rico",
@@ -1159,7 +1190,7 @@ build_p2 <- function(stations = NULL, years = NULL, quiet = FALSE) {
           manifest <- bind_manifest(manifest, row)
           report[[length(report) + 1]] <- row[, c("station_id", "variable", "year", "rows",
                                                   "observed", "missing", "conflicts",
-                                                  "intervals", "problems")]
+                                                  "repeats", "intervals", "problems")]
         }
       }
 
@@ -1186,10 +1217,13 @@ build_p2 <- function(stations = NULL, years = NULL, quiet = FALSE) {
   out <- if (length(report) > 0) do.call(rbind, report) else NULL
 
   unattributed <- NULL
+  episodes <- NULL
   if (length(lost) > 0) {
     u <- do.call(rbind, lost)
     # Each reading once: a co-located logger is read from both its stations
     u <- u[!duplicated(u), , drop = FALSE]
+    known <- load_known_unattributed()
+    episodes <- unattributed_episodes(classify_unattributed(u, windows, known))
     unattributed <- summarize_unattributed(u)
     unattributed <- unattributed[order(unattributed$device_serial, unattributed$port,
                                        unattributed$variable), , drop = FALSE]
@@ -1197,6 +1231,7 @@ build_p2 <- function(stations = NULL, years = NULL, quiet = FALSE) {
   }
   if (!is.null(out)) {
     attr(out, "unattributed") <- unattributed
+    attr(out, "unattributed_episodes") <- episodes
     attr(out, "unlogged") <- sort(unique(unlogged))
     attr(out, "reads") <- cache$.reads
   }
@@ -1205,24 +1240,15 @@ build_p2 <- function(stations = NULL, years = NULL, quiet = FALSE) {
     for (f in sort(unique(unlogged))) cat("  ", f, "\n", sep = "")
     cat("  print_orphan_raw_files() says whether each duplicates a logged file\n")
   }
-  if (!quiet && !is.null(unattributed) && nrow(unattributed) > 0) {
-    cat("\nUnattributed - read from these stations' loggers, belonging to no station.\n")
-    cat("view_device(serial, from, to) draws any of them against its deployments.\n")
-    names_of <- device_names_for(unique(unattributed$device_serial), metadata)
-    names(names_of) <- unique(unattributed$device_serial)
-    for (i in seq_len(nrow(unattributed))) {
-      x <- unattributed[i, ]
-      if (i == 1 || x$device_serial != unattributed$device_serial[i - 1]) {
-        cat("\n  ", x$device_serial, "  ", names_of[[x$device_serial]], "\n", sep = "")
-      }
-      cat(sprintf("    %-7s %-20s %8s readings  %s to %s\n",
-                  if (is.na(x$port)) "" else paste("port", x$port), x$variable,
-                  format(x$rows, big.mark = ","),
-                  format(x$first, "%Y-%m-%d", tz = "America/Puerto_Rico"),
-                  format(x$last,  "%Y-%m-%d", tz = "America/Puerto_Rico")))
-    }
+  if (!quiet && !is.null(episodes)) {
+    print_unattributed(episodes, metadata, load_known_unattributed())
   }
   if (!quiet && !is.null(out)) {
+    reps <- sum(as.integer(out$repeats), na.rm = TRUE)
+    if (reps > 0) {
+      cat("\n", format(reps, big.mark = ","), " repeated record(s) set aside - a logger writing two ",
+          "readings with one timestamp; the first kept. Counted by file in the manifest.\n", sep = "")
+    }
     flagged <- out[nzchar(out$problems) | out$conflicts != "0", ]
     if (nrow(flagged) > 0) {
       cat("\nWorth a look:\n")

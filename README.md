@@ -148,7 +148,10 @@ One file per station, variable and year, where the series is:
    its own barometer goes to the weather station where there is one
 2. **deduplicated** - where downloads overlap, the later fetch wins, and a
    disagreement is marked in the `conflict` column rather than resolved
-   silently
+   silently. A moment a logger itself recorded twice within one file - ZL6s
+   write an extra record at 00:15 on scattered nights, plainly in ZENTRA's own
+   export - is a repeat, not a conflict: the first, scheduled record is kept
+   and the repeats are counted in the manifest
 3. **on the network's 15-minute grid** - every quarter hour from the
    station's first reading of the year to its last has a row, and a gap is a
    row flagged `missing`, not two rows far apart. Logger swaps and changes of
@@ -191,8 +194,12 @@ it is a moment nothing recorded at all.
 
 `build_p2()` builds a station-year from its devices' Product 1 files, writes
 every variable, and removes anything an earlier build made that the current
-inputs would not. `products/p2/manifest.csv` has a row per file: what it
-holds, how many rows are observed and missing, how each device was aligned,
+inputs would not. Its summary sorts readings that belong to no station three
+ways - UNEXPLAINED, KNOWN (periods in `metadata/internal/known_unattributed.csv`)
+and AROUND INSTALLATIONS - each with the last 12 months first and newest
+first. Nothing is hidden; only what is new is set out for attention. `products/p2/manifest.csv` has a row per file: what it
+holds, how many rows are observed and missing, how many conflicts and repeats,
+any rain set aside in a repeat, how each device was aligned,
 each device's declared interval against the one it actually logged, which
 Product 1 files went in, the hashes of the metadata, ports and registry, and
 the engine commit that built it.

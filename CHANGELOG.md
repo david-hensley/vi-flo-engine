@@ -16,6 +16,19 @@ All notable changes to the VI-FLO Engine project are documented here.
   heights - for the day modern streambed-to-sensor heights are surveyed. The
   backfill README lists the unattributed readings explained so far and kept
   unattributed by decision
+- **Unattributed readings, sorted three ways** in the build summary:
+  UNEXPLAINED, KNOWN and AROUND INSTALLATIONS, each with the last 12 months
+  first and newest first, one line per episode - a logger, a port where it
+  matters, its variables merged and its moments counted once. Nothing is
+  hidden; known periods and installation days are collapsed so only what is
+  new asks for attention
+  - KNOWN: periods in the new `metadata/internal/known_unattributed.csv` -
+    logger, optional port, dates, reason - created by
+    `tools/migrations/migrate_known_unattributed.R` with the eleven periods
+    verified in October 2026. The port narrows a period, so UVI's retired
+    port 2 cannot hide something new on its other ports
+  - AROUND INSTALLATIONS: up to 7 days before one of a logger's
+    deployments, or in its first 2 hours - recognized without a row
 - **`view_device()`**, in the new `inspect_functions.R`: everything a logger
   recorded over a period, one panel per variable and port, drawn in local
   time against its deployments and port windows - so whether unattributed
@@ -166,6 +179,17 @@ All notable changes to the VI-FLO Engine project are documented here.
   masks functions such as `terra`'s `compare()` in the session
 
 ### Fixed
+- **Every conflict in the first full Product 2 build was a ZL6 writing two
+  records with one timestamp,** not two downloads disagreeing. Three weather
+  loggers - DiscoveryG, Fish Bay, R2R Farm - and the soil loggers write an
+  extra record at 00:15 on scattered nights: consecutive record numbers in
+  ZENTRA's own export, most likely the nightly clock sync measuring over a
+  fragment of an interval. Deduplication kept the LAST record within a file,
+  so it kept the extra one. It now keeps the first, the scheduled record, and
+  counts repeats apart from conflicts: `conflict` again means only two
+  downloads disagreeing. The manifest gains `repeats`, and `repeat_dropped`
+  for any rain in a record set aside - 0.97 mm, once, at Fish Bay in five
+  years
 - **A logger removed and later redeployed was attributed through the months
   between.** `deployment_windows()` ended a row at its successor's start even
   when the row was removed long before - so 21179105, out of Fish Bay from

@@ -31,12 +31,15 @@ test_that("view_device says so when there is nothing to draw", {
   expect_error(view_device("90000001"), "No logged Product 1 files")
 })
 
-test_that("the build summary groups unattributed readings under each logger's names", {
+test_that("the build summary puts a desk launch under installations, by name", {
   local_test_root(); place_p1("21652379_20260828_20260902_raw.rds")
   path <- file.path(wds("meta_internal"), "device_metadata.csv")
   m <- read.csv(path, stringsAsFactors = FALSE)
-  m$deploy_datetime[m$unique_id == "t-0007"] <- "2026-08-30 12:00:00"
+  m$deploy_datetime[m$unique_id == "t-0007"] <- "2026-08-30 12:00:00"   # two days after its first reading
   write.csv(m, path, row.names = FALSE)
   printed <- utils::capture.output(build_p2("zzb_hydro", 2026))
-  expect_true(any(grepl("21652379  real U20 at zzb_hydro", printed, fixed = TRUE)))
+  expect_true(any(grepl("AROUND INSTALLATIONS", printed, fixed = TRUE)))
+  expect_true(any(grepl("real U20 Aug 2026", printed, fixed = TRUE)))
+  expect_true(any(grepl("UNEXPLAINED", printed, fixed = TRUE)))
+  expect_true(any(grepl("none", printed, fixed = TRUE)))
 })

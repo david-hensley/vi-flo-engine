@@ -106,3 +106,78 @@ test_that("a HOBO file reads, maps and deduplicates through the same path", {
   expect_equal(nrow(out), 2 * 502)
   expect_equal(unname(attr(out, "dedup")["removed"]), 0)
 })
+
+#### Repeats: a logger writing two records with one timestamp ####
+
+repeat_case <- function(values, files, kinds = "instantaneous", fetched = NULL) {
+  n <- length(values)
+  r <- data.frame(device_serial = "z6-14635", port = 1L, sensor = "ATMOS 41",
+                  measurement = "Air Temperature", variable = "temp",
+                  kind = rep(kinds, length.out = n),
+                  datetime = rep(as.POSIXct("2022-09-29 04:15", tz = "UTC"), n),
+                  value = values, source_file = files, stringsAsFactors = FALSE)
+  if (is.null(fetched)) fetched <- rep(as.POSIXct("2026-09-14", tz = "UTC"), n)
+  dedupe_readings(r, fetched)
+}
+
+test_that("a repeat within one file keeps the first record, the scheduled one", {
+  out <- repeat_case(c(23.8, 23.9), c("export", "export"))
+  expect_equal(nrow(out), 1)
+  expect_equal(out$value, 23.8)
+})
+
+test_that("a repeat within one file is counted, and is not a conflict", {
+  out <- repeat_case(c(23.8, 23.9), c("export", "export"))
+  expect_false(out$conflict)
+  expect_equal(out$repeats, 1L)
+  expect_equal(unname(attr(out, "dedup")["repeats"]), 1)
+  expect_equal(unname(attr(out, "dedup")["conflicts"]), 0)
+})
+
+test_that("rain in a repeat is recorded as dropped, never added in", {
+  out <- repeat_case(c(0, 0.97), c("export", "export"), kinds = "accumulated")
+  expect_equal(out$value, 0)
+  expect_equal(out$repeat_dropped, 0.97)
+  inst <- repeat_case(c(23.8, 23.9), c("export", "export"))
+  expect_equal(inst$repeat_dropped, 0)
+})
+
+test_that("two downloads disagreeing is still a conflict, and the later still wins", {
+  out <- repeat_case(c(23.8, 24.4), c("earlier", "later"),
+                     fetched = as.POSIXct(c("2026-09-14", "2026-10-01"), tz = "UTC"))
+  expect_true(out$conflict)
+  expect_equal(out$value, 24.4)
+  expect_equal(out$repeats, 0L)
+})
+
+test_that("a repeat in one download and a disagreeing later download: both counted", {
+  out <- repeat_case(c(23.8, 23.9, 24.4), c("export", "export", "api"),
+                     fetched = as.POSIXct(c("2026-09-14", "2026-09-14", "2026-10-01"), tz = "UTC"))
+  expect_equal(out$value, 24.4)                  # the later download
+  expect_true(out$conflict)                      # it disagrees with the export's own first record
+  expect_equal(out$repeats, 1L)
+})
+
+test_that("a later download agreeing with a file's first record is no conflict, even with a repeat", {
+  out <- repeat_case(c(23.8, 23.9, 23.8), c("export", "export", "api"),
+                     fetched = as.POSIXct(c("2026-09-14", "2026-09-14", "2026-10-01"), tz = "UTC"))
+  expect_false(out$conflict)
+  expect_equal(out$repeats, 1L)
+})
+
+test_that("a real repeated record builds as a repeat, not a conflict, with the first kept", {
+  local_test_root()
+  path <- place_p1("z6-13368_20260928_20260928_20260928T134705_raw.rds")
+  x <- readRDS(path)
+  # The logger writes a second 12:45 record for every port: a repeat
+  extra <- x[x$datetime == as.POSIXct("2026-09-28 12:45:00", tz = "UTC"), ]
+  extra$value <- extra$value + 0.1
+  saveRDS(rbind(x, extra), path)
+  out <- build_p2("zzu_weather", 2026, quiet = TRUE)
+  expect_true(all(out$conflicts == "0"))
+  expect_true(all(as.integer(out$repeats) >= 1))
+  t <- read_p2_file(product_path(2, "zzu_weather", "temp", 2026))
+  first <- x$value[x$measurement == "Air Temperature" &
+                   x$datetime == as.POSIXct("2026-09-28 12:45:00", tz = "UTC")]
+  expect_equal(t$value[format(t$datetime, "%H:%M") == "08:45"], first)
+})

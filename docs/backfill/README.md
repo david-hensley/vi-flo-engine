@@ -269,7 +269,9 @@ the first reading - so the exports were made and mislaid, not never taken.
 
 **Unattributed readings, explained** (October 2026, from the first full
 Product 2 builds). Readings that belong to no station are listed by every
-build. These are known, and stay unattributed by decision:
+build. These are known, and stay unattributed by decision. Each is a row in
+`metadata/internal/known_unattributed.csv`, so a build prints it as KNOWN;
+launch and installation days are recognized without a row:
 
 - **The plantain experiment, July 2021 to mid-2022.** Five vwc loggers were
   in the plantain plots on the AES experimental field (Hensley 2025,

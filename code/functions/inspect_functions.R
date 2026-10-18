@@ -131,3 +131,194 @@ view_device <- function(device_serial, from = NULL, to = NULL, variables = NULL,
   attr(r, "file") <- file
   invisible(r)
 }
+
+
+################################################################################
+#                       UNATTRIBUTED READINGS, EXPLAINED                       #
+#                                                                              #
+# Every build lists the readings that belong to no station. Most are known:    #
+# a logger in an earlier experiment, one sitting in a shed, a launch at the    #
+# desk. Listing those in full every time teaches a reader to stop reading, so  #
+# the summary sorts them three ways and prints all three - nothing hidden,     #
+# but only what is new set out for attention:                                  #
+#                                                                              #
+#   UNEXPLAINED          everything else - look at these                       #
+#   KNOWN                a period in metadata/internal/known_unattributed.csv  #
+#   AROUND INSTALLATIONS up to 7 days before a deployment starts - a desk      #
+#                        launch, a test - or in its first 2 hours, before a    #
+#                        port's window opens while a sensor settles           #
+#                                                                              #
+# Within each, the last 12 months come first, then older, newest first.        #
+################################################################################
+
+INSTALL_BEFORE <- 7 * 86400    # seconds before a deployment starts
+INSTALL_AFTER  <- 2 * 3600     # seconds after it starts
+
+#' Loads known_unattributed.csv - an absent file means none are known
+#'
+#' One row per explained period: device_serial, device_name (for the reader;
+#' not matched on), port (blank for the whole logger), from and to
+#' (project-local; blank for open-ended), reason.
+#'
+#' @return Data frame, datetimes as POSIXct
+load_known_unattributed <- function() {
+  path <- file.path(wds("meta_internal"), "known_unattributed.csv")
+  tz <- "America/Puerto_Rico"
+  empty <- data.frame(device_serial = character(0), device_name = character(0),
+                      port = integer(0), from = as.POSIXct(character(0), tz = tz),
+                      to = as.POSIXct(character(0), tz = tz), reason = character(0),
+                      stringsAsFactors = FALSE)
+  if (!file.exists(path)) return(empty)
+  k <- read.csv(path, stringsAsFactors = FALSE, colClasses = "character", na.strings = c("", "NA"))
+  if (nrow(k) == 0) return(empty)
+  k$port <- suppressWarnings(as.integer(k$port))
+  k$from <- parse_datetime_flexible(k$from, tz)
+  k$to   <- parse_datetime_flexible(k$to, tz)
+  k
+}
+
+#' Sorts unattributed readings into unexplained, known and around installations
+#'
+#' @param u Data frame: device_serial, port, variable, datetime
+#' @param windows Data frame from deployment_windows()
+#' @param known Data frame from load_known_unattributed()
+#' @return u, plus category ("unexplained", "known", "installation") and
+#'   episode - the known row, or the deployment start, the reading belongs to
+classify_unattributed <- function(u, windows, known) {
+  u$category <- "unexplained"
+  u$episode  <- NA_character_
+  t <- as.numeric(u$datetime)
+
+  #### Known periods ####
+  for (i in seq_len(nrow(known))) {
+    k <- known[i, ]
+    hit <- u$category == "unexplained" & u$device_serial == k$device_serial &
+      (is.na(k$port) | (!is.na(u$port) & u$port == k$port)) &
+      (is.na(k$from) | t >= as.numeric(k$from)) &
+      (is.na(k$to)   | t <  as.numeric(k$to))
+    u$category[hit] <- "known"
+    u$episode[hit]  <- paste0("known:", i)
+  }
+
+  #### Around installations ####
+  for (dev in unique(u$device_serial[u$category == "unexplained"])) {
+    starts <- sort(unique(as.numeric(windows$starts[windows$device_serial == dev])))
+    for (s in starts) {
+      hit <- u$category == "unexplained" & u$device_serial == dev &
+        t >= s - INSTALL_BEFORE & t <= s + INSTALL_AFTER
+      u$category[hit] <- "installation"
+      u$episode[hit]  <- paste0("install:", dev, ":", s)
+    }
+  }
+
+  #### Unexplained: runs split wherever a day passes with nothing ####
+  for (key in unique(paste(u$device_serial, u$port)[u$category == "unexplained"])) {
+    rows <- which(u$category == "unexplained" & paste(u$device_serial, u$port) == key)
+    rows <- rows[order(t[rows])]
+    run <- cumsum(c(TRUE, diff(t[rows]) > 86400))
+    u$episode[rows] <- paste0("open:", key, ":", run)
+  }
+  u
+}
+
+#' Unattributed readings as episodes: one line per logger, port and episode
+#'
+#' @param u Data frame from classify_unattributed()
+#' @return Data frame: category, device_serial, port, episode, first, last,
+#'   moments (distinct times), variables
+unattributed_episodes <- function(u) {
+  if (nrow(u) == 0) return(NULL)
+  key <- paste(u$category, u$device_serial, u$port, u$episode, sep = "|")
+  k <- unique(key)
+  i <- match(k, key)
+  t <- as.numeric(u$datetime)
+  f <- factor(key, levels = k)
+  ep <- data.frame(
+    category      = u$category[i],
+    device_serial = u$device_serial[i],
+    port          = u$port[i],
+    episode       = u$episode[i],
+    first   = as.POSIXct(as.numeric(tapply(t, f, min)), origin = "1970-01-01", tz = "UTC"),
+    last    = as.POSIXct(as.numeric(tapply(t, f, max)), origin = "1970-01-01", tz = "UTC"),
+    moments = as.integer(tapply(t, f, function(x) length(unique(x)))),
+    variables = as.character(tapply(u$variable, f, function(v) paste(sort(unique(v)), collapse = ", "))),
+    stringsAsFactors = FALSE)
+  ep[order(-as.numeric(ep$last)), , drop = FALSE]
+}
+
+#' A logger's most recent name
+device_short_name <- function(device_serial, metadata) {
+  vapply(device_serial, function(sn) {
+    m <- metadata[metadata$device_serial == sn, , drop = FALSE]
+    if (nrow(m) == 0) return(sn)
+    m <- m[order(m$deploy_datetime, decreasing = TRUE), , drop = FALSE]
+    if (is.na(m$device_name[1])) sn else m$device_name[1]
+  }, character(1), USE.NAMES = FALSE)
+}
+
+#' Prints the build summary's unattributed section
+#'
+#' @param ep Data frame from unattributed_episodes()
+#' @param metadata Data frame
+#' @param known Data frame from load_known_unattributed()
+#' @param now POSIXct. "The last 12 months" is counted back from here
+print_unattributed <- function(ep, metadata, known, now = Sys.time()) {
+  if (is.null(ep) || nrow(ep) == 0) return(invisible(NULL))
+  tz <- "America/Puerto_Rico"
+  d <- function(x) format(x, "%Y-%m-%d", tz = tz)
+  recent <- as.numeric(ep$last) >= as.numeric(now) - 365 * 86400
+  who <- function(i) paste0(device_short_name(ep$device_serial[i], metadata),
+                            " (", ep$device_serial[i], ")")
+  port_of <- function(i) if (is.na(ep$port[i])) "" else paste0("port ", ep$port[i])
+
+  cat("\nUnattributed - read from these stations' loggers, belonging to no station.\n")
+  cat("view_device(serial, from, to) draws any of them against its deployments.\n")
+
+  periods <- function(sel, line) {
+    for (when in c("last 12 months", "older")) {
+      rows <- which(sel & if (when == "last 12 months") recent else !recent)
+      if (length(rows) == 0) next
+      cat("    ", when, "\n", sep = "")
+      for (i in rows) line(i)
+    }
+  }
+
+  #### Unexplained ####
+  sel <- ep$category == "unexplained"
+  cat("\n  UNEXPLAINED - look at these\n")
+  if (!any(sel)) cat("    none\n")
+  periods(sel, function(i) {
+    cat(sprintf("      %-30s %-7s %s to %s  %8s moments  %s\n", who(i), port_of(i),
+                d(ep$first[i]), d(ep$last[i]), format(ep$moments[i], big.mark = ","),
+                ep$variables[i]))
+  })
+
+  #### Known ####
+  sel <- ep$category == "known"
+  if (any(sel)) {
+    cat("\n  KNOWN - metadata/internal/known_unattributed.csv\n")
+    periods(sel, function(i) {
+      k <- known[as.integer(sub("^known:", "", ep$episode[i])), ]
+      cat(sprintf("      %-30s %-7s %s to %s  %8s moments  %s\n", who(i), port_of(i),
+                  d(ep$first[i]), d(ep$last[i]), format(ep$moments[i], big.mark = ","),
+                  k$reason))
+    })
+  }
+
+  #### Around installations: one line per period ####
+  sel <- ep$category == "installation"
+  if (any(sel)) {
+    cat("\n  AROUND INSTALLATIONS - up to 7 days before a deployment, or its first 2 hours\n")
+    for (when in c("last 12 months", "older")) {
+      rows <- which(sel & if (when == "last 12 months") recent else !recent)
+      if (length(rows) == 0) next
+      names <- unique(vapply(rows, function(i) paste0(device_short_name(ep$device_serial[i], metadata),
+                                                      " ", format(ep$last[i], "%b %Y", tz = tz)),
+                             character(1)))
+      cat(sprintf("    %-15s %s moments around %d installation(s): %s\n", when,
+                  format(sum(ep$moments[rows]), big.mark = ","), length(unique(ep$episode[rows])),
+                  paste(names, collapse = ", ")))
+    }
+  }
+  invisible(NULL)
+}

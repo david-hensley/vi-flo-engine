@@ -168,3 +168,23 @@ station before asking.
 * `status`: Status of sensor if known, e.g. defunct, lost
 * `valid_from`: Date-time of first valid sensor reading time (i.e. 1 hour after deployment)
 * `valid_to`: Date-time of last valid sensor reading time - if still active, this is NA
+
+### `known_unattributed.csv`
+
+Periods of readings that belong to no station and are explained: a logger in
+an earlier experiment, one sitting in a shed, an accident before deployment.
+A Product 2 build prints these as KNOWN, apart from the UNEXPLAINED readings
+that need looking at. Every row is verified against the logger's record or a
+written source; the story behind each is in `docs/backfill/README.md`. Kept
+newest first. An absent file means none are known.
+
+* `device_serial`: The logger
+* `device_name`: Its name, for the reader. Not matched on
+* `port`: One port, or blank for the whole logger. A port narrows a period so it cannot hide something new on the logger's other ports
+* `from`, `to`: Project-local, `YYYY-MM-DD HH:MM:SS`. Blank `from` is the start of the logger's record; blank `to` means still open
+* `reason`: Why these readings belong to no station
+
+Readings up to 7 days before one of a logger's deployments, or in its first 2
+hours, are recognized without a row here, as AROUND INSTALLATIONS: a desk
+launch, a test, the settling hour before a port's window opens.
+
