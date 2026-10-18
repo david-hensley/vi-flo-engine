@@ -112,3 +112,15 @@ test_that("only a change to Product 2's code counts as the code changing", {
   expect_true(p2_code_changed_since(built))
   expect_true(p2_code_changed_since("abc1234"))              # a commit it has never seen
 })
+
+test_that("a run over several stations prints one report, at the end", {
+  local_test_root(); place_p1(c(U20, VWC))
+  # Something for the report to say: zzb's logger recorded before its deployment
+  set_meta(function(m) { m$deploy_datetime[m$unique_id == "t-0007"] <- "2026-08-30 12:00:00"; m })
+  printed <- utils::capture.output(build_p2_stale())
+  expect_equal(sum(grepl("^Unattributed", printed)), 1)
+  expect_equal(sum(grepl("^Worth a look", printed)), 1)
+  last_progress <- max(grep("file(s)", printed, fixed = TRUE))
+  expect_true(is.finite(last_progress))
+  expect_true(grep("^Unattributed", printed) > last_progress)   # after every station
+})

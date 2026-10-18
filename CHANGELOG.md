@@ -13,7 +13,10 @@ All notable changes to the VI-FLO Engine project are documented here.
   loggers that have since changed; built by Product 2 code that has since
   changed; or no longer made by the current inputs, in which case rebuilding
   removes them. A failure is reported and never stops the push to Box.
-  `build_p2_stale(dry_run = TRUE)` says what it would do
+  `build_p2_stale(dry_run = TRUE)` says what it would do. A run prints its
+  progress station by station and one report at the end - skipped files,
+  unattributed readings, repeats, and what is worth a look - rather than a
+  report per station
 - **Products are only built from a commit.** `build_p2()` refuses while the
   engine repo has any uncommitted change, docs included, or cannot name its
   commit at all: a product must name the code that made it. The manifest's

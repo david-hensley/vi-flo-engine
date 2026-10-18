@@ -1171,9 +1171,11 @@ interval_check <- function(readings) {
 #'
 #' @param stations Character, or NULL for every station with a deployment
 #' @param years Integer, or NULL for every year each station has files in
-#' @param quiet Logical
+#' @param quiet Logical. No progress lines and no report
+#' @param print_report Logical. Print the end-of-build report; build_p2_stale()
+#'   turns it off and prints one report for its whole run instead
 #' @return Invisibly, a data frame of what was written and anything reported
-build_p2 <- function(stations = NULL, years = NULL, quiet = FALSE) {
+build_p2 <- function(stations = NULL, years = NULL, quiet = FALSE, print_report = TRUE) {
   product <- 2
   metadata <- load_zentra_metadata()
   windows  <- deployment_windows(metadata)
@@ -1322,35 +1324,57 @@ build_p2 <- function(stations = NULL, years = NULL, quiet = FALSE) {
   if (!is.null(out)) {
     attr(out, "unattributed") <- unattributed
     attr(out, "unattributed_episodes") <- episodes
+    attr(out, "unattributed_readings") <- if (length(lost) > 0) u else NULL
     attr(out, "unlogged") <- sort(unique(unlogged))
     attr(out, "reads") <- cache$.reads
   }
-  if (!quiet && length(unlogged) > 0) {
+  if (!quiet && print_report) {
+    print_p2_report(out, if (length(lost) > 0) u else NULL, unlogged, metadata, windows)
+  }
+  invisible(out)
+}
+
+
+#' The report at the end of a build: skipped files, readings that belong to
+#' no station, repeats set aside, and anything worth a look
+#'
+#' One report for the whole run, whether that was one station or every stale
+#' one - build_p2_stale() gathers each station's findings and prints them here
+#' once, rather than a report per station.
+#'
+#' @param out Data frame of manifest rows written, or NULL
+#' @param u Unattributed readings (device_serial, port, variable, datetime),
+#'   or NULL
+#' @param unlogged Character. Files skipped as not in the download log
+#' @param metadata,windows Data frames
+print_p2_report <- function(out, u, unlogged, metadata, windows) {
+  if (length(unlogged) > 0) {
     cat("\nSkipped - not in the download log, so not part of the archive of record:\n")
     for (f in sort(unique(unlogged))) cat("  ", f, "\n", sep = "")
     cat("  print_orphan_raw_files() says whether each duplicates a logged file\n")
   }
-  if (!quiet && !is.null(episodes)) {
-    print_unattributed(episodes, metadata, load_known_unattributed())
+  if (!is.null(u) && nrow(u) > 0) {
+    u <- u[!duplicated(u), , drop = FALSE]
+    known <- load_known_unattributed()
+    print_unattributed(unattributed_episodes(classify_unattributed(u, windows, known)),
+                       metadata, known)
   }
-  if (!quiet && !is.null(out)) {
+  if (!is.null(out) && nrow(out) > 0) {
     reps <- sum(as.integer(out$repeats), na.rm = TRUE)
     if (reps > 0) {
       cat("\n", format(reps, big.mark = ","), " repeated record(s) set aside - a logger writing two ",
           "readings with one timestamp; the first kept. Counted by file in the manifest.\n", sep = "")
     }
     flagged <- out[nzchar(out$problems) | out$conflicts != "0", ]
-    if (nrow(flagged) > 0) {
-      cat("\nWorth a look:\n")
-      for (i in seq_len(nrow(flagged))) {
-        f <- flagged[i, ]
-        cat(sprintf("  %s %s %s: %s%s\n", f$station_id, f$variable, f$year,
-                    if (f$conflicts != "0") paste0(f$conflicts, " conflict(s) ") else "",
-                    f$problems))
-      }
+    cat("\nWorth a look:", if (nrow(flagged) == 0) "nothing\n" else "\n")
+    for (i in seq_len(nrow(flagged))) {
+      f <- flagged[i, ]
+      cat(sprintf("  %s %s %s: %s%s\n", f$station_id, f$variable, f$year,
+                  if (f$conflicts != "0") paste0(f$conflicts, " conflict(s) ") else "",
+                  f$problems))
     }
   }
-  invisible(out)
+  invisible(NULL)
 }
 
 
@@ -1467,11 +1491,26 @@ build_p2_stale <- function(dry_run = FALSE, quiet = FALSE) {
   if (dry_run || nrow(stale) == 0) return(invisible(stale))
 
   if (!quiet) cat("\n")
-  built <- list()
+  built <- list(); lost <- list(); unlogged <- character(0)
   for (st in unique(stale$station_id)) {
-    b <- build_p2(st, stale$year[stale$station_id == st], quiet = quiet)
-    if (!is.null(b)) built[[st]] <- b
+    b <- build_p2(st, stale$year[stale$station_id == st], quiet = quiet, print_report = FALSE)
+    if (!is.null(b)) {
+      built[[st]] <- b
+      if (!is.null(attr(b, "unattributed_readings"))) lost[[st]] <- attr(b, "unattributed_readings")
+      unlogged <- c(unlogged, attr(b, "unlogged"))
+    }
   }
-  attr(stale, "built") <- if (length(built) > 0) do.call(rbind, built) else NULL
+  out <- if (length(built) > 0) do.call(rbind, lapply(built, function(b) {
+    attributes(b) <- attributes(b)[c("names", "row.names", "class")]; b
+  })) else NULL
+  u <- if (length(lost) > 0) do.call(rbind, lost) else NULL
+
+  # One report for the whole run
+  if (!quiet) {
+    metadata <- load_zentra_metadata()
+    print_p2_report(out, u, unique(unlogged), metadata, deployment_windows(metadata))
+  }
+  attr(stale, "built") <- out
+  attr(stale, "unattributed_readings") <- u
   invisible(stale)
 }
