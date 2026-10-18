@@ -271,13 +271,38 @@ the first reading - so the exports were made and mislaid, not never taken.
 Product 2 builds). Readings that belong to no station are listed by every
 build. These are known, and stay unattributed by decision:
 
+- **The plantain experiment, July 2021 to mid-2022.** Five vwc loggers were
+  in the plantain plots on the AES experimental field (Hensley 2025,
+  chapter 2: TEROS 10s at 20 and 50 cm in each of 12 plots, installation
+  completed 2021-07-28, harvest 2022-04-08 to 06-13) before their VI-FLO
+  deployments. Four were confirmed from their records by DAH (October 2026),
+  each showing soil wetting and drying from installation to a pull-out in
+  mid-May 2022. VWC3 is plantain because it carried TEROS 21s, and TEROS 21s
+  were only ever deployed in the plantain experiment (DAH)
+
+  | Logger | In the plots | Sensors | Then |
+  |---|---|---|---|
+  | z6-13376 VWC3 | 2021-07-21 → mid-June 2022 | 4 TEROS 10, 2 TEROS 21 | `uvi_vwc3`, 2022-09-09 |
+  | z6-13388 SR2 Hillside | 2021-07-22 → mid-May 2022 | 6 TEROS 10 | `sr2_vwc1`, 2022-06-14 |
+  | z6-13363 SR2 Streambank | 2021-07-26 → mid-May 2022 | TEROS 10 | `sr2_vwc2`, 2022-05-17 |
+  | z6-13366 SR1 Hillside | 2021-07-27 → 2022-05-25 | 2 TEROS 10, 4 TEROS 21 | `sr1_vwc1`, 2022-05-26 |
+  | z6-12893 SR1 Streambank | 2021-08-10 → mid-May 2022 | 4 TEROS 10, 2 TEROS 21 | `sr1_vwc2`, 2022-06-15 |
+
+  The TEROS 21s' matric potential and soil temperature are in Product 1;
+  the dissertation does not report them. VWC3's ports 2 and 4 show a train
+  of sharp, regular wetting spikes from December 2021 to January 2022 that
+  the other four do not
 - **z6-14635, DiscoveryG Weather, October 2021 to 2022-09-13.** It stood
-  in the La Grange breadfruit orchard first (`sr1_2024-09-23.R`). Not made a
-  station
+  in the La Grange breadfruit orchard before SR1, per the prototype's
+  `sr1_2024-09-23.R` - the prototype's comments are taken as canonical. Not
+  made a station
 - **z6-14637, R2R Farm, the old `cal1_weather` logger**, after its
   replacement in September 2026. It sits in a storage shed, still logging
 - **21352827, SR1_low, 2023-09-13 to 09-19:** logging at one minute by
   accident, before deployment
+- **21352826, sr1 (Backup), 2023-10-28 to 11-14:** an emergency placement at
+  SR1, mostly out of the water, before its proper deployment at 11:30 on the
+  14th (`sr1_hydro.md`)
 - **21751136, TR1's HOBOlink, after 2024-08-14:** destroyed in Ernesto, still
   reporting
 - **Launch and installation days** everywhere: desk launches, and the hour a

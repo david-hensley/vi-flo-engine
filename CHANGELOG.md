@@ -6,6 +6,10 @@ All notable changes to the VI-FLO Engine project are documented here.
 ## [Unreleased]
 
 ### Added
+- The backfill README records the plantain experiment's five loggers -
+  confirmed from their records - and the dossier for SR1 records Backup's
+  emergency placement of 2023-10-28 and its proper deployment on 2023-11-14,
+  to which its metadata now dates it
 - **`docs/backfill/LEVEL_CORRECTIONS.md`**: every level offset and sensor
   height in the prototype's import scripts - SR1's scour and reading
   corrections, SR2's backup offsets, the Fish Bay and Dorothea slope logger
@@ -16,7 +20,9 @@ All notable changes to the VI-FLO Engine project are documented here.
   recorded over a period, one panel per variable and port, drawn in local
   time against its deployments and port windows - so whether unattributed
   readings were storage, testing or an unrecorded deployment is something to
-  look at rather than guess. `device_names_for()` gives every name and
+  look at rather than guess. Drawn to a picture sized for its panels and
+  opened, since eight stacked panels do not fit RStudio's plot pane and R
+  refuses rather than shrinking them. `device_names_for()` gives every name and
   station a serial has had, and the build summary now groups unattributed
   readings under each logger with them
 - **Product 2, piece 1: the variable registry and one reader for every

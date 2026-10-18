@@ -36,12 +36,20 @@ device_names_for <- function(device_serial, metadata = NULL) {
 #'
 #' @param device_serial Character
 #' @param from,to Dates or "YYYY-MM-DD", project-local, or NULL for everything
+#' Always drawn to an image sized for its panels and then opened, rather than
+#' into RStudio's plot pane: eight stacked panels do not fit a pane of
+#' ordinary size, and R refuses ("figure margins too large") rather than
+#' shrinking them.
+#'
 #' @param variables Character, or NULL for every kept variable
-#' @param file Character. A .png path to write to, or NULL to draw on screen
+#' @param file Character. A .png path to keep the picture at, or NULL for a
+#'   temporary one
 #' @param max_panels Integer
-#' @return Invisibly, the readings plotted
+#' @param open Logical. Open the picture once drawn
+#' @return Invisibly, the readings plotted, with the picture's path as the
+#'   attribute "file"
 view_device <- function(device_serial, from = NULL, to = NULL, variables = NULL,
-                        file = NULL, max_panels = 8) {
+                        file = NULL, max_panels = 8, open = interactive()) {
   tz <- "America/Puerto_Rico"
   metadata <- load_zentra_metadata()
   windows  <- deployment_windows(metadata)
@@ -78,13 +86,13 @@ view_device <- function(device_serial, from = NULL, to = NULL, variables = NULL,
   if (!is.null(from)) xlim[1] <- as.POSIXct(as.character(from), tz = tz)
   if (!is.null(to))   xlim[2] <- as.POSIXct(as.character(to), tz = tz) + 86400
 
-  if (!is.null(file)) {
-    grDevices::png(file, width = 1600, height = 260 * length(panels) + 80, res = 110)
-    on.exit(grDevices::dev.off(), add = TRUE)
-  }
-  old <- graphics::par(mfrow = c(length(panels), 1), mar = c(2, 4.5, 1.6, 1),
-                       oma = c(1, 0, 3, 0))
-  on.exit(graphics::par(old), add = TRUE)
+  if (is.null(file)) file <- tempfile(paste0(device_serial, "_"), fileext = ".png")
+  grDevices::png(file, width = 1600, height = 260 * length(panels) + 120, res = 110)
+  dev_id <- grDevices::dev.cur()
+  # Closed below; this only guards against an error part way through drawing
+  on.exit(if (dev_id %in% grDevices::dev.list()) grDevices::dev.off(dev_id), add = TRUE)
+  graphics::par(mfrow = c(length(panels), 1), mar = c(2, 4.5, 1.6, 1),
+                oma = c(1, 0, 3, 0))
 
   for (p in panels) {
     x <- r[r$panel == p, , drop = FALSE]
@@ -117,5 +125,9 @@ view_device <- function(device_serial, from = NULL, to = NULL, variables = NULL,
                   outer = TRUE, line = 1.2, cex = 0.9)
   graphics::mtext("solid green: deployment starts   dashed red: ends   dotted blue: port windows",
                   outer = TRUE, line = 0.1, cex = 0.65, col = "grey40")
+  grDevices::dev.off(dev_id)
+
+  if (open) utils::browseURL(file)
+  attr(r, "file") <- file
   invisible(r)
 }

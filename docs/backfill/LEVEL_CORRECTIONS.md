@@ -24,8 +24,9 @@ From `sr1_2024-09-23.R`.
 | 21180078 HOBOlink | 2022-11-17 01:00 → 2024-09-13 09:00 | **−0.0265 m** | *"erroneously high level reading"* from that date on |
 | 21352826 Backup | until 2023-11-14 11:30 | not used | *"Did not actually deploy this logger in the intended position till 2023-11-14 11:30"*; it became the main record from 11:45 |
 
-The Backup's position before 2023-11-14 is a metadata question as well: its
-deployment row starts 2023-10-28. To be corrected (October 2026).
+Its deployment row now starts at 2023-11-14 11:30 (corrected October 2026).
+From 2023-10-28 it sat in an emergency position at the site, mostly out of the
+water - see `sr1_hydro.md`.
 
 ## Salt River 2 (`sr2_hydro`)
 

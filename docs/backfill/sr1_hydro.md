@@ -72,10 +72,29 @@ running HOBOlink.
 
 > **Established.**
 
-## 2023-10-28 · `Backup` joins it
+## 2023-10-28 · `Backup` goes in, in an emergency position
 
-**`Backup`** (21352826) at 08:22, ten minutes. For four months SR1 carried
-**three** loggers: the HOBOlink, `SR1_low` and `Backup`.
+**`Backup`** (21352826) at 08:22, ten minutes, set out in a hurry at the site
+and mostly out of the water. Its pressure sits at atmospheric with ordinary
+barometric tides, its temperature swings 1-3 °C a day, and it is wetted only
+by flow pulses around 1 November and 9-10 November - which the other two
+loggers should also show.
+
+> **Established** from its record, and confirmed by DAH (October 2026): an
+> emergency deployment, before actual streamflow came in.
+
+## 2023-11-14 · `Backup` properly deployed
+
+At 11:30, once flow had come in, DAH set `Backup` in its intended position -
+the one that became the primary, where it stands today. Its pressure steps up
+about 1.2 kPa, some 12 cm of water, and its temperature goes nearly flat. The
+prototype's `sr1_2024-09-23.R`: *"Did not actually deploy this logger in the
+intended position till 2023-11-14 11:30."*
+
+> **Established.** Its deployment row starts here, corrected in October 2026;
+> the emergency placement before it belongs to no station.
+
+From here SR1 carried **three** loggers: the HOBOlink, `SR1_low` and `Backup`.
 
 > **Established** from the three records' overlapping spans.
 

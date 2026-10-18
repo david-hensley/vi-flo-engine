@@ -11,10 +11,19 @@ test_that("a logger is named by every name and station it has had", {
 test_that("view_device draws a logger's readings to a file", {
   local_test_root(); place_p1("z6-13368_20260928_20260928_20260928T134705_raw.rds")
   f <- withr::local_tempfile(fileext = ".png")
-  r <- view_device("z6-13368", file = f, variables = c("temp", "vwc"))
+  r <- view_device("z6-13368", file = f, variables = c("temp", "vwc"), open = FALSE)
   expect_true(file.exists(f))
   expect_true(file.info(f)$size > 1000)
   expect_setequal(unique(r$variable), c("temp", "vwc"))
+})
+
+test_that("with no file given, view_device draws to a temporary picture of its own size", {
+  local_test_root(); place_p1("z6-13368_20260928_20260928_20260928T134705_raw.rds")
+  r <- view_device("z6-13368", open = FALSE)       # every panel: more than a pane holds
+  f <- attr(r, "file")
+  expect_true(file.exists(f))
+  expect_true(grepl("\\.png$", f))
+  expect_false(f %in% c("", NA))
 })
 
 test_that("view_device says so when there is nothing to draw", {
