@@ -106,4 +106,6 @@ place_p1 <- function(files) {
     to
   }, character(1), USE.NAMES = FALSE)
 }
-options(viflo.test_build = TRUE)   # tests build in throwaway roots without a commit
+# Tests build in throwaway roots without a commit. Set for the suite only:
+# run_tests.R restores the session's own value afterwards
+options(viflo.test_build = TRUE)

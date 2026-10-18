@@ -251,7 +251,9 @@ test_that("a port change changes its logger's stations' ports fingerprint", {
 
 test_that("outside the test suite, nothing is built on code that is not a commit", {
   local_test_root(); place_p1(U20)
-  old <- options(viflo.test_build = FALSE); on.exit(options(old))
+  # withr, never a bare on.exit(): on.exit() replaces a test's other cleanup -
+  # here, local_test_root()'s - and left the session on a throwaway root
+  withr::local_options(viflo.test_build = FALSE)
   expect_error(build_p2("zzb_hydro", 2026, quiet = TRUE), "Not building Product 2")
   expect_length(list_product_files(2), 0)
 })

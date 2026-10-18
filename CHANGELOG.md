@@ -208,6 +208,14 @@ All notable changes to the VI-FLO Engine project are documented here.
   masks functions such as `terra`'s `compare()` in the session
 
 ### Fixed
+- **The suite could leave an R session pointed at a test's throwaway data
+  root.** One test restored an option with a bare `on.exit()`, which replaces
+  a test's other cleanup rather than adding to it - cancelling the step that
+  restores `VI_FLO_DATA_ROOT`. The session then read fixture metadata until R
+  was restarted; the real data root was never touched. The test now uses
+  `withr::local_options()`, and `run_tests.R` guards behind every test: it
+  refuses to start from a test's folder, and afterwards restores the data root
+  and the suite's build option, saying so if a test left them changed
 - **A replaced logger's barometer kept being attributed** to its station for
   days after its sensors had moved to the new logger, overlapping the new
   one's - at Cal1 and SR2 Hillside. A logger's own barometer now belongs to a
