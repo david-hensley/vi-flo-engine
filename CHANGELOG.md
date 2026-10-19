@@ -3,7 +3,17 @@ All notable changes to the VI-FLO Engine project are documented here.
 
 ---
 
-## [Unreleased]
+## [v2.8.0] - 2026-10-19
+
+Product 2 exists for the whole archive and keeps itself up to date. Every
+station-year is attributed, deduplicated, on the network's 15-minute grid and
+consistently named - 799 files built from 2021 on - and the weekly job
+rebuilds exactly what has gone stale, unattended: its first run downloaded,
+rebuilt the archive on one commit in eighteen minutes, and pushed. Building it
+was also the first full audit of the metadata, and every reading it left
+unattributed is now explained or listed for attention; along the way it
+corrected SR1 Backup's deployment, found the plantain experiment's five
+loggers, and separated ZL6 repeat records from download conflicts.
 
 ### Added
 - **Product 2 in the weekly job.** After it downloads, the job runs

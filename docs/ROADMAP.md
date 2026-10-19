@@ -17,8 +17,8 @@ Engine versions follow the product ladder. The dataset release that gets
 cited - a DOI, its own station list - is numbered separately, on its own
 clock.
 
-- **v2.8** - Product 2 built for the whole archive and kept up to date by the
-  weekly job
+- **v2.8** - current, released 2026-10-19: Product 2 built for the whole
+  archive and kept up to date by the weekly job
 - **v2.9** - the metadata in git, so every version is a commit and any
   product can be rebuilt exactly as it was. Before Product 3, whose decisions
   rest on the metadata (see *Metadata into git* below)

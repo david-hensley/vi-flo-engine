@@ -81,4 +81,5 @@ a second machine already has the result through Box and never needs to run one.
 | `migrate_u20_model_04.R` | 2026-10-17 | Corrected all 27 HOBO U20 stream gauge rows from `U20-001-01`, the 9 m model, to `U20-001-04`, the 4 m model they are. By explicit `unique_id`, because real `U20-001-01` loggers were joining at the ponds |
 | `migrate_add_sensor_height.R` | 2026-10-17 | Added `sensor_height_cm` after `elev_source`: 200 on every weather row, blank elsewhere. On hydro blank means not yet measured, on vwc not applicable |
 | `migrate_remove_windsor_note.R` | 2026-10-17 | Removed the Windsor Pond survey note logged as routine maintenance, before the survey was re-entered through the rebuilt single-device workflow |
+| `migrate_known_unattributed.R` | 2026-10-18 | Created `known_unattributed.csv` with the eleven verified periods of readings that belong to no station - the plantain loggers, DiscoveryG's orchard year, R2R Farm in its shed and the rest - then, run again, added SR2 Hillside's weeks in storage |
 
