@@ -54,3 +54,18 @@ test_that("a file changed since this session read it is not overwritten", {
   expect_false(ok)
   expect_identical(readLines(path), changed)
 })
+
+test_that("a maintenance note with quotes and commas comes back exactly as typed", {
+  local_test_root()
+  note <- 'Replaced with lithium, in "device tools" set battery type to lithium, updated firmware'
+  utils::capture.output(create_maintenance_entry(
+    field_visit_date = "2026-10-26", station_id = "bta2_hydro", station_type = "hydro",
+    device_serial = "90000002", action_type = "maintenance", details = note,
+    ports_updated = FALSE, logged_by = "DAH"))
+  log <- read_log()
+  expect_equal(log$details[nrow(log)], note)
+  expect_equal(ncol(log), 9)
+  raw <- readLines(file.path(wds("meta_internal"), "maintenance_log.csv"))
+  bs_quote <- paste0(intToUtf8(92), intToUtf8(34))          # a backslash then a quote
+  expect_false(any(grepl(bs_quote, raw, fixed = TRUE)))
+})

@@ -1035,6 +1035,24 @@ read_p2_file <- function(path, tz = "America/Puerto_Rico") {
   x
 }
 
+#' Removes a folder if it is empty, then its parent if that is now empty,
+#' and so on - never the stopping folder itself
+#'
+#' @param dir Character
+#' @param stop_at Character
+remove_empty_up_to <- function(dir, stop_at) {
+  stop_at <- normalizePath(stop_at, winslash = "/", mustWork = FALSE)
+  repeat {
+    d <- normalizePath(dir, winslash = "/", mustWork = FALSE)
+    if (!dir.exists(d) || identical(d, stop_at) || !startsWith(d, stop_at)) break
+    if (length(list.files(d, all.files = TRUE, no.. = TRUE)) > 0) break
+    unlink(d, recursive = FALSE, force = FALSE)
+    if (dir.exists(d)) unlink(d, recursive = TRUE)   # an empty folder on Windows
+    dir <- dirname(d)
+  }
+  invisible(NULL)
+}
+
 #' The manifest for one product level
 #'
 #' One row per file: what it holds, what built it, and anything a reader
@@ -1292,6 +1310,10 @@ build_p2 <- function(stations = NULL, years = NULL, quiet = FALSE, print_report 
                        normalizePath(written, winslash = "/", mustWork = FALSE)]
       if (length(stale) > 0) {
         file.remove(stale)
+        # And any folder that leaves empty - a variable dropped from the
+        # registry would otherwise leave its folder behind, and the push
+        # carries empty folders to Box
+        for (d in unique(dirname(stale))) remove_empty_up_to(d, wds("products"))
         if (!is.null(manifest)) {
           rel <- sub(paste0("^", wds("products"), "/?"), "", stale)
           manifest <- manifest[!manifest$file %in% rel, , drop = FALSE]

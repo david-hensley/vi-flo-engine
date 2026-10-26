@@ -267,9 +267,11 @@ write_maintenance_entry <- function(field_visit_date, station_id, station_type,
   log_file <- file.path(wds("meta_internal"), "maintenance_log.csv")
   
   if (file.exists(log_file)) {
-    # Append without headers
-    write.table(new_entry, log_file, sep = ",", append = TRUE, 
-                row.names = FALSE, col.names = FALSE)
+    # Append without headers. qmethod = "double", as every other log append:
+    # R's default, "escape", writes a quote in a note as \" - not valid CSV -
+    # and the row then parses wrongly. A note like: in "device tools", set...
+    write.table(new_entry, log_file, sep = ",", append = TRUE,
+                row.names = FALSE, col.names = FALSE, qmethod = "double")
   } else {
     # Create new with headers
     write.csv(new_entry, log_file, row.names = FALSE)

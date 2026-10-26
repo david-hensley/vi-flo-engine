@@ -3,6 +3,21 @@ All notable changes to the VI-FLO Engine project are documented here.
 
 ---
 
+## [Unreleased]
+
+### Fixed
+- **A maintenance note containing quotation marks wrote a broken row.**
+  `write_maintenance_entry()` appended with `write.table()`'s default
+  `qmethod = "escape"`, so a quote in `details` was written as a
+  backslash-quote rather than doubled - not valid CSV, and the row then
+  parsed wrongly. Every other log append already doubled its quotes; this one
+  now does too. Found in two `ltt1` battery entries ("in \"device tools\"")
+- **Removing a stale Product 2 file left its folder behind,** and the push
+  carried the empty folder to Box - the `rh` folders after relative humidity
+  was dropped. The build now removes any folder a stale file leaves empty
+
+---
+
 ## [v2.8.0] - 2026-10-19
 
 Product 2 exists for the whole archive and keeps itself up to date. Every

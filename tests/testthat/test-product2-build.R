@@ -73,6 +73,8 @@ test_that("a file the current inputs no longer make is removed, with its row", {
   file.create(stray)
   build_p2("zzb_hydro", 2026, quiet = TRUE)
   expect_false(file.exists(stray))
+  expect_false(dir.exists(dirname(stray)))           # nor the folder it leaves empty
+  expect_true(dir.exists(product_path(2, "zzb_hydro")))
   expect_length(list_product_files(2, station = "zzb_hydro"), 2)
 })
 
