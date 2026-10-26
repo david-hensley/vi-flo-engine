@@ -251,13 +251,30 @@ test_that("a port change changes its logger's stations' ports fingerprint", {
   expect_false(identical(after$ports, before$ports))
 })
 
+# The engine's real state depends on the machine - clean after a pull,
+# uncommitted while new files are being tried - so these two tests set it
+# themselves rather than assume it
+pretend_engine <- function(commit, problem) {
+  real <- get("engine_commit", envir = globalenv())
+  assign("engine_commit", function() list(commit = commit, problem = problem), envir = globalenv())
+  withr::defer(assign("engine_commit", real, envir = globalenv()), envir = parent.frame())
+}
+
 test_that("outside the test suite, nothing is built on code that is not a commit", {
   local_test_root(); place_p1(U20)
-  # withr, never a bare on.exit(): on.exit() replaces a test's other cleanup -
-  # here, local_test_root()'s - and left the session on a throwaway root
   withr::local_options(viflo.test_build = FALSE)
+  pretend_engine(NA_character_, "2 uncommitted change(s) in the engine repo. Commit them first")
   expect_error(build_p2("zzb_hydro", 2026, quiet = TRUE), "Not building Product 2")
   expect_length(list_product_files(2), 0)
+})
+
+test_that("on a clean commit the build proceeds, and the manifest names that commit", {
+  local_test_root(); place_p1(U20)
+  withr::local_options(viflo.test_build = FALSE)
+  pretend_engine("abc1234", NA_character_)
+  build_p2("zzb_hydro", 2026, quiet = TRUE)
+  expect_true(length(list_product_files(2)) > 0)
+  expect_true(all(read_manifest(2)$engine == "abc1234"))
 })
 
 test_that("a clean commit is named, and any change at all - a document included - blocks", {

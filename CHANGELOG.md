@@ -12,6 +12,10 @@ All notable changes to the VI-FLO Engine project are documented here.
   backslash-quote rather than doubled - not valid CSV, and the row then
   parsed wrongly. Every other log append already doubled its quotes; this one
   now does too. Found in two `ltt1` battery entries ("in \"device tools\"")
+- The test that the build refuses uncommitted code assumed the engine would
+  be uncommitted, and so failed on a machine fresh from a pull. It now sets
+  the engine's state itself, and a companion test checks the other half: on a
+  clean commit the build proceeds and the manifest names that commit
 - **Removing a stale Product 2 file left its folder behind,** and the push
   carried the empty folder to Box - the `rh` folders after relative humidity
   was dropped. The build now removes any folder a stale file leaves empty
