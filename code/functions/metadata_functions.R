@@ -891,19 +891,34 @@ update_device_location <- function(device_serial, lat, lon, elev,
 }
 
 #' Update last_download_date for a device
+#'
+#' Writes to the logger's ACTIVE row at the station the download was logged
+#' against - never to every row with its serial. A logger that has served two
+#' stations has a row for each, and the old one (TR2, decommissioned, for
+#' 21652376) must not be stamped with a download it never had. Matching by
+#' serial alone also returned one time zone per row, and as.POSIXct() refuses
+#' a time zone that is more than one value: "invalid 'tz' value".
+#'
 #' @param device_serial Character. Device to update
 #' @param download_date Date or character. Date of download
+#' @param station_id Character. The station the download was logged against.
+#'   NULL for a caller that has none: the logger's active rows, wherever they
+#'   are
 #' @return TRUE if successful, error message if failed
-update_last_download_date <- function(device_serial, download_date) {
+update_last_download_date <- function(device_serial, download_date, station_id = NULL) {
   tryCatch({
     metadata <- load_zentra_metadata()
-    device_index <- which(metadata$device_serial == device_serial)
+    terminal <- c("removed", "replaced", "relocated", "decommissioned")
+    device_index <- which(metadata$device_serial == device_serial &
+                          !tolower(metadata$status) %in% terminal &
+                          (is.null(station_id) | metadata$station_id %in% station_id))
     
     if (length(device_index) == 0) {
-      return("Device not found in metadata")
+      return(paste0("No active row for ", device_serial,
+                    if (!is.null(station_id)) paste0(" at ", station_id) else ""))
     }
-    # Get device timezone
-    device_tz <- metadata$timezone[device_index]
+    # One time zone: the rows found are one logger's active rows
+    device_tz <- metadata$timezone[device_index[1]]
     # Convert date to datetime at noon (realistic for field visits)
     download_datetime <- as.POSIXct(paste(download_date, "12:00:00"), 
                                     tz = device_tz)

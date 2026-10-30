@@ -545,7 +545,7 @@ ui_log_download <- function() {
   }
   
   #### 9 - Update last_download_date
-  result <- update_last_download_date(device_serial, field_visit_date)
+  result <- update_last_download_date(device_serial, field_visit_date, station_id = station_id)
   if (!isTRUE(result)) {
     cat("⚠️  Warning: Could not update last_download_date:", result, "\n")
   } else {
@@ -1645,6 +1645,37 @@ ui_survey_gut_pair <- function() {
   invisible(TRUE)
 }
 
+#' A logger already serving another station: show its ports, and ask
+#'
+#' A new station on a logger that already has ports of its type usually means
+#' sensors were just plugged in - or the ports were configured a step earlier,
+#' on the other station's workflow. Either way the user is shown what the
+#' logger has and asked, rather than told "already configured" and moved on.
+#'
+#' @param device_serial Character
+#' @param station_type Character. The new station's type
+#' @return Invisibly, TRUE if the ports were left as they are
+review_shared_ports <- function(device_serial, station_type) {
+  p <- get_active_ports(device_serial)
+  p <- p[order(as.integer(p$port)), , drop = FALSE]
+  cat("\n", device_serial, " already has ports configured - shared with its other station:\n",
+      sep = "")
+  for (i in seq_len(nrow(p))) {
+    depth <- if ("depth_cm" %in% names(p) && !is.na(p$depth_cm[i]) && nzchar(p$depth_cm[i]))
+               paste0(" @ ", p$depth_cm[i], "cm") else ""
+    broken <- if ("status" %in% names(p) && tolower(p$status[i]) %in% "defunct") " [DEFUNCT]" else ""
+    cat("  Port ", p$port[i], ": ", p$sensor[i], " (", p$type[i], ")", depth, broken, "\n", sep = "")
+  }
+  if (ui_yes_no(paste0("Do these include this ", station_type, " station's sensors, as they are now?"),
+                allow_quit = FALSE) == "Y") {
+    cat("\u2713 Ports unchanged\n")
+    return(invisible(TRUE))
+  }
+  ui_update_ports(preset_device_serial = device_serial)
+  invisible(FALSE)
+}
+
+
 # --- DEVICE & STATION MANAGEMENT ---
 #' Interactive device addition
 #' Adds a new device to metadata - either at new station or existing station
@@ -2079,6 +2110,13 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL,
         }
       }
       cat("  Correct any of it later with 'Correct device details'.\n")
+
+      ## Sensor height: asked here too, as on the path below. Never inherited -
+      ## it belongs to this station's sensors, not the logger - and not asked
+      ## for vwc, whose depths are per port. Without it the confirmation below
+      ## stopped on "object 'sensor_height_cm' not found" (dor1_vwc1, October
+      ## 2026), before anything was written.
+      sensor_height_cm <- ui_prompt_sensor_height(station_type)
 
       ## Device role is the one thing that is per-station, not per-device
       # Role is not a general label - it means one specific thing per station
@@ -6144,8 +6182,7 @@ metadata_manager <- function() {
             
             if (nrow(get_active_ports(result$device_serial,
                                       device_station_type)) > 0) {
-              cat("\n✓ Ports already configured on ", result$device_serial,
-                  " - shared with its other station\n", sep = "")
+              review_shared_ports(result$device_serial, device_station_type)
               
             } else if (nrow(get_active_ports(result$device_serial)) > 0) {
               # The logger has active ports, but none of this station's type -
@@ -6271,8 +6308,7 @@ metadata_manager <- function() {
             
             if (nrow(get_active_ports(result$device_serial,
                                       device_station_type)) > 0) {
-              cat("\n✓ Ports already configured on ", result$device_serial,
-                  " - shared with its other station\n", sep = "")
+              review_shared_ports(result$device_serial, device_station_type)
               
             } else if (nrow(get_active_ports(result$device_serial)) > 0) {
               # The logger has active ports, but none of this station's type -

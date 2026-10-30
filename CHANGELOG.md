@@ -5,6 +5,15 @@ All notable changes to the VI-FLO Engine project are documented here.
 
 ## [Unreleased]
 
+### Changed
+- **A new station on a logger that already has ports of its type is shown
+  them and asked,** rather than told "Ports already configured" and moved on.
+  Such a station usually means sensors were just plugged in - or, as at
+  `dor1_vwc1`, configured a step earlier on the other station's workflow. The
+  logger's ports are listed, and answering that they do not include this
+  station's sensors opens the port update for that logger. On the new-station
+  and reactivation paths alike
+
 ### Fixed
 - **A maintenance note containing quotation marks wrote a broken row.**
   `write_maintenance_entry()` appended with `write.table()`'s default
@@ -19,6 +28,20 @@ All notable changes to the VI-FLO Engine project are documented here.
 - **Removing a stale Product 2 file left its folder behind,** and the push
   carried the empty folder to Box - the `rh` folders after relative humidity
   was dropped. The build now removes any folder a stale file leaves empty
+- **Logging a download failed for a logger that has served two stations.**
+  `update_last_download_date()` matched every row with the logger's serial,
+  so tr1slope (21652376), also TR2's decommissioned row, gave two time zones
+  and R refused them: "invalid 'tz' value". Had it not, the download date
+  would have been written onto the decommissioned row as well. It now writes
+  only to the logger's active row at the station the download was logged
+  against, and says so when there is none
+- **Adding a station that shares a logger stopped before its confirmation.**
+  On that path - a vwc station on a weather station's ZL6, `dor1_vwc1` on
+  Dorothea Weather's - the device details are inherited and their questions
+  skipped, and sensor height went with them: the summary then failed on
+  "object 'sensor_height_cm' not found". Nothing was written, since the row is
+  only added after confirming. Sensor height is now asked on that path as on
+  the other - never inherited, and not asked for vwc
 
 ---
 
