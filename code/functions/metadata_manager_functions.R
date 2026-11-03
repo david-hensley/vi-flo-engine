@@ -2564,9 +2564,10 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL,
   # Return device_serial for potential port initialization
   # Station and type as well as the serial - callers need them to reason about
   # ports, which belong to the device but are meaningful per station type
-  return(list(device_serial = device_serial,
-              station_id    = station_id,
-              station_type  = station_type))
+  return(list(device_serial   = device_serial,
+              station_id      = station_id,
+              station_type    = station_type,
+              deploy_datetime = deploy_datetime))
 }
 
 #' Interactive device replacement
@@ -2662,13 +2663,21 @@ ui_replace_device <- function() {
   result <- update_device_status(old_device_serial, "replaced",
                                  station_id = station_id)
   
-  # The replaced device's sensors are no longer on it. Closing them at the new
-  # device's deployment is the honest boundary: that is the moment the old
-  # configuration stopped describing reality.
-  closed <- close_device_ports(old_device_serial, Sys.time())
-  if (is.numeric(closed) && closed > 0) {
-    cat("\u2713 Closed ", closed, " port configuration(s) on ",
-        old_device_serial, "\n", sep = "")
+  # The old logger came out when the new one went in. That moment - not the
+  # moment this was typed in - is where its deployment ends: last_visit is set
+  # to that day, and its sensors' ports close at that time. Both used to be
+  # missed: the old row kept its previous visit (Dorothea and Turpentine
+  # Weather ended in March, losing seven months), and the ports closed at
+  # Sys.time(), days after the swap.
+  when <- add_result$deploy_datetime
+  n_open <- nrow(get_active_ports(old_device_serial))
+  retired <- retire_row(old_device_row$unique_id, when)
+  if (isTRUE(retired)) {
+    cat("\u2713 ", old_device_serial, " retired at ", format(when, "%Y-%m-%d %H:%M"),
+        if (n_open > 0) paste0(", its ", n_open, " port configuration(s) closed") else "",
+        "\n", sep = "")
+  } else {
+    cat("\u26a0\ufe0f  Could not date the old row: ", retired, "\n", sep = "")
   }
   if (!isTRUE(result)) {
     cat("⚠️  Warning: New device added but could not mark old device as replaced\n")

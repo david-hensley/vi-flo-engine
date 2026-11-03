@@ -127,6 +127,14 @@ What does not exist is the file itself, or a prompt in the metadata manager
 asking for a pairing when a station is established. `site.correspondence.csv`
 in the prototype archive recorded this; nothing in VI-FLO does yet.
 
+### Decommissioning has no date
+
+The decommission workflow never asks when the station was shut down: its
+ports close at `Sys.time()`, when it is entered, and its maintenance entry is
+dated today. Removal and replacement now date a retired row to the moment its
+logger left (`retire_row()`, November 2026); decommissioning should ask for
+that moment too, and use it for the ports, the rows' `last_visit` and the log.
+
 ### `decommissioned` and `removed` overlap in practice
 
 Both describe a station or device that has stopped. The dictionary separates

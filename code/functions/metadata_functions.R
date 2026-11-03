@@ -682,8 +682,15 @@ update_last_visit <- function(station_id, visit_date) {
     metadata <- load_zentra_metadata()
     station_devices <- metadata[metadata$station_id == station_id, ]
     
-    # Find active devices (not decommissioned or relocated)
-    active_mask <- !(station_devices$status %in% c("decommissioned", "relocated"))
+    # Only the deployments still there. For a retired row - removed,
+    # replaced, relocated, decommissioned - last_visit is the day it left,
+    # which is where Product 2 ends its deployment. A later visit to the
+    # station is not a visit to it: TR1's HOBOlink, destroyed 2024-08-14, was
+    # re-dated by a visit in October 2026, and its post-hurricane readings
+    # came back into tr1_hydro. A retired row is dated once, by the workflow
+    # that retires it - see retire_row().
+    active_mask <- !tolower(station_devices$status) %in%
+      c("removed", "replaced", "relocated", "decommissioned")
     active_unique_ids <- station_devices$unique_id[active_mask]
     
     if (length(active_unique_ids) == 0) {
@@ -1510,6 +1517,40 @@ relocate_station <- function(station_id, new_lat, new_lon, deploy_datetime,
   })
 }
 
+#' Dates a retired row, and closes its logger's ports, at the moment it left
+#'
+#' For a retired row, last_visit is the day the deployment ended - Product 2
+#' ends it there - so the workflow that retires a row sets it, to the day the
+#' logger actually came out: a removal's date, or a replacement's new logger
+#' going in. Not the day it is typed in, and never by a later routine visit.
+#' The ports close at the same moment, for the same reason.
+#'
+#' @param unique_id Character. The row being retired
+#' @param when POSIXct. When the logger left: removal, or its replacement's
+#'   deployment
+#' @param close_ports Logical. Close the logger's open ports at `when`
+#' @return TRUE, or an error message
+retire_row <- function(unique_id, when, close_ports = TRUE) {
+  tryCatch({
+    metadata <- load_zentra_metadata()
+    i <- which(metadata$unique_id == unique_id)
+    if (length(i) != 1) return(paste0("No single row '", unique_id, "'"))
+    tz <- metadata$timezone[i]
+    if (is.na(tz) || !nzchar(tz)) tz <- "America/Puerto_Rico"
+    lv <- format_datetime_safe(metadata$last_visit)
+    lv[i] <- format(as.Date(when, tz = tz), "%Y-%m-%d")
+    metadata$last_visit <- lv
+    save_device_metadata(metadata)
+
+    sn <- metadata$device_serial[i]
+    if (close_ports && grepl("^z", sn, ignore.case = TRUE)) {
+      # Only ports still open: a port already closed keeps its own date
+      close_device_ports(sn, when)
+    }
+    TRUE
+  }, error = function(e) paste0("Failed to retire row: ", e$message))
+}
+
 #' Remove a device from service
 #' @param device_serial Character. Device to remove
 #' @param removal_datetime POSIXct. When device was removed
@@ -1539,21 +1580,16 @@ remove_device <- function(device_serial, removal_datetime) {
       # Non-fatal - continue
     }
     
-    # 3. Close port configs if Zentra
-    if (grepl("^z", device_serial, ignore.case = TRUE)) {
-      ports <- load_zentra_ports_data()
-      ports$valid_to[ports$sn == device_serial & is.na(ports$valid_to)] <- removal_datetime
-      ports$valid_from <- format_datetime_safe(ports$valid_from)
-      ports$valid_to <- format_datetime_safe(ports$valid_to)
-
-      write.csv(ports, file.path(wds("meta_internal"), "zentra_ports.csv"),
-                row.names = FALSE)
-    }
+    # 3. Date the removed row, and close its ports, at the removal
+    result <- retire_row(device_row$unique_id, removal_datetime)
+    if (!isTRUE(result)) return(result)
     
-    # 4. Update last_visit
+    # 4. The station's other deployments were visited too - a co-located
+    # logger, a pair's partner. update_last_visit() leaves the removed row
+    # alone; retire_row() dated it
     result <- update_last_visit(device_row$station_id, as.Date(removal_datetime))
     if (!isTRUE(result)) {
-      # Non-fatal - continue
+      # Non-fatal - no other deployment there is fine
     }
     
     return(TRUE)
