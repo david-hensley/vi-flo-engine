@@ -830,7 +830,9 @@ archive_local_data <- function(station_id, device_serial, csv_path, parsed,
     # below stay in the logger's own local time, which is what the .hobo file
     # carries and what a person reading the log expects.
     timestamp_utc = format(Sys.time(), "%Y-%m-%d %H:%M:%S", tz = "UTC"),
+    run_id        = NA_character_,          # a manual ingest is no run
     station       = station_id,
+    device_serial = device_serial,
     start_date    = format_datetime_safe(parsed$start),
     end_date      = format_datetime_safe(parsed$end),
     n_records     = parsed$n_records,
@@ -841,13 +843,11 @@ archive_local_data <- function(station_id, device_serial, csv_path, parsed,
 
   log_file <- file.path(wds("meta_internal"), "download_log.csv")
 
+  # By column name: written by position, this row once lacked run_id and
+  # device_serial, and its values landed two columns early - see
+  # append_log_row()
   logged <- tryCatch({
-    if (file.exists(log_file)) {
-      write.table(log_entry, log_file, sep = ",", append = TRUE,
-                  col.names = FALSE, row.names = FALSE, qmethod = "double")
-    } else {
-      write.csv(log_entry, log_file, row.names = FALSE)
-    }
+    append_log_row(log_entry, log_file)
     TRUE
   }, error = function(e) conditionMessage(e))
 

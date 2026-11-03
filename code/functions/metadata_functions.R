@@ -88,6 +88,39 @@ load_maintenance_log <- function() {
 #' Creates timestamped copies in backups subdirectory
 #' Automatically cleans up backups older than 1 year
 #' @return Invisible TRUE on success
+#' Appends one row to a log, by column name
+#'
+#' A log row written by position lands in the wrong columns the moment the
+#' row and the file disagree about what columns there are. The HOBO ingest's
+#' row lacked run_id and device_serial, added to download_log.csv after it was
+#' written, so every value after the station slid two columns left and the
+#' October 2026 offloads were never seen as logged. This puts each value under
+#' its own column, fills any column the row does not have with NA, and refuses
+#' a column the file does not have rather than dropping it silently.
+#'
+#' @param entry One-row data frame
+#' @param log_file Character
+#' @return Invisibly TRUE; an error naming any column the file lacks
+append_log_row <- function(entry, log_file) {
+  if (!file.exists(log_file)) {
+    utils::write.csv(entry, log_file, row.names = FALSE)
+    return(invisible(TRUE))
+  }
+  header <- names(utils::read.csv(log_file, nrows = 1, check.names = FALSE,
+                                  stringsAsFactors = FALSE))
+  extra <- setdiff(names(entry), header)
+  if (length(extra) > 0) {
+    stop("Not a column of ", basename(log_file), ": ", paste(extra, collapse = ", "),
+         call. = FALSE)
+  }
+  for (col in setdiff(header, names(entry))) entry[[col]] <- NA
+  entry <- entry[, header, drop = FALSE]
+  # qmethod = "double": a quote in a value is doubled, as CSV requires
+  utils::write.table(entry, log_file, sep = ",", append = TRUE, row.names = FALSE,
+                     col.names = FALSE, qmethod = "double")
+  invisible(TRUE)
+}
+
 backup_metadata <- function() {
   meta_dir <- wds("meta_internal")
   backup_dir <- file.path(meta_dir, "backups")
@@ -266,16 +299,8 @@ write_maintenance_entry <- function(field_visit_date, station_id, station_type,
   # Append to log
   log_file <- file.path(wds("meta_internal"), "maintenance_log.csv")
   
-  if (file.exists(log_file)) {
-    # Append without headers. qmethod = "double", as every other log append:
-    # R's default, "escape", writes a quote in a note as \" - not valid CSV -
-    # and the row then parses wrongly. A note like: in "device tools", set...
-    write.table(new_entry, log_file, sep = ",", append = TRUE,
-                row.names = FALSE, col.names = FALSE, qmethod = "double")
-  } else {
-    # Create new with headers
-    write.csv(new_entry, log_file, row.names = FALSE)
-  }
+  # By column name, quotes doubled - see append_log_row()
+  append_log_row(new_entry, log_file)
   
   message("✓ Maintenance entry logged for ", station_id, " (", device_serial, ")")
   invisible(TRUE)

@@ -15,6 +15,43 @@ All notable changes to the VI-FLO Engine project are documented here.
   and reactivation paths alike
 
 ### Fixed
+- **The HOBO ingest's download-log row landed in the wrong columns.** It was
+  built without `run_id` and `device_serial` - added to the log after it was
+  written - and appended by position, so every value after the station slid
+  two columns left and `filepath` came out empty. The October 2026 trip was
+  its first use since: all eight offloads were never seen as logged, and
+  Product 2 skipped them, leaving dor2, tr1, rb2 and fb2 ending in March. The
+  Product 1 files were never at risk. The row now carries both columns, and
+  it and the maintenance log append through the new `append_log_row()`, which
+  writes by column name and refuses a column the file does not have.
+  `tools/migrations/migrate_hobo_log_rows.R` repairs the eight rows, each
+  guarded on its exact shape, every other line left byte for byte
+- The variable table drops *Unrecognized Sensor / Sensor Output*, the API's
+  spelling of what the full-history exports call *Output* - reported once, at
+  z6-30132's start in the Shadehouses in January 2025, and flagged as
+  unrecognized on every Dorothea Weather file until now
+- **Retired rows' dates were being moved, and with them their Product 2
+  deployments,** which end at a retired row's `last_visit`. Three causes,
+  found after the October 2026 St Thomas / St John trip:
+  - a routine visit re-dated every row at its station except relocated and
+    decommissioned ones - so removed and replaced rows took the visit's date.
+    TR1's HOBOlink, destroyed 2024-08-14, came back into tr1_hydro, and five
+    other long-removed HOBOs ran to October 2026. `update_last_visit()` now
+    leaves every retired row alone
+  - a replacement left the old row's `last_visit` at its previous visit, so
+    Dorothea and Turpentine Weather ended at their March visits, losing seven
+    months; and it closed the old logger's ports at `Sys.time()`, when the
+    swap was typed in, days after it happened
+  - removal relied on the first: it dated the removed row through the
+    station-wide visit
+
+  The new `retire_row()` dates a retired row and closes its ports at the
+  moment its logger left - a removal's time, or its replacement's deployment -
+  and removal and replacement both use it. `tools/migrations/migrate_retired_dates.R`
+  repairs the 13 rows and 12 port windows affected, each guarded on the value
+  it expects and edited in place, and records three known periods: z6-30132's
+  Shadehouses 2025 record before Dorothea, the old Turpentine Weather logger
+  still reporting, and the end of R2R Farm's storage-shed period
 - **A maintenance note containing quotation marks wrote a broken row.**
   `write_maintenance_entry()` appended with `write.table()`'s default
   `qmethod = "escape"`, so a quote in `details` was written as a
