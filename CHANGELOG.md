@@ -26,8 +26,8 @@ All notable changes to the VI-FLO Engine project are documented here.
   writes by column name and refuses a column the file does not have.
   `tools/migrations/migrate_hobo_log_rows.R` repairs the eight rows, each
   guarded on its exact shape, every other line left byte for byte
-- The variable table drops *Unrecognized Sensor / Sensor Output*, the API's
-  spelling of what the full-history exports call *Output* - reported once, at
+- The variable table drops *Unrecognized / Sensor Output*, the API's
+  spelling of the full-history exports' *Unrecognized Sensor / Output* - reported once, at
   z6-30132's start in the Shadehouses in January 2025, and flagged as
   unrecognized on every Dorothea Weather file until now
 - **Retired rows' dates were being moved, and with them their Product 2

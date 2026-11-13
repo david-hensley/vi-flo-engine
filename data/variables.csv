@@ -56,7 +56,7 @@ zentra,ECRN-50,Max Precip Rate,FALSE,,,,,,Deployed; data judged unbelievable and
 zentra,TEROS 21,Matric Potential,FALSE,,,,,,Not a sensor on any VI-FLO station's ports. Still in Product 1
 zentra,TEROS 21,Soil Temperature,FALSE,,,,,,Not a sensor on any VI-FLO station's ports. Still in Product 1
 zentra,Unrecognized Sensor,Output,FALSE,,,,,,ZENTRA could not identify the sensor
-zentra,Unrecognized Sensor,Sensor Output,FALSE,,,,,,The same as the API spells it - ZENTRA could not identify the sensor
+zentra,Unrecognized,Sensor Output,FALSE,,,,,,The same as the API spells it - ZENTRA could not identify the sensor
 hobo,,Abs Pres,TRUE,abs_pressure,kPa,instantaneous,FALSE,,HOBO U20. Absolute pressure; level is derived from it
 hobo,,Temp,TRUE,water_temp,degC,instantaneous,FALSE,,HOBO U20
 hobolink,,water_pressure_kpa,TRUE,abs_pressure,kPa,instantaneous,FALSE,kPa,HOBOlink MX2001

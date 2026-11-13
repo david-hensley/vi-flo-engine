@@ -16,14 +16,17 @@ EXPORT   <- "z6-30133_20241212_20241212_20260914T000000_raw.rds"
 
 test_that("the registry names each source, sensor and measurement once", {
   reg <- load_variable_registry()
-  expect_false(any(duplicated(paste(reg$source, reg$sensor, reg$measurement))))
+  # "|", not a space: "Unrecognized Sensor" + "Output" and "Unrecognized" +
+  # "Sensor Output" are different rows that paste to the same text with spaces
+  expect_false(any(duplicated(paste(reg$source, reg$sensor, reg$measurement, sep = "|"))))
 })
 
 test_that("the registry describes the network's sensors, not a catalog", {
   reg <- load_variable_registry()
   z <- unique(reg$sensor[reg$source == "zentra"])
   expect_setequal(z, c("ATMOS 41", "ATMOS 41 G2", "TEROS 10", "Barometer", "Battery",
-                       "Signal Strength", "ECRN-50", "TEROS 21", "Unrecognized Sensor"))
+                       "Signal Strength", "ECRN-50", "TEROS 21", "Unrecognized Sensor",
+                       "Unrecognized"))     # the full-history exports' spelling, and the API's
 })
 
 test_that("every kept measurement has a variable, a known unit and a kind", {
