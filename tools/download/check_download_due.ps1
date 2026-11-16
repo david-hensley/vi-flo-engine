@@ -167,16 +167,15 @@ if ($answer -ne [System.Windows.Forms.DialogResult]::OK) { exit 0 }
 $Bat = Join-Path $EngineRoot "tools\download\run_download_job.bat"
 
 if (Test-Path $Bat) {
-    # -WindowStyle Normal matters. This script is launched by Task Scheduler
-    # with -WindowStyle Hidden, so it has no console of its own - which is
-    # what keeps it silent on every unlock when there is nothing to say. A
-    # child process inheriting that absent console cannot start, and fails
-    # with 0xc0000142, "the application was unable to start correctly".
-    #
-    # Asking for a normal window makes Windows create a fresh console for the
-    # job rather than hand it the parent's.
-    Start-Process -FilePath "cmd.exe" -ArgumentList "/c", "`"$Bat`"" `
-                  -WindowStyle Normal
+    # Handed to Explorer, exactly as a double-click is. This script runs in a
+    # hidden PowerShell started by Task Scheduler, and a console program
+    # started as its child can fail to initialize - 0xc0000142, "the
+    # application was unable to start correctly". Asking Start-Process for a
+    # normal window (and so a fresh console) fixed that once; by November 2026
+    # it no longer did on the desktop, though double-clicking the same batch
+    # file worked. Explorer starts it from the user's own session, as a
+    # double-click does, so it never inherits anything from this process.
+    Start-Process -FilePath "explorer.exe" -ArgumentList "`"$Bat`""
 } else {
     [System.Windows.Forms.MessageBox]::Show(
         "Could not find:`n$Bat",
