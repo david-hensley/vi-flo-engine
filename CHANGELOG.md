@@ -3,7 +3,7 @@ All notable changes to the VI-FLO Engine project are documented here.
 
 ---
 
-## [Unreleased]
+## [v2.8.1] - 2026-11-19
 
 ### Changed
 - **A new station on a logger that already has ports of its type is shown
@@ -79,6 +79,12 @@ All notable changes to the VI-FLO Engine project are documented here.
   "object 'sensor_height_cm' not found". Nothing was written, since the row is
   only added after confirming. Sensor height is now asked on that path as on
   the other - never inherited, and not asked for vwc
+- **The catch-up prompt could not launch the job, again.** The fresh console
+  that fixed `0xc0000142` in v2.5.1 stopped being enough on the desktop by
+  November 2026: the prompt asked, and the job failed to start, though
+  double-clicking the same batch file worked. The prompt now hands the batch
+  file to Explorer, which starts it from the user's own session exactly as a
+  double-click does, inheriting nothing from the hidden process that asked
 
 ---
 

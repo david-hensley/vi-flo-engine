@@ -82,4 +82,6 @@ a second machine already has the result through Box and never needs to run one.
 | `migrate_add_sensor_height.R` | 2026-10-17 | Added `sensor_height_cm` after `elev_source`: 200 on every weather row, blank elsewhere. On hydro blank means not yet measured, on vwc not applicable |
 | `migrate_remove_windsor_note.R` | 2026-10-17 | Removed the Windsor Pond survey note logged as routine maintenance, before the survey was re-entered through the rebuilt single-device workflow |
 | `migrate_known_unattributed.R` | 2026-10-18 | Created `known_unattributed.csv` with the eleven verified periods of readings that belong to no station - the plantain loggers, DiscoveryG's orchard year, R2R Farm in its shed and the rest - then, run again, added SR2 Hillside's weeks in storage |
+| `migrate_hobo_log_rows.R` | 2026-11-03 | Repaired eight download-log rows the HOBO ingest had appended by position, two columns short, so the October 2026 offloads were never seen as logged and Product 2 skipped them |
+| `migrate_retired_dates.R` | 2026-11-03 | Re-dated 13 retired rows and 12 port windows that routine visits and replacements had moved, so their Product 2 deployments ended when their loggers actually left; recorded three known unattributed periods |
 
