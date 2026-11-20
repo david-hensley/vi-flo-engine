@@ -32,6 +32,29 @@ All notable changes to the VI-FLO Engine project are documented here.
   every Product 2 file taken before the layer, and a comparison once it is in,
   to show the move changed nothing it should not have
 
+### Changed
+- **Every loader now reads through the data layer** - `load_zentra_metadata()`,
+  `load_zentra_ports_data()`, `load_download_log()`, `load_maintenance_log()`,
+  `load_record_confirmed()`, `load_pending_ingest()`,
+  `load_known_unattributed()`, and the run log at session start. Each returns
+  what it did before, value for value, checked against the live tables; the
+  only type change is that measurements which can be fractional - sensor
+  height, port depth - are numbers rather than integers. What is new is that a
+  value a loader cannot read stops it with the table, column and row, where
+  before it quietly became `NA`. A table edited by hand into an unreadable
+  state now says so at the next session start rather than being read wrongly
+- The ports, download log and maintenance log loaders each used to read the
+  device table as well, only to take its time zone - and in doing so
+  refreshed what the session remembered of `device_metadata.csv`, so a change
+  made underneath a session could slip past the write guard. They no longer
+  touch it
+
+### Fixed
+- `load_download_log()` returned an extra column, `timestamp`, four hours
+  wrong. It parsed a column the log stopped having when it became
+  `timestamp_utc`; R's partial matching of `$` quietly handed it
+  `timestamp_utc` instead, read as local time. Nothing used it
+
 ---
 
 ## [v2.8.1] - 2026-11-19

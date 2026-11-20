@@ -162,18 +162,8 @@ INSTALL_AFTER  <- 24 * 3600    # seconds after it starts: a deployment's first d
 #'
 #' @return Data frame, datetimes as POSIXct
 load_known_unattributed <- function() {
-  path <- file.path(wds("meta_internal"), "known_unattributed.csv")
-  tz <- "America/Puerto_Rico"
-  empty <- data.frame(device_serial = character(0), device_name = character(0),
-                      port = integer(0), from = as.POSIXct(character(0), tz = tz),
-                      to = as.POSIXct(character(0), tz = tz), reason = character(0),
-                      stringsAsFactors = FALSE)
-  if (!file.exists(path)) return(empty)
-  k <- read.csv(path, stringsAsFactors = FALSE, colClasses = "character", na.strings = c("", "NA"))
-  if (nrow(k) == 0) return(empty)
-  k$port <- suppressWarnings(as.integer(k$port))
-  k$from <- parse_datetime_flexible(k$from, tz)
-  k$to   <- parse_datetime_flexible(k$to, tz)
+  k <- read_table("known_unattributed")
+  k$port <- as.integer(k$port)
   k
 }
 

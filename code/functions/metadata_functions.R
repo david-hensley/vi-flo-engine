@@ -3,83 +3,58 @@
 
 ######################          LOADING FUNCTIONS         ######################
 
-#' Loads device_metadata.csv with formatting done
-#' Requires: wds() and parse_date functions from setup_functions.R
-#' Only intended for use WITHIN A SINGLE TIME ZONE!!
-#' Handles both R and Excel date formats automatically
-#' @return Data.frame. Zentra device metadata with formatted dates/timezone
+# Every loader reads through read_table() in table_functions.R, which knows
+# where each table lives and what type each column is, and refuses a value it
+# cannot read rather than turning it into NA.
+#
+# Where a loader passes `as_text`, it returns those columns as text, as it did
+# before the data layer, because some of its callers still treat them as text.
+# Each is a column whose callers have yet to move onto its proper type.
+
+#' Loads device_metadata.csv
+#'
+#' Datetimes as POSIXct in the project time zone, dates as Date,
+#' metadata_approved as logical. last_record_date and last_reviewed_utc come
+#' back as text: their callers assign formatted text into them.
+#'
+#' @return Data frame
 load_zentra_metadata <- function(){
-  metadata <- read.csv(file.path(wds("meta_internal"), "device_metadata.csv"),
-                       stringsAsFactors = FALSE)
-
-  # What the file looked like when this session read it. save_device_metadata()
-  # refuses to write over anything else.
-  if (exists("remember_file_hash")) {
-    remember_file_hash(file.path(wds("meta_internal"), "device_metadata.csv"))
-  }
-  timezone <- metadata$timezone[1] # This assumes all the time zones are the same!
-  # Parse datetime columns (handles both R and Excel formats)
-  metadata$deploy_datetime <- parse_datetime_flexible(metadata$deploy_datetime, timezone)
-  metadata$last_update <- parse_datetime_flexible(metadata$last_update, timezone)
-  metadata$last_download_date <- parse_datetime_flexible(metadata$last_download_date, timezone)
-  
-  # Parse date columns (handles both R and Excel formats)
-  metadata$expiry_date <- parse_date_flexible(metadata$expiry_date)
-  metadata$last_visit <- parse_date_flexible(metadata$last_visit)
-  # Convert logical column
-  metadata$metadata_approved <- as.logical(metadata$metadata_approved)
-  return(metadata)
+  read_table("device_metadata", as_text = c("last_record_date", "last_reviewed_utc"))
 }
 
-#' Loads zentra_ports.csv with formatting done
-#' Requires: wds() and parse_date functions from setup_functions.R
-#' Only intended for use WITHIN A SINGLE TIME ZONE!!
-#' Handles both R and Excel date formats automatically
-#' @return Data.frame. Zentra port configuration history with formatted dates
+#' Loads zentra_ports.csv
+#'
+#' valid_from and valid_to as POSIXct in the project time zone.
+#'
+#' @return Data frame. Port configuration history
 load_zentra_ports_data <- function(){
-  ports <- read.csv(file.path(wds("meta_internal"), "zentra_ports.csv"), stringsAsFactors = FALSE)
-  # Get timezone from device metadata (assuming all same timezone)
-  metadata <- load_zentra_metadata()
-  timezone <- metadata$timezone[1] # Assumes the same time zone!
-  # Parse datetime columns (handles both R and Excel formats)
-  ports$valid_from <- parse_datetime_flexible(ports$valid_from, timezone)
-  ports$valid_to <- parse_datetime_flexible(ports$valid_to, timezone)
-  return(ports)
+  read_table("zentra_ports")
 }
 
-#' Loads download_log.csv from metadata/internal
-#' #' Requires: wds() and parse_date functions from setup_functions.R
-#' Only intended for use WITHIN A SINGLE TIME ZONE!!
-#' Parses datetime columns appropriately
-#' @return Data.frame. Download log with formatted dates
+#' Loads download_log.csv
+#'
+#' start_date and end_date as POSIXct in the project time zone. timestamp_utc
+#' comes back as text, as its callers expect.
+#'
+#' The previous version also parsed a column called `timestamp`, which the log
+#' stopped having when it became `timestamp_utc`. R's partial matching of `$`
+#' quietly handed it `timestamp_utc` instead, and it was parsed as LOCAL time,
+#' so the returned table carried an extra column four hours wrong. Nothing
+#' read it, and it is gone.
+#'
+#' @return Data frame
 load_download_log <- function() {
-  log <- read.csv(file.path(wds("meta_internal"), "download_log.csv"), stringsAsFactors = FALSE)
-  # Get timezone from device metadata for consistency
-  metadata <- load_zentra_metadata()
-  timezone <- metadata$timezone[1]
-  # Parse datetime columns (handles both R and Excel formats)
-  log$timestamp <- parse_datetime_flexible(log$timestamp, timezone)
-  log$start_date <- parse_datetime_flexible(log$start_date, timezone)
-  log$end_date <- parse_datetime_flexible(log$end_date, timezone)
-  return(log)
+  read_table("download_log", as_text = "timestamp_utc")
 }
 
-#' Loads maintenance_log.csv from metadata/internal
-#' Requires: wds() and parse_date functions from setup_functions.R
-#' Only intended for use WITHIN A SINGLE TIME ZONE!!
-#' Parses datetime columns appropriately
-#' @return Data.frame. Maintenance log with formatted dates
+#' Loads maintenance_log.csv
+#'
+#' timestamp as POSIXct in the project time zone, field_visit_date as Date,
+#' ports_updated as logical.
+#'
+#' @return Data frame
 load_maintenance_log <- function() {
-  log <- read.csv(file.path(wds("meta_internal"), "maintenance_log.csv"), stringsAsFactors = FALSE)
-  # Get timezone from device metadata for consistency
-  metadata <- load_zentra_metadata()
-  timezone <- metadata$timezone[1]
-  # Parse datetime columns (handles both R and Excel formats)
-  log$timestamp <- parse_datetime_flexible(log$timestamp, timezone)
-  log$field_visit_date <- parse_date_flexible(log$field_visit_date)
-  # Convert logical
-  log$ports_updated <- as.logical(log$ports_updated)
-  return(log)
+  read_table("maintenance_log")
 }
 
 ######################          BACK-UP FUNCTIONS         ######################
@@ -2133,20 +2108,18 @@ RECORD_CONFIRMED_DEFAULT <- "2026-09-01"
 #' @return Data frame: station_id, confirmed_from, reason
 load_record_confirmed <- function() {
 
-  f <- file.path(wds("meta_internal"), "record_confirmed.csv")
-
-  if (!file.exists(f)) {
+  if (!file.exists(table_path("record_confirmed"))) {
     seed <- data.frame(
       station_id     = "(default)",
       confirmed_from = RECORD_CONFIRMED_DEFAULT,
       reason         = paste("metadata manager in routine use from this date;",
                              "any station not listed is confirmed from here"),
       stringsAsFactors = FALSE)
-    write.csv(seed, f, row.names = FALSE)
-    return(seed)
+    write_table("record_confirmed", seed)
   }
 
-  read.csv(f, stringsAsFactors = FALSE)
+  # confirmed_from as text: set_record_confirmed() binds a text row onto it
+  read_table("record_confirmed", as_text = "confirmed_from")
 }
 
 

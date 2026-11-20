@@ -47,6 +47,7 @@ PROJECT_TZ <- "America/Puerto_Rico"
 # Column types:
 #
 #   text            character, quoted
+#   integer         a whole number - a count, a port - bare
 #   number          numeric, bare
 #   logical         TRUE/FALSE, bare
 #   date            a calendar date, YYYY-MM-DD
@@ -65,9 +66,9 @@ TABLE_SCHEMA <- list(
       device_serial = "text", device_role = "text", device_name = "text",
       mfger = "text", model = "text", lat = "number", lon = "number",
       elev = "number", elev_source = "text", sensor_height_cm = "number",
-      reach_length_m = "number", interval_min = "number", timezone = "text",
+      reach_length_m = "number", interval_min = "integer", timezone = "text",
       deploy_datetime = "datetime_local", status = "text",
-      last_update = "datetime_local", battery = "number", last_visit = "date",
+      last_update = "datetime_local", battery = "integer", last_visit = "date",
       expiry_date = "date", last_download_date = "datetime_local",
       last_record_date = "datetime_local", metadata_approved = "logical",
       last_reviewed_utc = "datetime_utc"
@@ -77,7 +78,7 @@ TABLE_SCHEMA <- list(
   zentra_ports = list(
     file = "zentra_ports.csv", key = NULL, writer = "person",
     columns = c(
-      sn = "text", port = "number", type = "text", sensor = "text",
+      sn = "text", port = "integer", type = "text", sensor = "text",
       depth_cm = "number", status = "text",
       valid_from = "datetime_local", valid_to = "datetime_local"
     )
@@ -98,7 +99,7 @@ TABLE_SCHEMA <- list(
     columns = c(
       timestamp_utc = "datetime_utc", run_id = "text", station = "text",
       device_serial = "text", start_date = "datetime_local",
-      end_date = "datetime_local", n_records = "number", filepath = "text",
+      end_date = "datetime_local", n_records = "integer", filepath = "text",
       download_type = "text"
     )
   ),
@@ -107,9 +108,9 @@ TABLE_SCHEMA <- list(
     file = "run_log.csv", key = "run_id", writer = "machine",
     columns = c(
       run_id = "text", started_utc = "datetime_utc", finished_utc = "datetime_utc",
-      job = "text", devices_seen = "number", devices_fetched = "number",
-      devices_up_to_date = "number", devices_errored = "number",
-      rows_fetched = "number", status = "text", message = "text",
+      job = "text", devices_seen = "integer", devices_fetched = "integer",
+      devices_up_to_date = "integer", devices_errored = "integer",
+      rows_fetched = "integer", status = "text", message = "text",
       machine = "text"
     )
   ),
@@ -117,7 +118,7 @@ TABLE_SCHEMA <- list(
   known_unattributed = list(
     file = "known_unattributed.csv", key = NULL, writer = "person",
     columns = c(
-      device_serial = "text", device_name = "text", port = "number",
+      device_serial = "text", device_name = "text", port = "integer",
       from = "datetime_local", to = "datetime_local", reason = "text"
     )
   ),
@@ -168,14 +169,18 @@ table_path <- function(name) {
 #' @param path Character. Read from here instead - for tests and checks
 #' @param remember Logical. Record what was read, so a later write_table()
 #'   can refuse if the file changes in between
+#' @param as_text Character. Columns to return as their written text - a
+#'   datetime as "YYYY-MM-DD HH:MM:SS" - rather than typed, missing as NA.
+#'   For callers written before the layer that still expect text there; each
+#'   use is a column whose callers have not yet been moved onto its type
 #' @return Data frame. An empty one, with the schema's columns, if the file
 #'   does not exist
-read_table <- function(name, path = NULL, remember = TRUE) {
+read_table <- function(name, path = NULL, remember = TRUE, as_text = NULL) {
   s <- table_schema(name)
   if (is.null(path)) path <- table_path(name)
   cols <- s$columns
 
-  if (!file.exists(path)) return(table_empty(name))
+  if (!file.exists(path)) return(table_text_columns(table_empty(name), name, as_text))
 
   raw <- utils::read.csv(path, colClasses = "character", na.strings = c("", "NA"),
                          check.names = FALSE, encoding = "UTF-8",
@@ -191,7 +196,23 @@ read_table <- function(name, path = NULL, remember = TRUE) {
   for (col in names(cols)) {
     out[[col]] <- table_parse_column(raw[[col]], cols[[col]], col, basename(path))
   }
-  out
+  table_text_columns(out, name, as_text)
+}
+
+#' Turns the named columns of a typed table back into their written text
+table_text_columns <- function(data, name, as_text) {
+  if (length(as_text) == 0) return(data)
+  cols <- table_schema(name)$columns
+  unknown <- setdiff(as_text, names(cols))
+  if (length(unknown) > 0) {
+    stop("Not a column of ", name, ": ", paste(unknown, collapse = ", "), call. = FALSE)
+  }
+  for (col in as_text) {
+    text <- table_format_column(data[[col]], cols[[col]])$text
+    text[text == ""] <- NA_character_
+    data[[col]] <- as.character(text)
+  }
+  data
 }
 
 #' An empty table with the schema's columns, typed
@@ -210,6 +231,11 @@ table_parse_column <- function(x, type, col, file) {
   parsed <- switch(type,
     text           = x,
     number         = suppressWarnings(as.numeric(x)),
+    integer        = {
+                       v <- suppressWarnings(as.numeric(x))
+                       v[!is.na(v) & v != round(v)] <- NA     # 2.5 is not a count
+                       as.integer(v)
+                     },
     logical        = c("TRUE" = TRUE, "FALSE" = FALSE)[toupper(x)],
     date           = parse_date_flexible(x),
     datetime_local = parse_datetime_flexible(x, PROJECT_TZ),
@@ -245,13 +271,14 @@ table_format_column <- function(x, type) {
     number         = vapply(x, function(v) {
                        if (is.na(v)) "" else format(v, digits = 15, scientific = FALSE, trim = TRUE)
                      }, character(1), USE.NAMES = FALSE),
+    integer        = ifelse(is.na(x), "", format(as.integer(round(as.numeric(x))), scientific = FALSE, trim = TRUE)),
     logical        = ifelse(as.logical(x), "TRUE", "FALSE"),
     date           = format(as.Date(x), "%Y-%m-%d"),
     datetime_local = format(table_as_datetime(x, PROJECT_TZ), "%Y-%m-%d %H:%M:%S", tz = PROJECT_TZ),
     datetime_utc   = format(table_as_datetime(x, "UTC"), "%Y-%m-%d %H:%M:%S", tz = "UTC")
   )
   text[missing] <- ""
-  list(text = text, quote = !type %in% c("number", "logical"))
+  list(text = text, quote = !type %in% c("integer", "number", "logical"))
 }
 
 #' A datetime column as POSIXct, whatever it arrived as

@@ -141,7 +141,9 @@ last_run <- function() {
                 error = function(e) NULL)
   if (is.null(f) || !file.exists(f)) return(NULL)
 
-  log <- tryCatch(read.csv(f, stringsAsFactors = FALSE), error = function(e) NULL)
+  log <- tryCatch(read_table("run_log", remember = FALSE,
+                             as_text = c("started_utc", "finished_utc")),
+                  error = function(e) NULL)
   if (is.null(log) || nrow(log) == 0) return(NULL)
 
   log[nrow(log), ]

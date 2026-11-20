@@ -56,25 +56,19 @@ PENDING_COLUMNS <- c(
 #' @return Data.frame. Pending ingests, zero rows if none
 load_pending_ingest <- function() {
 
-  pending_file <- file.path(wds("meta_internal"), "pending_ingest.csv")
-
-  if (!file.exists(pending_file)) {
-    empty <- as.data.frame(
-      matrix(character(0), ncol = length(PENDING_COLUMNS),
-             dimnames = list(NULL, PENDING_COLUMNS)),
-      stringsAsFactors = FALSE
-    )
-    write.csv(empty, pending_file, row.names = FALSE)
-    return(empty)
+  if (!file.exists(table_path("pending_ingest"))) {
+    write_table("pending_ingest", table_empty("pending_ingest"))
   }
 
-  pending <- read.csv(pending_file, stringsAsFactors = FALSE,
-                      colClasses = "character")
+  # Every column as text, missing as "", as its callers have always had it
+  pending <- read_table("pending_ingest",
+                        as_text = names(TABLE_SCHEMA$pending_ingest$columns))
+  pending[] <- lapply(pending, function(x) { x[is.na(x)] <- ""; x })
 
   # Drop any fully blank rows - these creep in when a CSV is opened and
   # saved in Excel.
   if (nrow(pending) > 0) {
-    blank <- apply(pending, 1, function(r) all(is.na(r) | trimws(r) == ""))
+    blank <- apply(pending, 1, function(r) all(trimws(r) == ""))
     pending <- pending[!blank, , drop = FALSE]
   }
 

@@ -135,3 +135,38 @@ test_that("a missing table reads as empty, with the schema's columns", {
   expect_equal(nrow(x), 0)
   expect_identical(names(x), names(TABLE_SCHEMA$record_confirmed$columns))
 })
+
+test_that("the loaders read through the layer", {
+  local_test_root()
+  # The download log no longer grows a stray `timestamp` column - partial
+  # matching once handed it timestamp_utc, parsed as local time
+  expect_false("timestamp" %in% names(load_download_log()))
+  expect_type(load_download_log()$timestamp_utc, "character")
+
+  # Counts are whole numbers, as they always were
+  expect_type(load_zentra_ports_data()$port, "integer")
+  expect_type(load_zentra_metadata()$interval_min, "integer")
+
+  # A value the layer cannot read stops the loader, rather than becoming NA
+  p <- table_path("zentra_ports")
+  lines <- readLines(p)
+  lines[2] <- sub('"[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9:]{8}"', '"not a date"', lines[2])
+  writeLines(lines, p)
+  expect_error(load_zentra_ports_data(), "not a datetime_local")
+})
+
+test_that("pending ingest reads as text, missing as empty, with or without rows", {
+  local_test_root()
+  empty <- load_pending_ingest()
+  expect_equal(nrow(empty), 0)
+  expect_true(all(vapply(empty, is.character, logical(1))))
+  expect_true(file.exists(table_path("pending_ingest")))
+})
+
+test_that("record_confirmed is seeded with its default when absent", {
+  local_test_root()
+  rc <- load_record_confirmed()
+  expect_equal(rc$station_id, "(default)")
+  expect_equal(rc$confirmed_from, RECORD_CONFIRMED_DEFAULT)
+  expect_equal(record_confirmed_from("anything"), as.Date(RECORD_CONFIRMED_DEFAULT))
+})
