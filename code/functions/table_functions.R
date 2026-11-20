@@ -438,6 +438,19 @@ write_table <- function(name, data, path = NULL, guard = TRUE, intent = NULL) {
   invisible(TRUE)
 }
 
+#' Replaces a whole table, or stops
+#'
+#' For callers inside a tryCatch() that turns errors into a message: a refused
+#' write becomes an error like any other failure, rather than a FALSE that is
+#' easy to mistake for nothing to do.
+write_table_or_stop <- function(name, data, intent = NULL) {
+  if (!isTRUE(write_table(name, data, intent = intent))) {
+    stop(table_schema(name)$file, " was not saved: it changed since it was read",
+         call. = FALSE)
+  }
+  invisible(TRUE)
+}
+
 #' Adds rows to the end of a table
 #'
 #' For the logs, which only ever grow. Each value goes under its own column by

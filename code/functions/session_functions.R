@@ -137,8 +137,7 @@ metadata_drift <- function() {
 #'
 #' @return One row of run_log.csv, or NULL
 last_run <- function() {
-  f <- tryCatch(file.path(wds("meta_internal"), "run_log.csv"),
-                error = function(e) NULL)
+  f <- tryCatch(table_path("run_log"), error = function(e) NULL)
   if (is.null(f) || !file.exists(f)) return(NULL)
 
   log <- tryCatch(read_table("run_log", remember = FALSE,

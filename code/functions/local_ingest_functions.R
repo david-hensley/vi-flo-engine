@@ -188,7 +188,7 @@ get_shuttle_dir <- function() {
 #' @param exclude Character vector. Filenames never reported as candidates
 #' @return Data frame with path and mtime, zero rows if nothing qualifies
 find_recent_file_in_data_root <- function(since,
-                                          exclude = c("pending_ingest.csv")) {
+                                          exclude = TABLE_SCHEMA$pending_ingest$file) {
 
   data_root <- Sys.getenv("VI_FLO_DATA_ROOT")
   if (!nzchar(data_root) || !dir.exists(data_root)) {
@@ -841,13 +841,12 @@ archive_local_data <- function(station_id, device_serial, csv_path, parsed,
     stringsAsFactors = FALSE
   )
 
-  log_file <- file.path(wds("meta_internal"), "download_log.csv")
 
-  # By column name: written by position, this row once lacked run_id and
-  # device_serial, and its values landed two columns early - see
-  # append_log_row()
+  # By column name, through the data layer: written by position, this row
+  # once lacked run_id and device_serial, and its values landed two columns
+  # early
   logged <- tryCatch({
-    append_log_row(log_entry, log_file)
+    append_rows("download_log", log_entry)
     TRUE
   }, error = function(e) conditionMessage(e))
 

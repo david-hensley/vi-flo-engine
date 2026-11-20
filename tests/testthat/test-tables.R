@@ -202,3 +202,55 @@ test_that("record_confirmed is seeded with its default when absent", {
   expect_equal(rc$confirmed_from, RECORD_CONFIRMED_DEFAULT)
   expect_equal(record_confirmed_from("anything"), as.Date(RECORD_CONFIRMED_DEFAULT))
 })
+
+test_that("nothing but the data layer opens a metadata table", {
+  engine <- Sys.getenv("VI_FLO_ENGINE_ROOT")
+  files <- c(list.files(file.path(engine, "code", "functions"), pattern = "\\.R$", full.names = TRUE),
+             list.files(file.path(engine, "code", "jobs"), pattern = "\\.R$", full.names = TRUE))
+  code_lines <- function(f) {
+    x <- readLines(f, warn = FALSE)
+    data.frame(file = basename(f), line = seq_along(x),
+               text = sub("#.*$", "", x),              # comments may name anything
+               stringsAsFactors = FALSE)
+  }
+  code <- do.call(rbind, lapply(files, code_lines))
+
+  # 1. A table's file name is written once, in TABLE_SCHEMA. Anywhere else, a
+  #    path is being built by hand - the way a port deletion once went to the
+  #    working directory instead of the metadata folder
+  names_re <- paste0("\"(", paste(gsub(".", "\\.", vapply(TABLE_SCHEMA, `[[`, "", "file"),
+                                       fixed = TRUE), collapse = "|"), ")\"")
+  hits <- code[grepl(names_re, code$text) & code$file != "table_functions.R", ]
+  expect_equal(nrow(hits), 0,
+               info = paste(paste0(hits$file, ":", hits$line), collapse = ", "))
+
+  # 2. Reading and writing CSV directly is for files that are not metadata
+  #    tables: the products and their manifest, the datamap, logger and survey
+  #    exports, and the guard's own snapshot of a table it remembers. A new
+  #    file here is a new way into the metadata until shown otherwise
+  allowed <- c("table_functions.R", "guard_functions.R", "product2_functions.R",
+               "setup_functions.R", "local_ingest_functions.R", "survey_functions.R")
+  csv <- code[grepl("\\b(read\\.csv|write\\.csv|write\\.table|read\\.table)\\(", code$text) &
+                !code$file %in% allowed, ]
+  expect_equal(nrow(csv), 0,
+               info = paste(paste0(csv$file, ":", csv$line), collapse = ", "))
+})
+
+test_that("deleting a row leaves alone the ports of a logger with another row", {
+  local_test_root()
+  # z6-13368 serves two stations in the fixture, zzu_weather and zzu_vwc1
+  ports_before <- readLines(table_path("zentra_ports"))
+  run <- with_inputs(c("t-0010", "Y"), ui_delete_metadata_row())
+  expect_false("t-0010" %in% load_zentra_metadata()$unique_id)
+  expect_identical(readLines(table_path("zentra_ports")), ports_before)
+  expect_true(any(grepl("none were deleted", run$output)))
+})
+
+test_that("deleting a logger's only row deletes its ports from the real port table", {
+  local_test_root()
+  # z6-38175 is on one row only, t-0011
+  run <- with_inputs(c("t-0011", "Y", "Y"), ui_delete_metadata_row())
+  expect_false("z6-38175" %in% load_zentra_ports_data()$sn)
+  expect_true("z6-13368" %in% load_zentra_ports_data()$sn)
+  expect_false(file.exists(file.path(getwd(), "zentra_ports.csv")))
+})

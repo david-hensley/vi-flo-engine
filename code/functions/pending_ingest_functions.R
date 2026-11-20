@@ -82,17 +82,14 @@ load_pending_ingest <- function() {
 #' @return Invisible TRUE
 write_pending_ingest <- function(pending) {
 
-  pending_file <- file.path(wds("meta_internal"), "pending_ingest.csv")
-
   missing <- setdiff(PENDING_COLUMNS, names(pending))
   if (length(missing) > 0) {
     stop("Pending ingest table is missing columns: ",
          paste(missing, collapse = ", "), call. = FALSE)
   }
 
-  write.csv(pending[, PENDING_COLUMNS, drop = FALSE], pending_file,
-            row.names = FALSE)
-  invisible(TRUE)
+  write_table_or_stop("pending_ingest", pending[, PENDING_COLUMNS, drop = FALSE],
+                      intent = "recording an unfinished offload")
 }
 
 

@@ -258,11 +258,8 @@ write_maintenance_entry <- function(field_visit_date, station_id, station_type,
     stringsAsFactors = FALSE
   )
   
-  # Append to log
-  log_file <- file.path(wds("meta_internal"), "maintenance_log.csv")
-  
-  # By column name, quotes doubled - see append_log_row()
-  append_log_row(new_entry, log_file)
+  # By column name, through the data layer
+  append_rows("maintenance_log", new_entry)
   
   message("✓ Maintenance entry logged for ", station_id, " (", device_serial, ")")
   invisible(TRUE)
@@ -1101,13 +1098,7 @@ initialize_ports <- function(device_serial, port_config) {
       ports <- rbind(ports, new_row)
     }
     
-    # Save
-    ports$valid_from <- format_datetime_safe(ports$valid_from)
-    ports$valid_to <- format_datetime_safe(ports$valid_to)
-    
-    
-    write.csv(ports, file.path(wds("meta_internal"), "zentra_ports.csv"),
-              row.names = FALSE)
+    write_table_or_stop("zentra_ports", ports, intent = "recording a port configuration")
     
     return(TRUE)
   }, error = function(e) {
@@ -1226,13 +1217,7 @@ update_ports <- function(device_serial, port_config, change_datetime) {
       ports <- rbind(ports, do.call(rbind, new_rows_list))
     }
     
-    # Save
-    ports$valid_from <- format_datetime_safe(ports$valid_from)
-    ports$valid_to <- format_datetime_safe(ports$valid_to)
-    
-    
-    write.csv(ports, file.path(wds("meta_internal"), "zentra_ports.csv"),
-              row.names = FALSE)
+    write_table_or_stop("zentra_ports", ports, intent = "recording a port configuration")
     
     return(TRUE)
   }, error = function(e) {
@@ -1715,10 +1700,7 @@ close_device_ports <- function(device_serial, close_datetime) {
 
     ports$valid_to[open_rows] <- as.POSIXct(close_datetime)
 
-    ports$valid_from <- format_datetime_safe(ports$valid_from)
-    ports$valid_to   <- format_datetime_safe(ports$valid_to)
-    write.csv(ports, file.path(wds("meta_internal"), "zentra_ports.csv"),
-              row.names = FALSE)
+    write_table_or_stop("zentra_ports", ports, intent = "closing port windows")
 
     return(length(open_rows))
   }, error = function(e) {
@@ -1755,10 +1737,7 @@ close_specific_ports <- function(port_keys, close_datetime) {
 
     if (n == 0) return(0)
 
-    ports$valid_from <- format_datetime_safe(ports$valid_from)
-    ports$valid_to   <- format_datetime_safe(ports$valid_to)
-    write.csv(ports, file.path(wds("meta_internal"), "zentra_ports.csv"),
-              row.names = FALSE)
+    write_table_or_stop("zentra_ports", ports, intent = "closing port windows")
 
     return(n)
   }, error = function(e) {
@@ -2083,7 +2062,6 @@ record_confirmed_from <- function(station_id) {
 #' @return Invisible TRUE
 set_record_confirmed <- function(station_id, confirmed_from, reason) {
 
-  f <- file.path(wds("meta_internal"), "record_confirmed.csv")
   rc <- load_record_confirmed()
 
   row <- data.frame(station_id = station_id,
@@ -2096,7 +2074,7 @@ set_record_confirmed <- function(station_id, confirmed_from, reason) {
   # The default first, then stations alphabetically
   rc <- rc[order(rc$station_id != "(default)", rc$station_id), , drop = FALSE]
 
-  write.csv(rc, f, row.names = FALSE)
+  write_table_or_stop("record_confirmed", rc, intent = "recording a station's confirmed date")
   invisible(TRUE)
 }
 

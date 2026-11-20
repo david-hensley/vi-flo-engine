@@ -72,8 +72,27 @@ All notable changes to the VI-FLO Engine project are documented here.
   column: a log's columns change only by migration, never by an append. And
   the job no longer reads the device table for each file it logs, only to
   learn the project's time zone
+- **The rest of the writers go through the data layer** - every change to
+  the port table (a new configuration, a port window closed, a retirement
+  closing a logger's ports), `set_record_confirmed()`, and the pending-ingest
+  table. Checked against copies of the live tables, they write the same
+  values as before. Nothing in the engine now opens a metadata table but the
+  layer, and a test holds it there: a table's file name may appear only in
+  `TABLE_SCHEMA`, and only files that handle something other than metadata -
+  the products, the datamap, logger and survey exports - may read or write
+  CSV directly
 
 ### Fixed
+- **Deleting a metadata row could delete the ports of a logger's other
+  rows.** Port rows are kept by serial, so "this device's ports" were every
+  port the logger had ever had - an earlier deployment's, or a second
+  station's on the same ZL6. While the logger has another row, the deletion
+  now leaves its ports alone and says why
+- **Deleting a metadata row's ports never reached the port table.** It was
+  written to whatever folder R was working in, not the metadata folder, and
+  the deletion reported success. It now goes through the data layer. A
+  refused metadata save during a deletion also no longer reports the row as
+  deleted
 - `load_download_log()` returned an extra column, `timestamp`, four hours
   wrong. It parsed a column the log stopped having when it became
   `timestamp_utc`; R's partial matching of `$` quietly handed it
