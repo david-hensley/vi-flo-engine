@@ -265,14 +265,36 @@ table_parse_column <- function(x, type, col, file) {
 #' @return List: text (character, "" for missing) and quote (logical, whether
 #'   this column's values are quoted)
 table_format_column <- function(x, type) {
-  missing <- is.na(x)
+  # A value handed over as text - "41.96", "TRUE", "3/2/2026" - is read as
+  # its type first. One that will not read is an error: written as it
+  # stands, it would land bare in a number column or vanish from a date one
+  given <- !is.na(x) & nzchar(as.character(x))
+  as_type <- switch(type,
+    number   = suppressWarnings(as.numeric(x)),
+    integer  = suppressWarnings(as.numeric(x)),
+    logical  = if (is.logical(x)) x else c("TRUE" = TRUE, "FALSE" = FALSE)[toupper(as.character(x))],
+    date     = if (inherits(x, "Date")) x else parse_date_flexible(as.character(x)),
+    x)
+  if (type %in% c("number", "integer", "logical", "date")) {
+    bad <- given & is.na(as_type)
+    if (type == "integer") bad <- bad | (given & !is.na(as_type) & as_type != round(as_type))
+    if (any(bad)) {
+      stop("Not a ", type, ": ", paste(head(unique(as.character(x[bad])), 5), collapse = ", "),
+           call. = FALSE)
+    }
+    x <- unname(as_type)
+  }
+  missing <- is.na(x) | !given
+  if (type %in% c("datetime_local", "datetime_utc") && inherits(x, "POSIXct")) {
+    missing <- is.na(x)
+  }
   text <- switch(type,
     text           = as.character(x),
     number         = vapply(x, function(v) {
                        if (is.na(v)) "" else format(v, digits = 15, scientific = FALSE, trim = TRUE)
                      }, character(1), USE.NAMES = FALSE),
-    integer        = ifelse(is.na(x), "", format(as.integer(round(as.numeric(x))), scientific = FALSE, trim = TRUE)),
-    logical        = ifelse(as.logical(x), "TRUE", "FALSE"),
+    integer        = ifelse(is.na(x), "", format(as.integer(round(x)), scientific = FALSE, trim = TRUE)),
+    logical        = ifelse(x, "TRUE", "FALSE"),
     date           = format(as.Date(x), "%Y-%m-%d"),
     datetime_local = format(table_as_datetime(x, PROJECT_TZ), "%Y-%m-%d %H:%M:%S", tz = PROJECT_TZ),
     datetime_utc   = format(table_as_datetime(x, "UTC"), "%Y-%m-%d %H:%M:%S", tz = "UTC")
@@ -339,12 +361,21 @@ table_write_lines <- function(lines, path) {
   invisible(TRUE)
 }
 
+# The tables this session has already backed up
+.table_backups <- new.env(parent = emptyenv())
+
 #' Copies a table into metadata/internal/backups before it is replaced
 #'
-#' Every table, logs included. Skipped when the newest backup of the table is
-#' already identical, so repeated saves do not pile up copies.
+#' Every table, logs included. Once per table per R session - the first
+#' write - so what is kept is the table as it stood before the session
+#' touched it: a metadata manager session that saves seven times leaves one
+#' copy, not seven, and each run of the job leaves one. Skipped too when the
+#' newest backup is already identical.
 table_backup <- function(path) {
   if (!file.exists(path)) return(invisible(NA_character_))
+  key <- normalizePath(path, winslash = "/", mustWork = FALSE)
+  if (isTRUE(.table_backups[[key]])) return(invisible(NA_character_))
+  assign(key, TRUE, envir = .table_backups)
   dir <- file.path(dirname(path), "backups")
   dir.create(dir, showWarnings = FALSE, recursive = TRUE)
   base <- tools::file_path_sans_ext(basename(path))

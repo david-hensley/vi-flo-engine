@@ -49,6 +49,19 @@ All notable changes to the VI-FLO Engine project are documented here.
   made underneath a session could slip past the write guard. They no longer
   touch it
 
+- **Every write of the device table goes through the data layer.**
+  `save_device_metadata()`, which its 21 callers already shared, now hands
+  the table to `write_table()`; the replacement workflow's one direct write,
+  clearing an inherited elevation, now goes through it too. Run against a
+  copy of the live table, seven of the workflows that write it - a visit, a
+  download, a HOBO ingest, an approval, a status change, a retirement -
+  leave values identical to what they left before. Two things are new. A
+  value that is not its column's type - text in a number column, a date that
+  will not read - stops the save with nothing written, where before it was
+  written as it stood. And the table is backed up before the first save of
+  each session, which it never was: what is kept is the table as it stood
+  before the session touched it
+
 ### Fixed
 - `load_download_log()` returned an extra column, `timestamp`, four hours
   wrong. It parsed a column the log stopped having when it became

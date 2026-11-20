@@ -2737,19 +2737,10 @@ ui_replace_device <- function() {
     if (length(new_idx) > 0 && !is.na(metadata$elev[new_idx[1]])) {
       metadata$elev[new_idx[1]] <- NA
 
-      metadata$deploy_datetime    <- format_datetime_safe(metadata$deploy_datetime)
-      metadata$last_update        <- format_datetime_safe(metadata$last_update)
-      metadata$last_download_date <- format_datetime_safe(metadata$last_download_date)
-      metadata$last_record_date   <- format_datetime_safe(metadata$last_record_date)
-      metadata$last_visit         <- as.character(metadata$last_visit)
-      if ("expiry_date" %in% names(metadata)) {
-        metadata$expiry_date <- as.character(metadata$expiry_date)
+      if (isTRUE(save_device_metadata(
+            metadata, intent = "clearing the inherited elevation on a replacement"))) {
+        cat("\n✓ Cleared the inherited elevation on the new device\n")
       }
-
-      write.csv(metadata,
-                file.path(wds("meta_internal"), "device_metadata.csv"),
-                row.names = FALSE)
-      cat("\n✓ Cleared the inherited elevation on the new device\n")
     }
 
     if (surveyed == "Y") {

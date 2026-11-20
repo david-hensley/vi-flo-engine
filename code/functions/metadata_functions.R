@@ -1608,71 +1608,33 @@ remove_device <- function(device_serial, removal_datetime) {
 # Reusable UI components for console interaction
 # These handle common patterns like Y/N prompts, menus, etc.
 
-#' Writes device_metadata.csv with every datetime column formatted
+#' Writes device_metadata.csv
 #'
-#' Sixteen copies of this block existed, differing slightly: two omitted
-#' expiry_date, and api_functions.R omitted last_record_date, last_visit and
-#' expiry_date because it predates those columns. Every one was a place a new
-#' column could be forgotten - which is exactly how last_record_date came to be
-#' written as a Unix epoch.
+#' Through write_table() in table_functions.R, which formats every column by
+#' the schema, refuses a write over a file that changed since this session
+#' read it, backs the table up, and writes it through a temporary file.
 #'
-#' Columns are handled by NAME and only if present, so a caller working with a
-#' subset, or a schema that gains a column, needs no change here.
+#' This function once held its own formatting block, after sixteen slightly
+#' different copies of it had been gathered here - each copy a place a new
+#' column could be forgotten, which is how last_record_date came to be written
+#' as a Unix epoch. The schema now holds the one description of each column.
 #'
-#' Takes a path rather than setwd()-ing, so it has no effect on the caller's
-#' working directory.
+#' Callers may hand datetimes as POSIXct or as formatted text, in any column
+#' order; a column the table does not have is refused.
 #'
-#' @param metadata Data.frame. Full device metadata to write
-#' @param path Character. Destination (default: device_metadata.csv in meta_internal)
-#' @return Invisible TRUE
+#' @param metadata Data frame. The full device table
+#' @param path Character. Write here instead - a migration's or a test's
+#'   copy. Skips the guard and the backup
+#' @param intent Character. What the caller was doing, for a refusal
+#' @param guard Logical. Refuse if the file changed since it was read. Off
+#'   only where the caller replaces the file wholesale and says so
+#' @return Invisibly TRUE if written, FALSE if refused
 save_device_metadata <- function(metadata, path = NULL, intent = NULL,
                                  guard = TRUE) {
-
-  if (is.null(path)) {
-    path <- file.path(wds("meta_internal"), "device_metadata.csv")
+  if (!is.null(path)) {
+    return(invisible(write_table("device_metadata", metadata, path = path)))
   }
-
-
-  # Datetimes: format_datetime_safe handles POSIXct, character and all-NA
-  # logical columns alike
-  datetime_cols <- c("deploy_datetime", "last_update",
-                     "last_download_date", "last_record_date")
-  for (col in intersect(datetime_cols, names(metadata))) {
-    metadata[[col]] <- format_datetime_safe(metadata[[col]])
-  }
-
-  # Dates: written as-is, no time component
-  date_cols <- c("last_visit", "expiry_date")
-  for (col in intersect(date_cols, names(metadata))) {
-    metadata[[col]] <- as.character(metadata[[col]])
-  }
-
-  # Refuse to overwrite a file that changed since this session read it.
-  #
-  # Checked HERE rather than on entry, because the comparison in
-  # report_write_conflict() reads the file as text - and until the datetimes
-  # above are formatted, every row would differ from its own stored form and
-  # the report would claim the whole file had changed.
-  #
-  # Skipped only where the caller means to replace the file wholesale - a
-  # migration, a restore - and says so.
-  if (guard && exists("remembered_file_hash") && file.exists(path)) {
-    expected <- remembered_file_hash(path)
-    if (!is.na(expected)) {
-      actual <- unname(tools::md5sum(path))
-      if (!identical(expected, actual)) {
-        report_write_conflict(path, metadata, intent)
-        return(invisible(FALSE))
-      }
-    }
-  }
-
-  write.csv(metadata, path, row.names = FALSE)
-
-  # What this session now holds is what is on disk
-  if (exists("remember_file_hash")) remember_file_hash(path)
-
-  invisible(TRUE)
+  invisible(write_table("device_metadata", metadata, guard = guard, intent = intent))
 }
 
 #' Resolves a device serial to a single metadata row

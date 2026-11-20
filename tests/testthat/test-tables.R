@@ -110,17 +110,49 @@ test_that("a write is refused if the file changed since it was read", {
   expect_identical(unname(tools::md5sum(p)), changed)            # nothing written
 })
 
-test_that("every table is backed up before it is replaced - logs too", {
+test_that("every table is backed up before it is replaced - logs too - once a session", {
   local_test_root()
+  rm(list = ls(.table_backups), envir = .table_backups)     # a fresh session
+  dir <- file.path(wds("meta_internal"), "backups")
+  original <- unname(tools::md5sum(table_path("download_log")))
+
   write_table("download_log", read_table("download_log"))
-  backups <- list.files(file.path(wds("meta_internal"), "backups"), pattern = "^download_log_")
+  backups <- list.files(dir, pattern = "^download_log_", full.names = TRUE)
   expect_length(backups, 1)
-  # Unchanged since that backup: no second copy
+  expect_identical(unname(tools::md5sum(backups)), original)  # the table as it was
+
+  # Later writes in the same session add nothing: the copy from before the
+  # session touched the table is the one worth keeping
+  x <- read_table("download_log")
+  x$n_records[1] <- x$n_records[1] + 1L
+  write_table("download_log", x)
+  expect_length(list.files(dir, pattern = "^download_log_"), 1)
+
+  # A new session backs up again - but not if nothing changed since the last copy
+  rm(list = ls(.table_backups), envir = .table_backups)
   write_table("download_log", read_table("download_log"))
-  first <- list.files(file.path(wds("meta_internal"), "backups"), pattern = "^download_log_")
-  expect_length(first, 2)    # the normalized file differs from the original once
+  expect_length(list.files(dir, pattern = "^download_log_"), 2)
+  rm(list = ls(.table_backups), envir = .table_backups)
   write_table("download_log", read_table("download_log"))
-  expect_length(list.files(file.path(wds("meta_internal"), "backups"), pattern = "^download_log_"), 2)
+  expect_length(list.files(dir, pattern = "^download_log_"), 2)
+})
+
+test_that("save_device_metadata writes through the layer, from POSIXct or text alike", {
+  local_test_root()
+  x <- load_zentra_metadata()
+  x$deploy_datetime <- format_datetime_safe(x$deploy_datetime)    # as some callers do
+  x$last_visit <- as.character(x$last_visit)
+  x$elev[1] <- "41.96"                                           # a number typed as text
+  expect_true(save_device_metadata(x))
+  y <- load_zentra_metadata()
+  expect_equal(y$elev[1], 41.96)
+  expect_s3_class(y$deploy_datetime, "POSIXct")
+  expect_true(table_round_trip("device_metadata")$bytes_identical)
+
+  x <- load_zentra_metadata()
+  x$elev[1] <- "high"
+  expect_error(save_device_metadata(x), "Not a number")
+  expect_error(save_device_metadata(cbind(x, scratch = 1)), "Not a column")
 })
 
 test_that("a write leaves no temporary file behind", {
