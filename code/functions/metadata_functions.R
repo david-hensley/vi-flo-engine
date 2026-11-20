@@ -65,35 +65,22 @@ load_maintenance_log <- function() {
 #' @return Invisible TRUE on success
 #' Appends one row to a log, by column name
 #'
-#' A log row written by position lands in the wrong columns the moment the
-#' row and the file disagree about what columns there are. The HOBO ingest's
-#' row lacked run_id and device_serial, added to download_log.csv after it was
-#' written, so every value after the station slid two columns left and the
-#' October 2026 offloads were never seen as logged. This puts each value under
-#' its own column, fills any column the row does not have with NA, and refuses
-#' a column the file does not have rather than dropping it silently.
+#' Through append_rows() in table_functions.R: each value under its own
+#' column, a column the row lacks left empty, a column the table lacks
+#' refused, and nothing appended to a file whose header is not the schema's.
+#' A log row written by position once landed two columns early - the HOBO
+#' ingest's row lacked run_id and device_serial, added after it was written -
+#' and the October 2026 offloads were never seen as logged.
 #'
 #' @param entry One-row data frame
-#' @param log_file Character
-#' @return Invisibly TRUE; an error naming any column the file lacks
+#' @param log_file Character. A table's file - which table is told by its name
+#' @return Invisibly TRUE; an error naming any column the table lacks
 append_log_row <- function(entry, log_file) {
-  if (!file.exists(log_file)) {
-    utils::write.csv(entry, log_file, row.names = FALSE)
-    return(invisible(TRUE))
+  name <- names(TABLE_SCHEMA)[vapply(TABLE_SCHEMA, function(s) s$file, "") == basename(log_file)]
+  if (length(name) != 1) {
+    stop(basename(log_file), " is not a table the data layer knows", call. = FALSE)
   }
-  header <- names(utils::read.csv(log_file, nrows = 1, check.names = FALSE,
-                                  stringsAsFactors = FALSE))
-  extra <- setdiff(names(entry), header)
-  if (length(extra) > 0) {
-    stop("Not a column of ", basename(log_file), ": ", paste(extra, collapse = ", "),
-         call. = FALSE)
-  }
-  for (col in setdiff(header, names(entry))) entry[[col]] <- NA
-  entry <- entry[, header, drop = FALSE]
-  # qmethod = "double": a quote in a value is doubled, as CSV requires
-  utils::write.table(entry, log_file, sep = ",", append = TRUE, row.names = FALSE,
-                     col.names = FALSE, qmethod = "double")
-  invisible(TRUE)
+  append_rows(name, entry, path = log_file)
 }
 
 backup_metadata <- function() {
@@ -654,19 +641,10 @@ delete_last_maintenance_entry <- function(device_serial) {
     # Remove that row
     maint_log <- maint_log[-last_entry_index, ]
     
-    # Save    
-    # Format datetime columns before saving
-    if ("field_visit_date" %in% names(maint_log)) {
-      maint_log$field_visit_date <- as.character(maint_log$field_visit_date)
+    if (!isTRUE(write_table("maintenance_log", maint_log,
+                            intent = "deleting the last maintenance entry"))) {
+      return("Not deleted - the maintenance log changed since it was read")
     }
-    if ("timestamp" %in% names(maint_log)) {
-      maint_log$timestamp <- format_datetime_safe(maint_log$timestamp)
-    }
-    
-    
-    write.csv(maint_log, file.path(wds("meta_internal"), "maintenance_log.csv"),
-              row.names = FALSE)
-    
     return(TRUE)
   }, error = function(e) {
     return(paste0("Failed to delete entry: ", e$message))

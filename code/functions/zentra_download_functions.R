@@ -341,8 +341,6 @@ zentra_download <- function(devices = NULL, end = NULL, max_active = 4L,
 zentra_log_download <- function(device_sn, first, last, n, fname, fetched_at,
                                 run_id = NA_character_) {
 
-  log_file <- file.path(wds("meta_internal"), "download_log.csv")
-
   rel <- sub(paste0("^", gsub("\\\\", "/", Sys.getenv("VI_FLO_DATA_ROOT")), "/?"),
              "", gsub("\\\\", "/", file.path(wds("device_zentra"), fname)))
 
@@ -350,11 +348,7 @@ zentra_log_download <- function(device_sn, first, last, n, fname, fetched_at,
   # timezone, so start and end are project-local and match what the HOBO path
   # writes. A run timestamp belongs to a moment and could be triggered from
   # anywhere, so it is UTC - and the column is named for it.
-  project_tz <- tryCatch({
-    m <- load_zentra_metadata()
-    tz <- m$timezone[!is.na(m$timezone)][1]
-    if (is.na(tz) || !nzchar(tz)) "America/Puerto_Rico" else tz
-  }, error = function(e) "America/Puerto_Rico")
+  project_tz <- PROJECT_TZ
 
   entry <- data.frame(
     timestamp_utc = format(fetched_at, "%Y-%m-%d %H:%M:%S", tz = "UTC"),
@@ -369,30 +363,10 @@ zentra_log_download <- function(device_sn, first, last, n, fname, fetched_at,
     stringsAsFactors = FALSE
   )
 
-  if (!file.exists(log_file)) {
-    write.csv(entry, log_file, row.names = FALSE)
-    return(invisible(TRUE))
-  }
-
-  existing <- read.csv(log_file, stringsAsFactors = FALSE)
-  new_cols <- setdiff(names(entry), names(existing))
-
-  # As in zentra_log_run(): a column the file lacks means the schema grew, and
-  # an append cannot carry it. Rewriting is the only way the value survives.
-  if (length(new_cols) > 0) {
-    for (col in new_cols) existing[[col]] <- NA
-    for (col in setdiff(names(existing), names(entry))) entry[[col]] <- NA
-    entry <- entry[, names(existing), drop = FALSE]
-    write.csv(rbind(existing, entry), log_file, row.names = FALSE)
-    return(invisible(TRUE))
-  }
-
-  for (col in setdiff(names(existing), names(entry))) entry[[col]] <- NA
-  entry <- entry[, names(existing), drop = FALSE]
-  write.table(entry, log_file, sep = ",", append = TRUE,
-              row.names = FALSE, col.names = FALSE, qmethod = "double")
-
-  invisible(TRUE)
+  # By column name, through the data layer. A file whose columns are not the
+  # schema's is refused rather than reshaped: the schema changes only by a
+  # migration, never by an append
+  append_rows("download_log", entry)
 }
 
 
@@ -415,7 +389,6 @@ zentra_log_download <- function(device_sn, first, last, n, fname, fetched_at,
 zentra_log_run <- function(run_id, started, finished, seen, fetched, current,
                            errored, rows, status, message = "") {
 
-  log_file <- file.path(wds("meta_internal"), "run_log.csv")
 
   entry <- data.frame(
     run_id             = run_id,
@@ -436,32 +409,8 @@ zentra_log_run <- function(run_id, started, finished, seen, fetched, current,
     stringsAsFactors   = FALSE
   )
 
-  if (!file.exists(log_file)) {
-    write.csv(entry, log_file, row.names = FALSE)
-    return(invisible(TRUE))
-  }
-
-  existing <- read.csv(log_file, stringsAsFactors = FALSE)
-
-  # A column the entry has and the file does not means the schema grew. A
-  # plain append cannot carry it - the row would be reshaped to the old header
-  # and the new value dropped, silently, every run. So the file is rewritten
-  # wide enough to hold it, with the older rows blank in that column.
-  new_cols <- setdiff(names(entry), names(existing))
-
-  if (length(new_cols) > 0) {
-    for (col in new_cols) existing[[col]] <- NA
-    for (col in setdiff(names(existing), names(entry))) entry[[col]] <- NA
-    entry <- entry[, names(existing), drop = FALSE]
-    write.csv(rbind(existing, entry), log_file, row.names = FALSE)
-    return(invisible(TRUE))
-  }
-
-  # Same shape - append, which is cheaper and leaves the existing rows alone
-  for (col in setdiff(names(existing), names(entry))) entry[[col]] <- NA
-  entry <- entry[, names(existing), drop = FALSE]
-  write.table(entry, log_file, sep = ",", append = TRUE,
-              row.names = FALSE, col.names = FALSE, qmethod = "double")
+  # By column name, through the data layer - see zentra_log_download()
+  append_rows("run_log", entry)
 
   invisible(TRUE)
 }

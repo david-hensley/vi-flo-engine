@@ -336,7 +336,8 @@ table_conform <- function(name, data) {
   cols <- names(table_schema(name)$columns)
   extra <- setdiff(names(data), cols)
   if (length(extra) > 0) {
-    stop("Not a column of ", name, ": ", paste(extra, collapse = ", "), call. = FALSE)
+    stop("Not a column of ", table_schema(name)$file, ": ", paste(extra, collapse = ", "),
+         call. = FALSE)
   }
   missing <- setdiff(cols, names(data))
   if (length(missing) > 0) {
@@ -452,11 +453,25 @@ append_rows <- function(name, rows, path = NULL) {
   cols <- names(table_schema(name)$columns)
   extra <- setdiff(names(rows), cols)
   if (length(extra) > 0) {
-    stop("Not a column of ", name, ": ", paste(extra, collapse = ", "), call. = FALSE)
+    stop("Not a column of ", table_schema(name)$file, ": ", paste(extra, collapse = ", "),
+         call. = FALSE)
   }
   for (col in setdiff(cols, names(rows))) rows[[col]] <- rep(NA, nrow(rows))
   rows <- rows[, cols, drop = FALSE]
   if (is.null(path)) path <- table_path(name)
+
+  # Rows shaped by the schema can only go onto a file shaped by it. Appended
+  # to anything else, every value would sit under the wrong column - the
+  # failure that hid the October 2026 HOBO offloads
+  if (file.exists(path) && file.size(path) > 0) {
+    header <- names(utils::read.csv(path, nrows = 0, check.names = FALSE))
+    if (!identical(header, cols)) {
+      stop(basename(path), " does not have the columns its schema expects, ",
+           "so nothing was appended.\n",
+           "  In the file:  ", paste(header, collapse = ", "), "\n",
+           "  Expected:     ", paste(cols, collapse = ", "), call. = FALSE)
+    }
+  }
 
   if (!file.exists(path)) {
     table_write_lines(table_lines(name, rows), path)

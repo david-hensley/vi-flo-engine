@@ -35,7 +35,8 @@ test_that("append_log_row puts each value under its column, whatever its order",
                       device_serial = "90000001", timestamp_utc = "2026-11-03 12:00:00",
                       stringsAsFactors = FALSE)
   append_log_row(entry, dl_path())
-  raw <- utils::read.csv(dl_path(), stringsAsFactors = FALSE, colClasses = "character")
+  raw <- utils::read.csv(dl_path(), stringsAsFactors = FALSE, colClasses = "character",
+                         na.strings = c("", "NA"))          # missing is written empty
   last <- raw[nrow(raw), ]
   expect_equal(last$device_serial, "90000001")
   expect_equal(last$filepath, "internal/x.rds")
@@ -60,4 +61,35 @@ test_that("a quote in a maintenance note is doubled, and the row keeps its colum
   log <- read_log()
   expect_equal(log$details[nrow(log)], note)
   expect_equal(as.character(log$device_serial[nrow(log)]), "90000002")
+})
+
+test_that("nothing is appended to a log whose columns are not the schema's", {
+  local_test_root()
+  p <- dl_path()
+  lines <- readLines(p)
+  lines[1] <- sub('"station",', "", lines[1])               # a log one column short
+  writeLines(lines, p)
+  before <- readLines(p)
+  expect_error(append_log_row(data.frame(filepath = "x_raw.rds"), p),
+               "does not have the columns its schema expects")
+  expect_identical(readLines(p), before)
+})
+
+test_that("the job's download and run rows go through the data layer", {
+  local_test_root()
+  at <- as.POSIXct("2026-11-20 17:00:00", tz = "UTC")
+  zentra_log_download("z6-1", as.POSIXct("2026-11-13 10:30:00", tz = "America/Puerto_Rico"),
+                      as.POSIXct("2026-11-20 09:15:00", tz = "America/Puerto_Rico"),
+                      100000, "z6-1_20261113_20261120_20261120T170000_raw.rds", at, "r1")
+  last <- tail(load_download_log(), 1)
+  expect_equal(last$timestamp_utc, "2026-11-20 17:00:00")
+  expect_equal(format(last$end_date, "%Y-%m-%d %H:%M"), "2026-11-20 09:15")
+  expect_equal(last$n_records, 100000L)
+  expect_false(grepl("e+05", tail(readLines(dl_path()), 1), fixed = TRUE))
+
+  zentra_log_run("r1", at, at + 30, 3, 2, 1, 0, 100, "ok")
+  run <- read_table("run_log")
+  expect_equal(run$run_id, "r1")
+  expect_equal(run$devices_seen, 3L)
+  expect_true(is.na(run$message))
 })

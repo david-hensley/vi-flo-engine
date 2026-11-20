@@ -61,6 +61,17 @@ All notable changes to the VI-FLO Engine project are documented here.
   written as it stood. And the table is backed up before the first save of
   each session, which it never was: what is kept is the table as it stood
   before the session touched it
+- **Every log row goes through the data layer** - the job's download and run
+  rows, the HOBO ingest's download row and every maintenance entry, through
+  `append_rows()`; deleting the last maintenance entry, through
+  `write_table()`. Checked against a copy of the live logs, they record the
+  same values as before. A row is now refused, with nothing appended, when
+  the log's own header is not its schema's - appended anyway, every value
+  would sit under the wrong column, as the October 2026 HOBO rows did. The
+  job's two loggers also lose the code that widened a log to fit a new
+  column: a log's columns change only by migration, never by an append. And
+  the job no longer reads the device table for each file it logs, only to
+  learn the project's time zone
 
 ### Fixed
 - `load_download_log()` returned an extra column, `timestamp`, four hours
