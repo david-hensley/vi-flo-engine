@@ -3,6 +3,37 @@ All notable changes to the VI-FLO Engine project are documented here.
 
 ---
 
+## [Unreleased]
+
+### Added
+- **A data layer: one way into and out of the metadata tables.** Until now
+  each function that needed a table read and wrote it itself, choosing its own
+  folder, date format, quoting and missing-value marker - and when one chose
+  wrong, only that path broke, usually silently: a port deletion written to
+  the working directory, a log row appended by position into the wrong
+  columns. `table_functions.R` describes every table once, in `TABLE_SCHEMA` -
+  its columns in order, their types, its key and who writes it - and three
+  functions do the rest: `read_table()`, `write_table()` and `append_rows()`.
+  A table is always written the one way: text quoted, a missing value as an
+  empty cell rather than `NA`, numbers never in scientific notation, Unix line
+  endings. A write is refused if the file changed since it was read, backs up
+  the table first - logs included, which `backup_metadata()` skips - and lands
+  through a temporary file, so a crash cannot leave half a table. A value that
+  will not read as its column's type is an error naming the row, never a
+  silent `NA`. Nothing uses the layer yet: this adds it, with its tests, ahead
+  of moving each reader and writer onto it
+- `table_round_trip()` and `check_all_tables()`: every table read and written
+  back to a temporary file, its values compared by meaning and its bytes
+  compared too. The first write of a table through the layer normalizes its
+  formatting once - the existing files mix `NA` with empty cells, quoted with
+  unquoted rows, and Unix with Windows line endings - and after that the
+  bytes hold exactly
+- `tools/migrations/check_layer_v2.9.R`: a record of every metadata table and
+  every Product 2 file taken before the layer, and a comparison once it is in,
+  to show the move changed nothing it should not have
+
+---
+
 ## [v2.8.1] - 2026-11-19
 
 ### Changed

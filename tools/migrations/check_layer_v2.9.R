@@ -29,7 +29,9 @@
 #      reading) is told apart from the layer reformatting something
 #   2. Each table read and written back through the layer, to a temporary
 #      file, against the file on disk. This is the real test of the layer on
-#      real data, and it must be byte-identical
+#      real data. Every value must survive. The bytes may differ once, on a
+#      table not yet written through the layer, whose old formatting is
+#      normalized on its first write
 #   3. Each Product 2 file whose inputs are unchanged since "before" - the
 #      same Product 1 files, the same metadata and port fingerprints - against
 #      its fingerprint. Its content and its manifest row must match exactly.
@@ -206,11 +208,18 @@ layer_check_after <- function() {
   for (t in names(b$tables)) {
     name <- sub("\\.csv$", "", t)
     res <- tryCatch(table_round_trip(name), error = function(e) conditionMessage(e))
-    if (isTRUE(res)) {
+    if (is.character(res)) {
+      cat("   ✗ ", t, ": ", res, "\n", sep = ""); ok <- FALSE
+    } else if (!res$values_identical) {
+      cat("   ✗ ", t, ": values changed\n", sep = "")
+      for (d in res$differences) cat("       ", d, "\n", sep = "")
+      ok <- FALSE
+    } else if (res$bytes_identical) {
       cat("   ✓ ", t, ": byte-identical\n", sep = "")
     } else {
-      cat("   ✗ ", t, ": ", if (is.character(res)) res else "differs", "\n", sep = "")
-      ok <- FALSE
+      # A table not yet written through the layer: its old formatting is
+      # normalized on its first write. Every value is the same
+      cat("   ✓ ", t, ": values identical, formatting not yet normalized\n", sep = "")
     }
   }
   cat("\n")

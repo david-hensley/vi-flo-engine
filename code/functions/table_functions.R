@@ -1,0 +1,499 @@
+################################################################################
+#                           TABLE FUNCTIONS                                    #
+#                                                                              #
+# The one way into and out of the metadata tables.                             #
+#                                                                              #
+# Every table in metadata/internal is described once, below, in TABLE_SCHEMA:  #
+# its columns in order, each column's type, its key, and who writes it. Three  #
+# functions read the schema and do everything else:                            #
+#                                                                              #
+#   read_table(name)          the table, its columns typed                     #
+#   write_table(name, data)   the whole table, replaced                        #
+#   append_rows(name, rows)   rows added to the end of a log                   #
+#                                                                              #
+# Nothing else should open a metadata file. Before this layer, each function   #
+# that needed a table read and wrote it itself, choosing its own folder, date  #
+# format, quoting and missing-value marker. Most choices were right; each was  #
+# a separate chance to be wrong, and when one was, only that path broke,       #
+# usually silently - a port deletion written to the working directory, a log  #
+# row appended by position into the wrong columns.                             #
+#                                                                              #
+# How a table is written, always:                                              #
+#                                                                              #
+#   - columns in schema order, and only the schema's columns                   #
+#   - text quoted, with a quote inside a value doubled; numbers and TRUE/FALSE #
+#     bare                                                                     #
+#   - a missing value written as nothing at all - an empty cell. Unknown is    #
+#     blank, never "NA"                                                        #
+#   - local datetimes as YYYY-MM-DD HH:MM:SS in the project time zone; UTC     #
+#     datetimes the same, in UTC; dates as YYYY-MM-DD                          #
+#   - numbers in full, never in scientific notation                            #
+#   - Unix line endings, so every machine writes identical bytes               #
+#                                                                              #
+# This schema describes the tables as they are at v2.8.1. v2.9 changes it in   #
+# one migration, described in data/DATA_DICTIONARY.md.                        #
+#                                                                              #
+# Requires: wds() from setup_functions.R; remember_file_hash(),                #
+#           remembered_file_hash() and report_write_conflict() from            #
+#           guard_functions.R; parse_datetime_flexible() and                   #
+#           parse_date_flexible() from setup_functions.R                       #
+################################################################################
+
+
+#### The schema ####
+
+PROJECT_TZ <- "America/Puerto_Rico"
+
+# Column types:
+#
+#   text            character, quoted
+#   number          numeric, bare
+#   logical         TRUE/FALSE, bare
+#   date            a calendar date, YYYY-MM-DD
+#   datetime_local  a field time, in the project time zone
+#   datetime_utc    when something was written, in UTC
+#
+# writer: "person" (through the metadata manager), "machine" (the job, an
+# ingest), or "both" - which v2.9 ends.
+TABLE_SCHEMA <- list(
+
+  device_metadata = list(
+    file = "device_metadata.csv", key = "unique_id", writer = "both",
+    columns = c(
+      unique_id = "text", watershed = "text", area = "text", site_full = "text",
+      site = "text", station_type = "text", station_id = "text",
+      device_serial = "text", device_role = "text", device_name = "text",
+      mfger = "text", model = "text", lat = "number", lon = "number",
+      elev = "number", elev_source = "text", sensor_height_cm = "number",
+      reach_length_m = "number", interval_min = "number", timezone = "text",
+      deploy_datetime = "datetime_local", status = "text",
+      last_update = "datetime_local", battery = "number", last_visit = "date",
+      expiry_date = "date", last_download_date = "datetime_local",
+      last_record_date = "datetime_local", metadata_approved = "logical",
+      last_reviewed_utc = "datetime_utc"
+    )
+  ),
+
+  zentra_ports = list(
+    file = "zentra_ports.csv", key = NULL, writer = "person",
+    columns = c(
+      sn = "text", port = "number", type = "text", sensor = "text",
+      depth_cm = "number", status = "text",
+      valid_from = "datetime_local", valid_to = "datetime_local"
+    )
+  ),
+
+  maintenance_log = list(
+    file = "maintenance_log.csv", key = NULL, writer = "person",
+    columns = c(
+      timestamp = "datetime_local", field_visit_date = "date",
+      station_id = "text", station_type = "text", device_serial = "text",
+      action_type = "text", details = "text", ports_updated = "logical",
+      logged_by = "text"
+    )
+  ),
+
+  download_log = list(
+    file = "download_log.csv", key = "filepath", writer = "machine",
+    columns = c(
+      timestamp_utc = "datetime_utc", run_id = "text", station = "text",
+      device_serial = "text", start_date = "datetime_local",
+      end_date = "datetime_local", n_records = "number", filepath = "text",
+      download_type = "text"
+    )
+  ),
+
+  run_log = list(
+    file = "run_log.csv", key = "run_id", writer = "machine",
+    columns = c(
+      run_id = "text", started_utc = "datetime_utc", finished_utc = "datetime_utc",
+      job = "text", devices_seen = "number", devices_fetched = "number",
+      devices_up_to_date = "number", devices_errored = "number",
+      rows_fetched = "number", status = "text", message = "text",
+      machine = "text"
+    )
+  ),
+
+  known_unattributed = list(
+    file = "known_unattributed.csv", key = NULL, writer = "person",
+    columns = c(
+      device_serial = "text", device_name = "text", port = "number",
+      from = "datetime_local", to = "datetime_local", reason = "text"
+    )
+  ),
+
+  record_confirmed = list(
+    file = "record_confirmed.csv", key = "station_id", writer = "person",
+    columns = c(station_id = "text", confirmed_from = "date", reason = "text")
+  ),
+
+  pending_ingest = list(
+    file = "pending_ingest.csv", key = NULL, writer = "person",
+    columns = c(
+      created = "datetime_local", updated = "datetime_local",
+      station_id = "text", device_serial = "text", field_visit_date = "date",
+      logged_by = "text", stage = "text", notes = "text"
+    )
+  )
+)
+
+#' One table's schema, or an error naming the tables there are
+table_schema <- function(name) {
+  s <- TABLE_SCHEMA[[name]]
+  if (is.null(s)) {
+    stop("No table called '", name, "'. The tables are: ",
+         paste(names(TABLE_SCHEMA), collapse = ", "), call. = FALSE)
+  }
+  s
+}
+
+#' Where a table lives
+table_path <- function(name) {
+  file.path(wds("meta_internal"), table_schema(name)$file)
+}
+
+
+#### Reading ####
+
+#' Reads a table, its columns typed by the schema
+#'
+#' The header must match the schema exactly - same columns, same order. A
+#' value that cannot be read as its column's type is an error naming the row
+#' and the value, never a silent NA: a value lost on reading would be lost
+#' again on the next write.
+#'
+#' "NA" and an empty cell both read as missing.
+#'
+#' @param name Character. A table in TABLE_SCHEMA
+#' @param path Character. Read from here instead - for tests and checks
+#' @param remember Logical. Record what was read, so a later write_table()
+#'   can refuse if the file changes in between
+#' @return Data frame. An empty one, with the schema's columns, if the file
+#'   does not exist
+read_table <- function(name, path = NULL, remember = TRUE) {
+  s <- table_schema(name)
+  if (is.null(path)) path <- table_path(name)
+  cols <- s$columns
+
+  if (!file.exists(path)) return(table_empty(name))
+
+  raw <- utils::read.csv(path, colClasses = "character", na.strings = c("", "NA"),
+                         check.names = FALSE, encoding = "UTF-8",
+                         stringsAsFactors = FALSE)
+  if (!identical(names(raw), names(cols))) {
+    stop(basename(path), " does not have the columns its schema expects.\n",
+         "  In the file:  ", paste(names(raw), collapse = ", "), "\n",
+         "  Expected:     ", paste(names(cols), collapse = ", "), call. = FALSE)
+  }
+  if (remember && exists("remember_file_hash")) remember_file_hash(path)
+
+  out <- raw
+  for (col in names(cols)) {
+    out[[col]] <- table_parse_column(raw[[col]], cols[[col]], col, basename(path))
+  }
+  out
+}
+
+#' An empty table with the schema's columns, typed
+table_empty <- function(name) {
+  cols <- table_schema(name)$columns
+  out <- as.data.frame(lapply(cols, function(type) {
+    table_parse_column(character(0), type, "", "")
+  }), stringsAsFactors = FALSE, check.names = FALSE)
+  names(out) <- names(cols)
+  out
+}
+
+#' Turns one column of text into its schema type, or says what will not
+table_parse_column <- function(x, type, col, file) {
+  present <- !is.na(x)
+  parsed <- switch(type,
+    text           = x,
+    number         = suppressWarnings(as.numeric(x)),
+    logical        = c("TRUE" = TRUE, "FALSE" = FALSE)[toupper(x)],
+    date           = parse_date_flexible(x),
+    datetime_local = parse_datetime_flexible(x, PROJECT_TZ),
+    datetime_utc   = parse_datetime_flexible(x, "UTC"),
+    stop("Unknown column type '", type, "' for ", col, call. = FALSE)
+  )
+  if (type == "logical") parsed <- unname(parsed)
+  if (type == "date") parsed <- as.Date(parsed)
+
+  bad <- present & is.na(parsed)
+  if (any(bad)) {
+    rows <- which(bad)
+    shown <- paste0("row ", rows + 1, ": \"", x[rows], "\"")
+    stop(file, ": `", col, "` holds value(s) that are not a ", type, "\n  ",
+         paste(head(shown, 10), collapse = "\n  "),
+         if (length(rows) > 10) paste0("\n  ... and ", length(rows) - 10, " more"),
+         call. = FALSE)
+  }
+  parsed
+}
+
+
+#### Writing ####
+
+#' Turns one column into the text written to the file
+#'
+#' @return List: text (character, "" for missing) and quote (logical, whether
+#'   this column's values are quoted)
+table_format_column <- function(x, type) {
+  missing <- is.na(x)
+  text <- switch(type,
+    text           = as.character(x),
+    number         = vapply(x, function(v) {
+                       if (is.na(v)) "" else format(v, digits = 15, scientific = FALSE, trim = TRUE)
+                     }, character(1), USE.NAMES = FALSE),
+    logical        = ifelse(as.logical(x), "TRUE", "FALSE"),
+    date           = format(as.Date(x), "%Y-%m-%d"),
+    datetime_local = format(table_as_datetime(x, PROJECT_TZ), "%Y-%m-%d %H:%M:%S", tz = PROJECT_TZ),
+    datetime_utc   = format(table_as_datetime(x, "UTC"), "%Y-%m-%d %H:%M:%S", tz = "UTC")
+  )
+  text[missing] <- ""
+  list(text = text, quote = !type %in% c("number", "logical"))
+}
+
+#' A datetime column as POSIXct, whatever it arrived as
+#'
+#' Callers hand over POSIXct, or text they formatted themselves. Text is
+#' parsed in the column's own zone; anything that will not parse is an error,
+#' never an empty cell.
+table_as_datetime <- function(x, tz) {
+  if (inherits(x, "POSIXct")) return(x)
+  parsed <- parse_datetime_flexible(x, tz)
+  bad <- !is.na(x) & nzchar(as.character(x)) & is.na(parsed)
+  if (any(bad)) {
+    stop("Not a datetime: ", paste(head(unique(as.character(x[bad])), 5), collapse = ", "),
+         call. = FALSE)
+  }
+  parsed
+}
+
+#' A table as the lines of its file
+table_lines <- function(name, data, header = TRUE) {
+  cols <- table_schema(name)$columns
+  quote <- function(v) paste0("\"", gsub("\"", "\"\"", v, fixed = TRUE), "\"")
+  fields <- lapply(names(cols), function(col) {
+    f <- table_format_column(data[[col]], cols[[col]])
+    ifelse(f$text == "", "", if (f$quote) quote(f$text) else f$text)
+  })
+  body <- if (nrow(data) == 0) character(0) else do.call(paste, c(fields, sep = ","))
+  if (header) c(paste(quote(names(cols)), collapse = ","), body) else body
+}
+
+#' The columns a write must have: the schema's, in order, and no others
+table_conform <- function(name, data) {
+  cols <- names(table_schema(name)$columns)
+  extra <- setdiff(names(data), cols)
+  if (length(extra) > 0) {
+    stop("Not a column of ", name, ": ", paste(extra, collapse = ", "), call. = FALSE)
+  }
+  missing <- setdiff(cols, names(data))
+  if (length(missing) > 0) {
+    stop(name, " is missing column(s): ", paste(missing, collapse = ", "), call. = FALSE)
+  }
+  data[, cols, drop = FALSE]
+}
+
+#' Writes lines to a file: UTF-8, Unix line endings, through a temporary file
+#'
+#' Written beside the target and then moved into place, so a crash halfway
+#' leaves the old file whole rather than a new one half-written.
+table_write_lines <- function(lines, path) {
+  tmp <- paste0(path, ".partial")
+  con <- file(tmp, open = "wb")
+  writeBin(charToRaw(enc2utf8(paste0(paste(lines, collapse = "\n"), "\n"))), con)
+  close(con)
+  if (!file.rename(tmp, path)) {
+    file.remove(path)
+    if (!file.rename(tmp, path)) stop("Could not move ", tmp, " into place", call. = FALSE)
+  }
+  invisible(TRUE)
+}
+
+#' Copies a table into metadata/internal/backups before it is replaced
+#'
+#' Every table, logs included. Skipped when the newest backup of the table is
+#' already identical, so repeated saves do not pile up copies.
+table_backup <- function(path) {
+  if (!file.exists(path)) return(invisible(NA_character_))
+  dir <- file.path(dirname(path), "backups")
+  dir.create(dir, showWarnings = FALSE, recursive = TRUE)
+  base <- tools::file_path_sans_ext(basename(path))
+  existing <- list.files(dir, pattern = paste0("^", base, "_[0-9]{8}_[0-9]{6}(_[0-9]+)?\\.csv$"),
+                         full.names = TRUE)
+  if (length(existing) > 0) {
+    newest <- existing[order(file.info(existing)$mtime, existing)][length(existing)]
+    if (identical(unname(tools::md5sum(newest)), unname(tools::md5sum(path)))) {
+      return(invisible(newest))
+    }
+  }
+  # Two writes in one second must not share a backup name, or the second
+  # copy would silently fail to land
+  stamp <- format(Sys.time(), "%Y%m%d_%H%M%S", tz = PROJECT_TZ)
+  dest <- file.path(dir, paste0(base, "_", stamp, ".csv"))
+  k <- 1
+  while (file.exists(dest)) {
+    k <- k + 1
+    dest <- file.path(dir, paste0(base, "_", stamp, "_", k, ".csv"))
+  }
+  if (!file.copy(path, dest)) stop("Could not back up ", basename(path), call. = FALSE)
+  invisible(dest)
+}
+
+#' Replaces a whole table
+#'
+#' In order: the columns are checked against the schema; every value is
+#' formatted the one way; the write is refused if the file changed since this
+#' session read it; the current file is backed up; and the new one is written
+#' beside it and moved into place.
+#'
+#' @param name Character. A table in TABLE_SCHEMA
+#' @param data Data frame with exactly the schema's columns, in any order
+#' @param path Character. Write here instead - for tests and checks. Skips
+#'   the guard and the backup
+#' @param guard Logical. Refuse if the file changed since it was read. Off
+#'   only where the caller means to replace the file wholesale and says so -
+#'   a migration, a restore
+#' @param intent Character. What the caller was doing, for the refusal
+#' @return Invisibly TRUE if written, FALSE if refused
+write_table <- function(name, data, path = NULL, guard = TRUE, intent = NULL) {
+  data <- table_conform(name, data)
+  lines <- table_lines(name, data)       # formatting errors stop us here, before anything is touched
+
+  if (!is.null(path)) return(table_write_lines(lines, path))
+  path <- table_path(name)
+
+  if (guard && file.exists(path) && exists("remembered_file_hash")) {
+    expected <- remembered_file_hash(path)
+    if (!is.na(expected) && !identical(expected, unname(tools::md5sum(path)))) {
+      report_write_conflict(path, data, intent)
+      return(invisible(FALSE))
+    }
+  }
+
+  table_backup(path)
+  table_write_lines(lines, path)
+  if (exists("remember_file_hash")) remember_file_hash(path)
+  invisible(TRUE)
+}
+
+#' Adds rows to the end of a table
+#'
+#' For the logs, which only ever grow. Each value goes under its own column by
+#' name; a column the rows do not have is left empty, and a column the table
+#' does not have is refused rather than dropped. Not backed up - an append
+#' changes nothing already there.
+#'
+#' @param name Character. A table in TABLE_SCHEMA
+#' @param rows Data frame
+#' @param path Character. Append here instead - for tests
+#' @return Invisibly TRUE
+append_rows <- function(name, rows, path = NULL) {
+  cols <- names(table_schema(name)$columns)
+  extra <- setdiff(names(rows), cols)
+  if (length(extra) > 0) {
+    stop("Not a column of ", name, ": ", paste(extra, collapse = ", "), call. = FALSE)
+  }
+  for (col in setdiff(cols, names(rows))) rows[[col]] <- rep(NA, nrow(rows))
+  rows <- rows[, cols, drop = FALSE]
+  if (is.null(path)) path <- table_path(name)
+
+  if (!file.exists(path)) {
+    table_write_lines(table_lines(name, rows), path)
+  } else {
+    lines <- table_lines(name, rows, header = FALSE)
+    # A file that does not end in a newline would have the first new row
+    # glued onto its last one
+    size <- file.size(path)
+    ends_clean <- size == 0 || {
+      con <- file(path, "rb"); seek(con, size - 1); last <- readBin(con, "raw", 1); close(con)
+      identical(last, charToRaw("\n"))
+    }
+    con <- file(path, open = "ab")
+    if (!ends_clean) writeBin(charToRaw("\n"), con)
+    writeBin(charToRaw(enc2utf8(paste0(paste(lines, collapse = "\n"), "\n"))), con)
+    close(con)
+  }
+  if (exists("remember_file_hash")) remember_file_hash(path)
+  invisible(TRUE)
+}
+
+
+#### Checking ####
+
+#' Reads a table and writes it back to a temporary file, and compares
+#'
+#' The test that the layer reads and writes faithfully. Every value must
+#' survive: compared by meaning, so a datetime written once as
+#' "2023-11-06 10:45" and now as "2023-11-06 10:45:00" is the same value, and
+#' "NA" and an empty cell are both missing. The bytes are compared too, and
+#' reported separately - they differ the first time a table written before the
+#' layer passes through it, which normalizes its formatting once, and never
+#' after that.
+#'
+#' @param name Character. A table in TABLE_SCHEMA
+#' @param path Character. The file to test; defaults to the live table
+#' @return List: values_identical, bytes_identical (logical), differences
+#'   (character, empty when values are identical)
+table_round_trip <- function(name, path = NULL) {
+  if (is.null(path)) path <- table_path(name)
+  if (!file.exists(path)) {
+    return(list(values_identical = TRUE, bytes_identical = TRUE, differences = character(0)))
+  }
+  before <- read_table(name, path, remember = FALSE)
+  tmp <- tempfile(fileext = ".csv")
+  on.exit(unlink(tmp))
+  write_table(name, before, path = tmp)
+  after <- read_table(name, tmp, remember = FALSE)
+
+  # Compare the original text with the rewritten text, column by column, by
+  # meaning: each parsed through its schema type
+  orig <- utils::read.csv(path, colClasses = "character", na.strings = c("", "NA"),
+                          check.names = FALSE, encoding = "UTF-8")
+  differences <- character(0)
+  cols <- table_schema(name)$columns
+  if (nrow(orig) != nrow(after)) {
+    differences <- c(differences, paste0(nrow(orig), " rows read, ", nrow(after), " written"))
+  } else {
+    for (col in names(cols)) {
+      a <- table_parse_column(orig[[col]], cols[[col]], col, basename(path))
+      b <- after[[col]]
+      same <- (is.na(a) & is.na(b)) | (!is.na(a) & !is.na(b) & a == b)
+      if (!all(same)) {
+        k <- which(!same)
+        differences <- c(differences, paste0(
+          "`", col, "`, ", length(k), " value(s), e.g. row ", k[1] + 1, ": \"",
+          orig[[col]][k[1]], "\" became \"", as.character(b[k[1]]), "\""))
+      }
+    }
+  }
+
+  bytes_identical <- identical(unname(tools::md5sum(path)), unname(tools::md5sum(tmp)))
+  list(values_identical = length(differences) == 0,
+       bytes_identical = bytes_identical,
+       differences = differences)
+}
+
+#' Round-trips every table and prints the result
+#'
+#' @return Invisibly TRUE if every table's values survived
+check_all_tables <- function() {
+  ok <- TRUE
+  for (name in names(TABLE_SCHEMA)) {
+    res <- tryCatch(table_round_trip(name), error = function(e) conditionMessage(e))
+    if (is.character(res)) {
+      cat("  ✗ ", name, ": ", res, "\n", sep = ""); ok <- FALSE
+    } else if (!res$values_identical) {
+      cat("  ✗ ", name, ": values changed\n", sep = "")
+      for (d in res$differences) cat("      ", d, "\n", sep = "")
+      ok <- FALSE
+    } else if (res$bytes_identical) {
+      cat("  ✓ ", name, ": identical\n", sep = "")
+    } else {
+      cat("  ✓ ", name, ": values identical; formatting will be normalized on its next write\n", sep = "")
+    }
+  }
+  invisible(ok)
+}
