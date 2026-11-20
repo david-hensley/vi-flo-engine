@@ -147,28 +147,41 @@ layer_check_before <- function(overwrite = FALSE) {
 }
 
 #' What changed between two versions of one table, cell by cell
+#'
+#' Compared by meaning, each column read through its schema type: "NA" and an
+#' empty cell are both missing, and "2026-03-02" and "3/2/2026" are the same
+#' date. Compared as raw text, the layer's one-time normalization of a table's
+#' formatting would show as hundreds of changed values that are not changes.
 layer_check_table_diff <- function(old_raw, new_path) {
+  name <- sub("\\.csv$", "", basename(new_path))
   read_chr <- function(con) read.csv(con, colClasses = "character",
-                                     na.strings = character(0), check.names = FALSE)
+                                     na.strings = c("", "NA"), check.names = FALSE)
   old <- read_chr(textConnection(rawToChar(old_raw)))
   new <- read_chr(new_path)
   out <- character(0)
   if (!identical(names(old), names(new))) {
-    out <- c(out, paste0("columns differ: was ", paste(names(old), collapse = ","),
-                         " / now ", paste(names(new), collapse = ",")))
-    return(out)
+    return(paste0("columns differ: was ", paste(names(old), collapse = ","),
+                  " / now ", paste(names(new), collapse = ",")))
   }
   if (nrow(new) != nrow(old)) {
     out <- c(out, paste0(nrow(old), " rows before, ", nrow(new), " now"))
   }
+  cols <- if (name %in% names(TABLE_SCHEMA)) TABLE_SCHEMA[[name]]$columns else NULL
   n <- min(nrow(old), nrow(new))
   if (n > 0) {
     for (col in names(old)) {
-      k <- sum(old[[col]][seq_len(n)] != new[[col]][seq_len(n)])
+      a <- old[[col]][seq_len(n)]
+      b <- new[[col]][seq_len(n)]
+      if (!is.null(cols)) {
+        a <- table_parse_column(a, cols[[col]], col, basename(new_path))
+        b <- table_parse_column(b, cols[[col]], col, basename(new_path))
+      }
+      same <- (is.na(a) & is.na(b)) | (!is.na(a) & !is.na(b) & a == b)
+      k <- sum(!same)
       if (k > 0) out <- c(out, paste0(k, " value(s) changed in `", col, "`"))
     }
   }
-  if (length(out) == 0) out <- "same values, different bytes (quoting or line endings)"
+  if (length(out) == 0) out <- "same values, formatting normalized"
   out
 }
 
