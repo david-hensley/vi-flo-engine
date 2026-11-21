@@ -35,9 +35,9 @@ test_that("an 18:00 local deployment is still 18:00 after a round trip", {
 test_that("blanks stay blank, and numbers stay numbers", {
   local_test_root()
   m <- load_zentra_metadata()
-  expect_true(is.numeric(m$sensor_height_cm))
-  expect_true(is.na(m$sensor_height_cm[m$unique_id == "t-0001"]))
-  expect_equal(m$sensor_height_cm[m$unique_id == "t-0004"], 28)
+  expect_true(is.numeric(m$elev))
+  expect_true(is.na(m$end_datetime[m$unique_id == "t-0001"]))
+  expect_equal(m$elev[m$unique_id == "t-0004"], 31.266)
   expect_type(m$metadata_approved, "logical")
 })
 

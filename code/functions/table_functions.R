@@ -65,8 +65,8 @@ TABLE_SCHEMA <- list(
       site = "text", station_type = "text", station_id = "text",
       device_serial = "text", device_role = "text", device_name = "text",
       mfger = "text", model = "text", lat = "number", lon = "number",
-      elev = "number", elev_source = "text", sensor_height_cm = "number",
-      reach_length_m = "number", interval_min = "integer", timezone = "text",
+      elev = "number", elev_source = "text",
+      interval_min = "integer", timezone = "text",
       deploy_datetime = "datetime_local", end_datetime = "datetime_local",
       status = "text", last_visit = "date", metadata_approved = "logical",
       last_reviewed_utc = "datetime_utc"

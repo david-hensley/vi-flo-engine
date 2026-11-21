@@ -608,117 +608,47 @@ ui_log_download <- function() {
   ))
 }
 
-#' Interactive elevation survey workflow
-#' Handles both single-device and dual-logger elevation surveys
-#' @return TRUE if successful, NULL if quit
+#' Interactive field survey workflow
+#'
+#' Everything measured in the field with an instrument or a tape is recorded
+#' in surveys.csv, as a distance between two named points. This menu leads to
+#' the three ways of recording one, and to removing a row entered by mistake.
+#'
+#' @return TRUE if something was saved, NULL if canceled
 ui_survey_elevations <- function() {
   cat("\n============================================\n")
-  cat("  Field Elevation Survey\n")
+  cat("  Field Survey\n")
   cat("============================================\n\n")
-  cat("Use this workflow to record surveyed elevations: the fall and reach\n")
-  cat("length between a paired gauge's loggers, or one device's elevation.\n\n")
-  
-  ################################################################################
-  #### SELECT SURVEY TYPE ####
-  ################################################################################
-  
-  cat("--- SURVEY TYPE ---\n\n")
-  cat("What type of elevation survey?\n")
-  cat("  1. Paired stream gauge - fall and reach length between two loggers\n")
-  cat("  2. Single device - elevation and sensor height\n")
+  cat("Measurements taken in the field. Each is recorded as how far one\n")
+  cat("point sits above another - a sensor above the bed, one logger's\n")
+  cat("rebar top above another's - so nothing assumes a reference.\n\n")
+
+  cat("What was surveyed?\n")
+  cat("  1. Paired stream gauge - fall and reach between two loggers\n")
+  cat("  2. One logger - a height: sensor, rebar, overflow, or another point\n")
+  cat("  3. One logger - ground elevation by GNSS\n")
+  cat("  4. Remove a survey row entered by mistake\n")
   cat("  q. Cancel\n\n")
   cat("Enter selection: ")
-  
-  survey_type <- trimws(readline())
-  
-  if (tolower(survey_type) == "q") {
-    cat("❌ Canceled\n")
-    return(NULL)
-  }
-  
-  ################################################################################
-  #### OPTION 1: DUAL-LOGGER STREAM GAUGE ####
-  ################################################################################
-  
-  if (survey_type == "1") {
-    # The paired-gauge survey has its own workflow: rod readings or a typed
-    # fall, a TruPulse export or a typed reach, and either half alone.
-    return(ui_survey_gut_pair())
-  }
-  
-  ################################################################################
-  #### OPTION 2: SINGLE DEVICE ####
-  ################################################################################
-  
-  else if (survey_type == "2") {
-    # Its own workflow: one exact row, sensor height, elevation by GNSS
-    # directly or through GEOID18, and the arithmetic logged.
-    return(ui_survey_single_device())
-  }
-  
-  ################################################################################
-  #### INVALID SELECTION ####
-  ################################################################################
-  
-  else {
-    cat("⚠️  Invalid selection\n")
-    return(NULL)
-  }
+
+  choice <- tolower(trimws(readline()))
+  switch(choice,
+         "1" = ui_survey_gut_pair(),
+         "2" = ui_survey_measurement(),
+         "3" = ui_survey_ground_elevation(),
+         "4" = ui_remove_survey(),
+         "q" = { cat("❌ Canceled\n"); invisible(NULL) },
+         { cat("⚠️  Invalid selection\n"); invisible(NULL) })
 }
 
 
-#' Interactive single-device survey: elevation and sensor height
+#' Date and initials, asked the same way by every survey
 #'
-#' For a device that stands alone - a pond logger, a weather station, the
-#' primary of a paired gauge - where the elevation is measured directly rather
-#' than as a fall from a partner. A hydro secondary or tertiary is sent to the
-#' paired survey instead: its elevation IS the fall, and setting it directly
-#' would make the slope meaningless.
-#'
-#' Sensor height is asked first, because a GNSS shot is taken either on the
-#' ground or on the measuring point, and `elev` is always the GROUND: a shot
-#' on the measuring point has the sensor height taken off.
-#'
-#' Elevation by one of three routes: typed as an orthometric height, computed
-#' here from an ellipsoidal height and the GEOID18 geoid height (H = h - N,
-#' NAD83(2011) to VIVD09), or kept as it is. Moving a hydro primary moves its
-#' surveyed partners by the same amount, so the measured falls survive.
-#'
-#' @return TRUE if saved, NULL if canceled
-ui_survey_single_device <- function() {
-
-  cancel <- function(msg = "Canceled - nothing saved") {
-    cat("\n\u274c ", msg, "\n", sep = "")
-    invisible(NULL)
-  }
-  read_or_quit <- function(prompt) {
-    cat(prompt)
-    x <- trimws(readline())
-    if (tolower(x) == "q") return(NULL)
-    x
-  }
-  read_number <- function(prompt) {
-    repeat {
-      x <- read_or_quit(prompt)
-      if (is.null(x)) return(NULL)
-      v <- suppressWarnings(as.numeric(x))
-      if (!is.na(v)) return(v)
-      cat("\u26a0\ufe0f  Not a number\n")
-    }
-  }
-  show <- function(x, unit, d = 3) {
-    x <- suppressWarnings(as.numeric(x))
-    if (length(x) == 0 || is.na(x)) "(blank)" else paste0(formatC(x, format = "f", digits = d), " ", unit)
-  }
-
-  cat("\n--- SINGLE DEVICE SURVEY ---\n\n")
-  cat("Elevation and sensor height for one device. Nothing is saved until\n")
-  cat("the end, and 'q' at any prompt cancels.\n\n")
-
-  #### When and who ####
+#' @return List: survey_date, logged_by; or NULL if canceled
+survey_ask_when_who <- function() {
   survey_date <- ui_prompt_date("When was this survey performed?", allow_today = TRUE)
-  if (is.null(survey_date)) return(cancel())
-  cat("\u2713 Survey date: ", survey_date, "\n", sep = "")
+  if (is.null(survey_date)) return(NULL)
+  cat("✓ Survey date: ", survey_date, "\n", sep = "")
 
   cat("\nWho is logging this survey?\n")
   cat("  1. DAH\n")
@@ -730,222 +660,489 @@ ui_survey_single_device <- function() {
       cat("Enter 3-letter initials: ")
       ini <- toupper(trimws(readline()))
       if (nchar(ini) == 3) { logged_by <- ini; break }
-      cat("\u26a0\ufe0f  Please enter exactly 3 letters\n")
+      cat("⚠️  Please enter exactly 3 letters\n")
     }
   }
-  cat("\u2713 Logged by: ", logged_by, "\n\n", sep = "")
+  cat("✓ Logged by: ", logged_by, "\n\n", sep = "")
+  list(survey_date = survey_date, logged_by = logged_by)
+}
 
-  #### Station and device: active rows only ####
-  terminal <- c("removed", "replaced", "relocated", "decommissioned")
-  metadata <- load_zentra_metadata()
-  active <- metadata[!tolower(metadata$status) %in% terminal, ]
-  stations <- sort(unique(active$station_id))
-  if (length(stations) == 0) return(cancel("No active stations"))
+
+#' A current logger, chosen by station and then device
+#'
+#' @param metadata Data frame of device rows
+#' @param types Character. Station types offered, or NULL for all
+#' @return One device row, or NULL if canceled
+survey_pick_logger <- function(metadata, types = NULL) {
+  current <- metadata[!tolower(metadata$status) %in% TERMINAL_STATUSES, ]
+  if (!is.null(types)) current <- current[tolower(current$station_type) %in% types, ]
+  stations <- sort(unique(current$station_id))
+  if (length(stations) == 0) { cat("❌ No current stations\n"); return(NULL) }
 
   station_options <- vapply(stations, function(sid) {
-    n <- sum(active$station_id == sid)
-    paste0(sid, " (", active$site_full[active$station_id == sid][1], " - ",
-           n, " active device", if (n != 1) "s", ")")
+    n <- sum(current$station_id == sid)
+    paste0(sid, " (", current$site_full[current$station_id == sid][1], " - ",
+           n, " current device", if (n != 1) "s", ")")
   }, character(1), USE.NAMES = FALSE)
   pick <- ui_select_from_menu("Select station:", station_options)
-  if (is.null(pick)) return(cancel())
+  if (is.null(pick)) return(NULL)
   station_id <- sub(" \\(.*\\)$", "", pick)
-  cat("\u2713 Station: ", station_id, "\n", sep = "")
+  cat("✓ Station: ", station_id, "\n", sep = "")
 
-  here <- active[active$station_id == station_id, ]
+  here <- order_devices_by_role(current[current$station_id == station_id, ])
   if (nrow(here) == 1) {
     dev <- here[1, ]
   } else {
     labels <- vapply(seq_len(nrow(here)), function(i)
       device_label(here[i, ], with_role = TRUE), character(1))
     d_pick <- ui_select_from_menu("Which device?", labels)
-    if (is.null(d_pick)) return(cancel())
+    if (is.null(d_pick)) return(NULL)
     dev <- here[which(labels == d_pick)[1], ]
   }
-  cat("\u2713 Device: ", device_label(dev, with_role = TRUE), "\n\n", sep = "")
+  cat("✓ Device: ", device_label(dev, with_role = TRUE), "\n\n", sep = "")
+  dev
+}
 
-  type <- tolower(trimws(as.character(dev$station_type)))
-  role <- tolower(trimws(as.character(dev$device_role)))
-  role <- if (is.na(role)) "" else role
 
-  if (type == "hydro" && role %in% c("secondary", "tertiary")) {
-    cat("A ", role, " logger's elevation is the primary's plus a surveyed fall,\n", sep = "")
-    cat("so it is set by the paired gauge survey, not here. Use option 1.\n")
-    return(invisible(NULL))
-  }
-
-  old_elev   <- suppressWarnings(as.numeric(dev$elev))
-  old_source <- if ("elev_source" %in% names(dev)) as.character(dev$elev_source) else NA
-  old_height <- if ("sensor_height_cm" %in% names(dev)) suppressWarnings(as.numeric(dev$sensor_height_cm)) else NA
-
-  cat("Current elevation:     ", show(old_elev, "m"),
-      if (!is.na(old_source)) paste0("  (", old_source, ")") else "", "\n", sep = "")
-  cat("Current sensor height: ", show(old_height, "cm", 0), "\n", sep = "")
-
-  #### Sensor height ####
-  new_height <- ui_prompt_sensor_height(dev$station_type, old_height)
-
-  #### Elevation ####
-  cat("\n--- ELEVATION ---\n\n")
-  cat("`elev` is the GROUND at the device's coordinates.\n\n")
-  cat("  1. GNSS - an orthometric height, meters above sea level (VIVD09)\n")
-  cat("  2. GNSS - an ellipsoidal height, converted here with GEOID18\n")
-  cat("  3. Not surveyed this time - keep ", show(old_elev, "m"), "\n", sep = "")
-  method <- NULL
-  repeat {
-    method <- read_or_quit("\nEnter selection: ")
-    if (is.null(method)) return(cancel())
-    if (method %in% c("1", "2", "3")) break
-    cat("\u26a0\ufe0f  Choose 1, 2 or 3\n")
-  }
-
-  new_elev <- NA_real_; new_source <- NA_character_; arithmetic <- NULL
-  if (method %in% c("1", "2")) {
-    if (method == "1") {
-      H <- read_number("Orthometric height, meters: ")
-      if (is.null(H)) return(cancel())
-      arithmetic <- sprintf("H %.3f m", H)
-    } else {
-      cat("\nThe NAD83(2011) ellipsoidal height, as the receiver or its\n")
-      cat("post-processing reported it. It will look tens of meters too low.\n")
-      h <- read_number("Ellipsoidal height h, meters: ")
-      if (is.null(h)) return(cancel())
-      cat("\nThe GEOID18 geoid height at this device - from NGS:\n\n")
-      cat(sprintf("     https://geodesy.noaa.gov/api/geoid/ght?lat=%.6f&lon=%.6f&model=14\n\n",
-                  as.numeric(dev$lat), as.numeric(dev$lon)))
-      N <- read_number("Geoid height N, meters (negative here): ")
-      if (is.null(N)) return(cancel())
-      H <- h - N
-      cat(sprintf("\n  H = h - N = %.3f - (%.3f) = %.3f m\n", h, N, H))
-      arithmetic <- sprintf("h %.3f m NAD83(2011) - GEOID18 N %.3f m = H %.3f m", h, N, H)
-    }
-
-    # In the Virgin Islands an ellipsoidal height is negative where the land
-    # is well above sea level - the classic way a GNSS elevation goes wrong
-    if (H < -5 || H > 900) {
-      cat(sprintf("\n\u26a0\ufe0f  %.3f m is outside the plausible range here.", H))
-      if (method == "1" && H < -5) {
-        cat(" That looks like an\n   ellipsoidal height - choose route 2 instead.")
-      }
-      cat("\n")
-      if (ui_yes_no("Use it anyway?", allow_quit = FALSE) != "Y") return(cancel())
-    }
-
-    #### Ground or measuring point ####
-    where <- ui_select_from_menu("Where was the shot taken?",
-                                 c("On the ground at the device",
-                                   "On the device's measuring point"))
-    if (is.null(where)) return(cancel())
-    if (grepl("measuring point", where)) {
-      if (is.na(new_height)) {
-        cat("\n\u26a0\ufe0f  A shot on the measuring point needs the sensor height to get\n")
-        cat("   back to the ground, and none is recorded. Nothing saved.\n")
-        return(invisible(NULL))
-      }
-      new_elev <- round(H - new_height / 100, 3)
-      cat(sprintf("\u2713 Ground = measuring point - sensor height = %.3f - %.2f = %.3f m\n",
-                  H, new_height / 100, new_elev))
-      arithmetic <- paste0(arithmetic, sprintf(" at the measuring point, less %.0f cm = ground %.3f m",
-                                               new_height, new_elev))
-    } else {
-      new_elev <- round(H, 3)
-      arithmetic <- paste0(arithmetic, ", ground shot")
-    }
-    new_source <- "gnss"
-  }
-
-  #### A hydro primary carries its partners ####
-  partners <- here[0, ]
-  delta <- NA_real_
-  if (type == "hydro" && role == "primary" && !is.na(new_elev) && !is.na(old_elev)) {
-    delta <- new_elev - old_elev
-    p_role <- tolower(as.character(here$device_role))
-    src <- if ("elev_source" %in% names(here)) as.character(here$elev_source) else rep(NA, nrow(here))
-    partners <- here[!is.na(p_role) & p_role %in% c("secondary", "tertiary") &
-                       !is.na(src) & src == "surveyed_relative" &
-                       !is.na(suppressWarnings(as.numeric(here$elev))), ]
-  }
-
-  #### Note ####
-  note <- read_or_quit("\nAnything else worth recording? (Enter to skip): ")
-  if (is.null(note)) return(cancel())
-
-  #### Nothing to do? ####
-  height_changed <- !identical(is.na(new_height), is.na(old_height)) ||
-                    (!is.na(new_height) && !is.na(old_height) && new_height != old_height)
-  if (is.na(new_elev) && !height_changed) {
-    return(cancel("Neither elevation nor sensor height changed - nothing to save"))
-  }
-
-  #### Summary ####
-  cat("\n============================================\n")
-  cat("  Station:       ", station_id, "  (", survey_date, ")\n", sep = "")
-  cat("  Device:        ", device_label(dev, with_role = TRUE), "\n\n", sep = "")
-  if (!is.na(new_elev)) {
-    cat("  Elevation:     ", show(old_elev, "m"), " -> ", show(new_elev, "m"),
-        "  (", new_source, ")\n", sep = "")
-    cat("                 ", arithmetic, "\n", sep = "")
+#' What a logger already has surveyed, printed
+survey_show_current <- function(unique_id, metadata, surveys) {
+  have <- latest_surveys(unique_id, surveys)
+  if (nrow(have) == 0) {
+    cat("Nothing surveyed on this logger yet.\n\n")
   } else {
-    cat("  Elevation:     unchanged, ", show(old_elev, "m"), "\n", sep = "")
+    cat("Already surveyed on this logger (newest of each):\n")
+    for (i in seq_len(nrow(have))) {
+      cat("  ", describe_survey_row(have[i, ], metadata), "\n", sep = "")
+    }
+    cat("\n")
   }
-  cat("  Sensor height: ", show(old_height, "cm", 0), " -> ", show(new_height, "cm", 0), "\n", sep = "")
-  if (nrow(partners) > 0) {
-    cat(sprintf("\n  Moving the primary by %+.3f m moves its surveyed partners with it,\n", delta))
-    cat("  so the measured falls are kept:\n")
-    for (i in seq_len(nrow(partners))) {
-      pe <- as.numeric(partners$elev[i])
-      cat("    ", device_label(partners[i, ], with_role = TRUE), ": ",
-          show(pe, "m"), " -> ", show(pe + delta, "m"), "\n", sep = "")
+}
+
+
+# What each point is, for the menus
+SURVEY_POINT_LABELS <- c(
+  sensor   = "sensor   - the logger's measuring point",
+  rebar    = "rebar    - the top of the logger's rebar",
+  overflow = "overflow - where the pool spills (gauge of zero flow)",
+  bed      = "bed      - the streambed or pond bed at the logger",
+  ground   = "ground   - the ground at the station's coordinates"
+)
+
+# How it was measured, for the menus
+SURVEY_METHOD_LABELS <- c(
+  tape    = "tape    - tape measure or ruler",
+  level   = "level   - builder's level and rod",
+  laser   = "laser   - TruPulse or other rangefinder",
+  nominal = "nominal - a standard value, not measured"
+)
+
+#' Asks how something was measured
+#' @param offer Character. Methods to offer, in order
+#' @return One of SURVEY_METHODS, or NULL if canceled
+survey_ask_method <- function(offer = SURVEY_METHODS) {
+  pick <- ui_select_from_menu("How was it measured?", unname(SURVEY_METHOD_LABELS[offer]))
+  if (is.null(pick)) return(NULL)
+  m <- offer[SURVEY_METHOD_LABELS[offer] == pick]
+  cat("✓ Method: ", m, "\n", sep = "")
+  m
+}
+
+
+#' Interactive survey of one logger: the height between two points
+#'
+#' Asked the way it is measured in the field: which two points, which of them
+#' is higher, and by how much - always a positive number, so there is no
+#' direction to get backwards. One point is on this logger; the other is on
+#' this logger too, or on another logger at the same station. The sensor and
+#' the bed are the commonest pair; the rebar top, the pool's overflow and the
+#' ground can be measured the same way, against whatever the instrument was
+#' actually set on.
+#'
+#' @return TRUE if saved, NULL if canceled
+ui_survey_measurement <- function() {
+
+  cancel <- function(msg = "Canceled - nothing saved") {
+    cat("\n\u274c ", msg, "\n", sep = "")
+    invisible(NULL)
+  }
+
+  cat("\n--- ONE LOGGER: A MEASURED HEIGHT ---\n\n")
+  cat("The height between two points. Nothing is saved until the end, and\n")
+  cat("'q' at any prompt cancels.\n\n")
+
+  ww <- survey_ask_when_who()
+  if (is.null(ww)) return(cancel())
+
+  metadata <- load_zentra_metadata()
+  surveys <- load_surveys()
+  dev <- survey_pick_logger(metadata, types = c("hydro", "pond", "weather"))
+  if (is.null(dev)) return(cancel())
+  survey_show_current(dev$unique_id, metadata, surveys)
+
+  #### The two points ####
+  weather <- tolower(dev$station_type) == "weather"
+  mine <- if (weather) c("sensor", "ground") else c("sensor", "bed", "rebar", "overflow", "ground")
+  pick <- ui_select_from_menu("Which two points? The first, on this logger:",
+                              unname(SURVEY_POINT_LABELS[mine]))
+  if (is.null(pick)) return(cancel())
+  p1 <- mine[SURVEY_POINT_LABELS[mine] == pick]
+  cat("\u2713 First point: ", p1, "\n\n", sep = "")
+
+  rest <- setdiff(mine, p1)
+  rest_labels <- unname(SURVEY_POINT_LABELS[rest])
+  others <- metadata[!tolower(metadata$status) %in% TERMINAL_STATUSES &
+                       metadata$station_id == dev$station_id &
+                       metadata$unique_id != dev$unique_id, ]
+  if (nrow(others) > 0) rest_labels <- c(rest_labels, "a point on another logger at this station")
+  pick2 <- ui_select_from_menu("And the second:", rest_labels)
+  if (is.null(pick2)) return(cancel())
+  id2 <- dev$unique_id
+  if (pick2 == "a point on another logger at this station") {
+    labels <- vapply(seq_len(nrow(others)), function(i)
+      device_label(others[i, ], with_role = TRUE), character(1))
+    o_pick <- ui_select_from_menu("Which logger?", labels)
+    if (is.null(o_pick)) return(cancel())
+    other <- others[which(labels == o_pick)[1], ]
+    id2 <- other$unique_id
+    p_pick <- ui_select_from_menu(paste0("Which point on ", device_label(other), "?"),
+                                  unname(SURVEY_POINT_LABELS))
+    if (is.null(p_pick)) return(cancel())
+    p2 <- names(SURVEY_POINT_LABELS)[SURVEY_POINT_LABELS == p_pick]
+  } else {
+    p2 <- rest[match(pick2, rest_labels)]
+  }
+
+  # Each point named as a person would say it: "the sensor", or "bta2a's
+  # sensor" when the two are on different loggers
+  name <- function(uid, p) {
+    if (id2 == dev$unique_id) return(paste0("the ", p))
+    paste0(device_label(metadata[metadata$unique_id == uid, ][1, ]), "'s ", p)
+  }
+  n1 <- name(dev$unique_id, p1)
+  n2 <- name(id2, p2)
+  cat("\u2713 Second point: ", n2, "\n\n", sep = "")
+
+  #### Which is higher, and by how much ####
+  hi <- ui_select_from_menu("Which one is higher?",
+                            c(n1, n2, "Neither - they are level"))
+  if (is.null(hi)) return(cancel())
+  level <- hi == "Neither - they are level"
+  value <- 0
+  if (!level) {
+    repeat {
+      cat("By how much, in centimeters? ")
+      x <- trimws(readline())
+      if (tolower(x) == "q") return(cancel())
+      value <- suppressWarnings(as.numeric(x))
+      if (!is.na(value) && value >= 0) break
+      cat("\u26a0\ufe0f  A positive number of centimeters\n")
     }
   }
-  if (nzchar(note)) cat("  Note:          ", note, "\n", sep = "")
-  cat("============================================\n\n")
 
+  # Recorded as the higher point above the lower, on the logger the higher
+  # point belongs to
+  first_higher <- level || hi == n1
+  up   <- if (first_higher) list(uid = dev$unique_id, p = p1) else list(uid = id2, p = p2)
+  down <- if (first_higher) list(uid = id2, p = p2) else list(uid = dev$unique_id, p = p1)
+
+  method <- survey_ask_method()
+  if (is.null(method)) return(cancel())
+  cat("\nAnything worth recording as a note? (Enter to skip): ")
+  note <- trimws(readline())
+  if (tolower(note) == "q") return(cancel())
+
+  row <- survey_row(dev$station_id, up$uid, ww$survey_date, "height_cm", up$p, value,
+                    down$p, if (down$uid == up$uid) NA else down$uid, method, notes = note)
+  problems <- survey_row_problems(row, metadata)
+  if (!is.null(problems)) return(cancel(paste(problems, collapse = "; ")))
+
+  cat("\n============================================\n")
+  cat("  ", describe_survey_row(row, metadata, with_logger = TRUE), "\n", sep = "")
+  if (nzchar(note)) cat("  Note: ", note, "\n", sep = "")
+  cat("============================================\n\n")
   if (ui_yes_no("Save?", allow_quit = FALSE) != "Y") return(cancel())
 
-  #### Write ####
-  backup_metadata()
-  result <- survey_device_elevation(
-    unique_id        = dev$unique_id,
-    elev             = new_elev,
-    elev_source      = new_source,
-    sensor_height_cm = new_height,
-    shift_unique_ids = partners$unique_id,
-    shift_by         = delta
-  )
-  if (!isTRUE(result)) return(cancel(paste0(result, " - nothing saved")))
-  cat("\u2713 Metadata saved\n")
-
-  bits <- character(0)
-  if (!is.na(new_elev)) {
-    bits <- c(bits, sprintf("elev %s -> %.3f m VIVD09 (%s)", show(old_elev, "m"), new_elev, arithmetic))
-  }
-  if (height_changed) {
-    bits <- c(bits, sprintf("sensor height %s -> %s", show(old_height, "cm", 0), show(new_height, "cm", 0)))
-  }
-  if (nrow(partners) > 0) {
-    bits <- c(bits, sprintf("surveyed partners shifted %+.3f m: %s", delta,
-                            paste(partners$device_serial, collapse = ", ")))
-  }
-  if (nzchar(note)) bits <- c(bits, note)
+  res <- add_survey_rows(row)
+  if (!isTRUE(res)) return(cancel(paste0(res, " - nothing saved")))
+  cat("\u2713 Survey recorded\n")
 
   log_result <- create_maintenance_entry(
-    field_visit_date = survey_date,
-    station_id       = station_id,
-    device_serial    = dev$device_serial,
-    action_type      = "survey",
-    details          = paste0("Single-device survey: ", paste(bits, collapse = "; ")),
-    logged_by        = logged_by
-  )
+    field_visit_date = ww$survey_date, station_id = dev$station_id,
+    unique_id = up$uid, action_type = "survey",
+    details = paste0("Survey: ", describe_survey_row(row, metadata),
+                     if (nzchar(note)) paste0("; ", note) else ""),
+    logged_by = ww$logged_by)
   if (!isTRUE(log_result)) {
     cat("\u26a0\ufe0f  Saved, but the maintenance log entry failed: ", log_result, "\n", sep = "")
   }
-
-  visit <- update_last_visit(station_id, survey_date)
+  visit <- update_last_visit(dev$station_id, ww$survey_date)
   if (!isTRUE(visit)) cat("\u26a0\ufe0f  Could not update last_visit: ", visit, "\n", sep = "")
 
   cat("\n\u2713 Survey complete\n")
   invisible(TRUE)
+}
+
+
+#' Interactive ground elevation by GNSS, for one logger
+#'
+#' `elev` is the GROUND at the device's coordinates, on every row whatever its
+#' role. By one of two routes: typed as an orthometric height, or computed
+#' here from an ellipsoidal height and the GEOID18 geoid height (H = h - N,
+#' NAD83(2011) to VIVD09). A shot taken on the measuring point is brought back
+#' to the ground by the logger's surveyed sensor height.
+#'
+#' @return TRUE if saved, NULL if canceled
+ui_survey_ground_elevation <- function() {
+
+  cancel <- function(msg = "Canceled - nothing saved") {
+    cat("\n❌ ", msg, "\n", sep = "")
+    invisible(NULL)
+  }
+  read_number <- function(prompt) {
+    repeat {
+      cat(prompt)
+      x <- trimws(readline())
+      if (tolower(x) == "q") return(NULL)
+      v <- suppressWarnings(as.numeric(x))
+      if (!is.na(v)) return(v)
+      cat("⚠️  Not a number\n")
+    }
+  }
+  show <- function(x) {
+    x <- suppressWarnings(as.numeric(x))
+    if (length(x) == 0 || is.na(x)) "(blank)" else sprintf("%.3f m", x)
+  }
+
+  cat("\n--- ONE LOGGER: GROUND ELEVATION BY GNSS ---\n\n")
+  cat("Nothing is saved until the end, and 'q' at any prompt cancels.\n\n")
+
+  ww <- survey_ask_when_who()
+  if (is.null(ww)) return(cancel())
+  metadata <- load_zentra_metadata()
+  dev <- survey_pick_logger(metadata)
+  if (is.null(dev)) return(cancel())
+
+  old_elev <- suppressWarnings(as.numeric(dev$elev))
+  cat("Current elevation: ", show(old_elev),
+      if (!is.na(dev$elev_source)) paste0("  (", dev$elev_source, ")") else "", "\n\n", sep = "")
+
+  cat("  1. An orthometric height, meters above sea level (VIVD09)\n")
+  cat("  2. An ellipsoidal height, converted here with GEOID18\n")
+  route <- NULL
+  repeat {
+    cat("\nEnter selection: ")
+    route <- tolower(trimws(readline()))
+    if (route == "q") return(cancel())
+    if (route %in% c("1", "2")) break
+    cat("⚠️  Choose 1 or 2\n")
+  }
+
+  if (route == "1") {
+    H <- read_number("Orthometric height, meters: ")
+    if (is.null(H)) return(cancel())
+    arithmetic <- sprintf("H %.3f m", H)
+  } else {
+    cat("\nThe NAD83(2011) ellipsoidal height, as the receiver or its\n")
+    cat("post-processing reported it. It will look tens of meters too low.\n")
+    h <- read_number("Ellipsoidal height h, meters: ")
+    if (is.null(h)) return(cancel())
+    cat("\nThe GEOID18 geoid height at this device - from NGS:\n\n")
+    cat(sprintf("     https://geodesy.noaa.gov/api/geoid/ght?lat=%.6f&lon=%.6f&model=14\n\n",
+                as.numeric(dev$lat), as.numeric(dev$lon)))
+    N <- read_number("Geoid height N, meters (negative here): ")
+    if (is.null(N)) return(cancel())
+    H <- h - N
+    cat(sprintf("\n  H = h - N = %.3f - (%.3f) = %.3f m\n", h, N, H))
+    arithmetic <- sprintf("h %.3f m NAD83(2011) - GEOID18 N %.3f m = H %.3f m", h, N, H)
+  }
+
+  # In the Virgin Islands an ellipsoidal height is negative where the land is
+  # well above sea level - the classic way a GNSS elevation goes wrong
+  if (H < -5 || H > 900) {
+    cat(sprintf("\n⚠️  %.3f m is outside the plausible range here.", H))
+    if (route == "1" && H < -5) {
+      cat(" That looks like an\n   ellipsoidal height - choose route 2 instead.")
+    }
+    cat("\n")
+    if (ui_yes_no("Use it anyway?", allow_quit = FALSE) != "Y") return(cancel())
+  }
+
+  where <- ui_select_from_menu("Where was the shot taken?",
+                               c("On the ground at the device",
+                                 "On the device's measuring point"))
+  if (is.null(where)) return(cancel())
+  if (grepl("measuring point", where)) {
+    # The sensor's surveyed height above the ground, or failing that the bed
+    surveys <- load_surveys()
+    up <- survey_height(dev$unique_id, "sensor", dev$unique_id, "ground", surveys)
+    from <- "ground"
+    if (is.na(up)) {
+      up <- survey_height(dev$unique_id, "sensor", dev$unique_id, "bed", surveys)
+      from <- "bed"
+    }
+    if (is.na(up)) {
+      return(cancel(paste0("A shot on the measuring point needs the sensor's height above\n",
+                           "   the ground or bed to get back down, and none is surveyed.\n",
+                           "   Record it with option 2 first")))
+    }
+    new_elev <- round(H - up / 100, 3)
+    cat(sprintf("✓ Ground = measuring point - sensor height above the %s = %.3f - %.2f = %.3f m\n",
+                from, H, up / 100, new_elev))
+    arithmetic <- paste0(arithmetic, sprintf(" at the measuring point, less %s cm above the %s = ground %.3f m",
+                                             format(up), from, new_elev))
+  } else {
+    new_elev <- round(H, 3)
+    arithmetic <- paste0(arithmetic, ", ground shot")
+  }
+
+  cat("\nAnything worth recording as a note? (Enter to skip): ")
+  note <- trimws(readline())
+  if (tolower(note) == "q") return(cancel())
+
+  # A paired gauge carries one elevation, the primary's, on every logger
+  shared <- elevation_shared_with(dev$unique_id, metadata)
+  partners <- metadata[metadata$unique_id %in% setdiff(shared, dev$unique_id), , drop = FALSE]
+
+  cat("\n============================================\n")
+  cat("  Station:   ", dev$station_id, "  (", ww$survey_date, ")\n", sep = "")
+  cat("  Device:    ", device_label(dev, with_role = TRUE), "\n", sep = "")
+  cat("  Elevation: ", show(old_elev), " -> ", show(new_elev), "  (gnss)\n", sep = "")
+  if (nrow(partners) > 0) {
+    cat("             also on ", paste(vapply(seq_len(nrow(partners)), function(i)
+      device_label(partners[i, ], with_role = TRUE), character(1)), collapse = ", "),
+      " - a paired gauge carries one elevation\n", sep = "")
+  }
+  cat("             ", arithmetic, "\n", sep = "")
+  if (nzchar(note)) cat("  Note:      ", note, "\n", sep = "")
+  cat("============================================\n\n")
+  if (ui_yes_no("Save?", allow_quit = FALSE) != "Y") return(cancel())
+
+  result <- survey_device_elevation(shared, new_elev, "gnss")
+  if (!isTRUE(result)) return(cancel(paste0(result, " - nothing saved")))
+  cat("✓ Metadata saved\n")
+
+  log_result <- create_maintenance_entry(
+    field_visit_date = ww$survey_date, station_id = dev$station_id,
+    unique_id = dev$unique_id, action_type = "survey",
+    details = paste0("GNSS survey: elev ", show(old_elev), " -> ",
+                     sprintf("%.3f m VIVD09 (%s)", new_elev, arithmetic),
+                     if (nzchar(note)) paste0("; ", note) else ""),
+    logged_by = ww$logged_by)
+  if (!isTRUE(log_result)) {
+    cat("⚠️  Saved, but the maintenance log entry failed: ", log_result, "\n", sep = "")
+  }
+  visit <- update_last_visit(dev$station_id, ww$survey_date)
+  if (!isTRUE(visit)) cat("⚠️  Could not update last_visit: ", visit, "\n", sep = "")
+
+  cat("\n✓ Survey complete\n")
+  invisible(TRUE)
+}
+
+
+#' Interactive removal of a survey row entered by mistake
+#'
+#' Not for a measurement that has since been repeated - the newest of each
+#' stands, and the older one is history worth keeping. For a row that should
+#' never have been recorded: the wrong logger, a typo, a duplicate.
+#'
+#' @return TRUE if removed, NULL if canceled
+ui_remove_survey <- function() {
+  cancel <- function(msg = "Canceled - nothing removed") {
+    cat("\n❌ ", msg, "\n", sep = "")
+    invisible(NULL)
+  }
+
+  cat("\n--- REMOVE A SURVEY ROW ---\n\n")
+  cat("For a row entered by mistake. A measurement that has simply been\n")
+  cat("repeated needs no removing - the newest stands.\n\n")
+
+  surveys <- load_surveys()
+  if (nrow(surveys) == 0) return(cancel("No surveys recorded"))
+  metadata <- load_zentra_metadata()
+
+  stations <- sort(unique(surveys$station_id))
+  pick <- ui_select_from_menu("Select station:", stations)
+  if (is.null(pick)) return(cancel())
+  here <- surveys[surveys$station_id == pick, , drop = FALSE]
+  here <- here[order(here$measured_on, decreasing = TRUE), , drop = FALSE]
+
+  labels <- vapply(seq_len(nrow(here)), function(i)
+    describe_survey_row(here[i, ], metadata, with_logger = TRUE), character(1))
+  r_pick <- ui_select_from_menu("Which row?", labels)
+  if (is.null(r_pick)) return(cancel())
+  row <- here[match(r_pick, labels), , drop = FALSE]
+
+  cat("\n  ", r_pick, "\n", sep = "")
+  if (!is.na(row$notes)) cat("  Notes: ", row$notes, "\n", sep = "")
+  cat("\n")
+  if (ui_yes_no("Remove this row?", allow_quit = FALSE) != "Y") return(cancel())
+
+  cat("Why? (one line, for the maintenance log): ")
+  why <- trimws(readline())
+
+  res <- remove_survey_row(row)
+  if (!isTRUE(res)) return(cancel(res))
+  cat("✓ Row removed\n")
+
+  log_result <- create_maintenance_entry(
+    field_visit_date = Sys.Date(), station_id = row$station_id,
+    unique_id = row$unique_id, action_type = "metadata_deletion",
+    details = paste0("Survey row removed: ", r_pick,
+                     if (nzchar(why)) paste0(" - ", why) else ""),
+    logged_by = ui_ask_whois_logging())
+  if (!isTRUE(log_result)) {
+    cat("⚠️  Removed, but the maintenance log entry failed: ", log_result, "\n", sep = "")
+  }
+  invisible(TRUE)
+}
+
+
+#' Offers a replaced logger's surveys to its replacement, one by one
+#'
+#' A new logger in the same housing, with the rebar untouched, sits where the
+#' old one sat: what was measured still holds. Only a person knows whether it
+#' does, so each measurement is asked about separately - the rebar may have
+#' stayed while the sensor sits differently in the new logger. A yes copies
+#' the row to the new deployment, keeping its date and method, with
+#' carried_from naming the old one. Measurements the new logger already has
+#' are not offered.
+#'
+#' @param old_uid,new_uid Character unique_ids
+#' @return Invisibly, the number of rows carried
+ui_carry_surveys <- function(old_uid, new_uid) {
+  surveys <- load_surveys()
+  old <- latest_surveys(old_uid, surveys)
+  if (nrow(old) == 0) return(invisible(0))
+  kind <- function(d) paste(d$quantity, d$point, d$relative_to, d$relative_to_id)
+  have <- latest_surveys(new_uid, surveys)
+  old <- old[!kind(old) %in% kind(have), , drop = FALSE]
+  if (nrow(old) == 0) return(invisible(0))
+
+  metadata <- load_zentra_metadata()
+  cat("\n--- SURVEYS THAT MAY STILL HOLD ---\n\n")
+  cat("The old logger had these surveyed. If the new one went into the same\n")
+  cat("housing and the rebar was not touched, they still hold, and carrying\n")
+  cat("them over saves surveying again. Answer each separately.\n\n")
+
+  carry <- old[0, ]
+  for (i in seq_len(nrow(old))) {
+    a <- ui_yes_no(paste0("  ", describe_survey_row(old[i, ], metadata), "\n  Still holds?"),
+                   allow_quit = FALSE)
+    if (a == "Y") carry <- rbind(carry, old[i, ])
+  }
+  if (nrow(carry) == 0) {
+    cat("✓ Nothing carried - the new logger needs surveying\n")
+    return(invisible(0))
+  }
+  carry$unique_id <- new_uid
+  carry$carried_from <- old_uid
+  res <- add_survey_rows(carry)
+  if (!isTRUE(res)) {
+    cat("⚠️  Could not carry the surveys over: ", res, "\n", sep = "")
+    return(invisible(0))
+  }
+  cat("✓ ", nrow(carry), " survey row", if (nrow(carry) != 1) "s", " carried over\n", sep = "")
+  invisible(nrow(carry))
 }
 
 
@@ -1139,13 +1336,26 @@ ui_survey_gut_pair <- function() {
         if (!is.na(v)) break
         cat("\u26a0\ufe0f  Not a number\n")
       }
-      note <- ""
-      while (!nzchar(note)) {
-        note <- read_or_quit("How was it measured? (one line, e.g. 'hand level and tape'): ")
-        if (is.null(note)) return(cancel())
+      # What the instrument stood on decides what the number means - so it
+      # is recorded, never assumed
+      pts <- ui_select_from_menu("Between which points was it measured?",
+                                 c("The rebar tops", "The sensors (measuring points)",
+                                   "Not recorded"))
+      if (is.null(pts)) return(cancel())
+      points <- switch(pts, "The rebar tops" = "rebar",
+                       "The sensors (measuring points)" = "sensor", NA_character_)
+      m <- survey_ask_method(c("laser", "level", "tape"))
+      if (is.null(m)) return(cancel())
+      note <- read_or_quit("Anything worth recording as a note? (Enter to skip): ")
+      if (is.null(note)) return(cancel())
+      candidate <- list(value_m = v, method = m, points = points, note = note,
+                        summary = paste0(m, if (nzchar(note)) paste0(": ", note) else "",
+                                         if (is.na(points)) ", points not recorded"
+                                         else paste0(", between the ", points, " tops")),
+                        p0 = NULL)
+      if (!is.na(points) && points == "sensor") {
+        candidate$summary <- sub("the sensor tops", "the sensors", candidate$summary)
       }
-      candidate <- list(value_m = v, method = "manual",
-                        summary = paste0("manual: ", note), p0 = NULL)
 
     } else {
       #### Rod survey ####
@@ -1300,7 +1510,13 @@ ui_survey_gut_pair <- function() {
 
       p0$filename <- build_survey_filename(station_id, "fall", "rod", survey_date,
                                            "csv", dir = get_gut_survey_dir())
-      candidate <- list(value_m = sel$fall_m, method = "rod",
+      # The rod stood on the rebar tops: what it measured is their
+      # difference, and the offsets are each rebar top above its sensor.
+      # The fall between the sensors follows from those three, and is what
+      # the readings are checked by
+      candidate <- list(value_m = sel$fall_m, method = "level", points = "rebar",
+                        rebar_diff_m = sel$fall_m - d_dn$m + d_up$m,
+                        d_up_m = d_up$m, d_dn_m = d_dn$m,
                         summary = paste0(summ, ", file ", p0$filename), p0 = p0)
     }
 
@@ -1373,13 +1589,13 @@ ui_survey_gut_pair <- function() {
         if (!is.na(v) && v > 0) break
         cat("\u26a0\ufe0f  Enter a positive number\n")
       }
-      note <- ""
-      while (!nzchar(note)) {
-        note <- read_or_quit("How was it measured? (one line, e.g. 'tape along thalweg'): ")
-        if (is.null(note)) return(cancel())
-      }
-      reach <- list(value_m = v, method = "manual",
-                    summary = paste0("manual: ", note), from = NULL, filename = NULL)
+      m <- survey_ask_method(c("tape", "laser"))
+      if (is.null(m)) return(cancel())
+      note <- read_or_quit("Anything worth recording as a note? (Enter to skip): ")
+      if (is.null(note)) return(cancel())
+      reach <- list(value_m = v, method = m, trupulse = FALSE,
+                    summary = paste0(m, if (nzchar(note)) paste0(": ", note) else ""),
+                    from = NULL, filename = NULL)
       cat(sprintf("\u2713 Reach: %.2f m\n\n", v))
       break
     }
@@ -1434,7 +1650,7 @@ ui_survey_gut_pair <- function() {
                             "txt", dir = survey_dir)
     cat("\n  Will be filed as: ", filename, "\n\n", sep = "")
 
-    reach <- list(value_m = parsed$total_m, method = "trupulse",
+    reach <- list(value_m = parsed$total_m, method = "laser", trupulse = TRUE,
                   summary = sprintf("trupulse: %d legs, file %s",
                                     length(parsed$legs), filename),
                   from = from, filename = filename)
@@ -1447,78 +1663,91 @@ ui_survey_gut_pair <- function() {
   }
 
   ##############################################################################
-  #### 6. What would change ####
+  #### 6. What would be recorded ####
   ##############################################################################
 
-  # The primary's elevation is the anchor and is not changed here. Only if it
-  # has never been set does the fall need one to hang from.
-  primary_elev <- suppressWarnings(as.numeric(primary$elev))
-  primary_elev_source <- NA_character_
-  if (!is.null(fall) && is.na(primary_elev)) {
-    cat("--- PRIMARY ELEVATION ---\n\n")
-    cat("The primary, ", device_label(primary), ", has no elevation, and the\n", sep = "")
-    cat("other logger's is derived from it.\n")
-    pe <- ui_prompt_elevation(primary$lat, primary$lon, "hydro", "primary")
-    if (is.na(pe$elev)) {
-      cat("\n\u26a0\ufe0f  Without it the fall cannot be saved as an elevation.\n\n")
-      if (is.null(reach)) return(cancel())
-      fall <- NULL
+  # Every row belongs to the surveyed logger, measured against the primary,
+  # except each logger's own offset. Upstream above downstream is positive,
+  # so a surveyed logger downstream of its primary gets a negative height
+  up_dev <- if (!is.null(fall)) fall$up_dev else NULL
+  sign <- if (!is.null(fall) && fall$up_dev$device_serial == other$device_serial) 1 else -1
+  cm <- function(m) round(m * 100, 2)
+  fall_rows <- NULL
+  if (!is.null(fall)) {
+    if (!is.null(fall$rebar_diff_m)) {
+      fall_rows <- rbind(
+        survey_row(station_id, fall$up_dev$unique_id, survey_date, "height_cm", "rebar",
+                   cm(fall$d_up_m), "sensor", method = "tape",
+                   notes = "rebar top to measuring point, from the rod survey"),
+        survey_row(station_id, fall$dn_dev$unique_id, survey_date, "height_cm", "rebar",
+                   cm(fall$d_dn_m), "sensor", method = "tape",
+                   notes = "rebar top to measuring point, from the rod survey"),
+        survey_row(station_id, other$unique_id, survey_date, "height_cm", "rebar",
+                   sign * cm(fall$rebar_diff_m), "rebar", primary$unique_id,
+                   method = "level", notes = fall$summary))
     } else {
-      primary_elev <- pe$elev
-      primary_elev_source <- pe$elev_source
+      fall_rows <- survey_row(station_id, other$unique_id, survey_date, "height_cm",
+                              fall$points, sign * cm(fall$value_m), fall$points,
+                              primary$unique_id, method = fall$method,
+                              notes = if (nzchar(fall$note)) fall$note else NA)
     }
   }
+  reach_rows <- if (!is.null(reach)) {
+    survey_row(station_id, other$unique_id, survey_date, "reach_m", NA, reach$value_m, NA,
+               primary$unique_id, method = reach$method, notes = reach$summary)
+  } else NULL
 
-  other_is_upstream <- !is.null(fall) && fall$upstream_serial == other$device_serial
-  old_elev  <- suppressWarnings(as.numeric(other$elev))
-  old_reach <- suppressWarnings(as.numeric(other$reach_length_m))
-  # To the tenth of a millimeter - finer than any rod reading
-  new_elev  <- if (!is.null(fall)) {
-    round(primary_elev + if (other_is_upstream) fall$value_m else -fall$value_m, 4)
-  } else NA_real_
+  # Checked now, before anything is filed, so a row the table would refuse
+  # never gets as far as a Product 0 file
+  problems <- survey_row_problems(rbind(fall_rows, reach_rows), metadata)
+  if (!is.null(problems)) return(cancel(paste(problems, collapse = "; ")))
 
-  # Slope from whatever is newest of each half
-  fall_for_slope  <- if (!is.null(fall)) fall$value_m else abs(old_elev - primary_elev)
-  reach_for_slope <- if (!is.null(reach)) reach$value_m else old_reach
-  slope <- compute_slope(fall_for_slope, reach_for_slope)
+  surveys <- load_surveys()
+  before_cm <- survey_height(other$unique_id, "sensor", primary$unique_id, "sensor", surveys)
+  after <- rbind(surveys, fall_rows, reach_rows)
+  after_cm <- survey_height(other$unique_id, "sensor", primary$unique_id, "sensor", after)
+  reach_m <- survey_reach(other$unique_id, primary$unique_id, after)
+  slope <- if (!is.na(after_cm)) compute_slope(abs(after_cm) / 100, reach_m) else NA_real_
 
-  show <- function(x, d = 3) if (is.na(x)) "(blank)" else formatC(x, format = "f", digits = d)
-
-  cat("============================================\n")
+  cat("============================================
+")
   cat("  Station:  ", station_id, "  (", survey_date, ")\n", sep = "")
   cat("  Primary:  ", device_label(primary), "\n", sep = "")
   cat("  Surveyed: ", device_label(other, with_role = TRUE), "\n\n", sep = "")
-  if (!is.null(fall)) {
-    cat("  Fall:          ", format_fall(fall$value_m), "   [", fall$summary, "]\n", sep = "")
-    cat("  Upstream:      ", device_label(fall$up_dev), "\n", sep = "")
-    cat("  Elevation of ", other$device_serial, ":  ", show(old_elev), " -> ",
-        show(new_elev), " m\n", sep = "")
-  } else {
-    cat("  Fall:          not surveyed - elevation stays ", show(old_elev), " m\n", sep = "")
+  cat("  To be recorded:\n")
+  for (r in list(fall_rows, reach_rows)) {
+    for (i in seq_len(if (is.null(r)) 0 else nrow(r))) {
+      cat("    ", describe_survey_row(r[i, ], metadata, with_logger = TRUE), "\n", sep = "")
+    }
   }
-  if (!is.null(reach)) {
-    cat("  Reach length:  ", show(old_reach, 2), " -> ", show(reach$value_m, 2),
-        " m   [", reach$summary, "]\n", sep = "")
+  if (is.null(fall)) cat("    (no fall this time)\n")
+  if (is.null(reach)) cat("    (no reach this time)\n")
+  cat("\n")
+  if (!is.na(after_cm)) {
+    cat(sprintf("  Sensor to sensor: %s is %.1f cm %s %s\n", device_label(other),
+                abs(after_cm), if (after_cm >= 0) "above" else "below", device_label(primary)))
   } else {
-    cat("  Reach length:  not surveyed - stays ", show(old_reach, 2), " m\n", sep = "")
+    cat("  Sensor to sensor: cannot be chained yet - ",
+        if (!is.null(fall) && is.na(fall$points)) "the points measured were not recorded"
+        else "a link is missing (see the doctor report)", "\n", sep = "")
   }
+  if (!is.na(reach_m)) cat(sprintf("  Reach:            %.2f m\n", reach_m))
   if (!is.na(slope)) {
-    cat("  Slope:         ", sprintf("%.5f", slope), "  (",
+    cat("  Slope:            ", sprintf("%.5f", slope), "  (",
         sprintf("%.3f", slope * 100), "%)\n", sep = "")
   } else {
-    cat("  Slope:         cannot be computed yet\n")
+    cat("  Slope:            cannot be computed yet\n")
   }
   cat("============================================\n\n")
 
   # A survey that puts the surveyed logger on the other side of the primary
   # from the record is either a correction or a mix-up over which logger was
   # at the backsight. Both are worth seeing before anything is saved.
-  if (!is.null(fall) && !is.na(old_elev) && !is.na(primary_elev) &&
-      (old_elev > primary_elev) != (new_elev > primary_elev)) {
+  if (!is.na(before_cm) && !is.na(after_cm) && (before_cm > 0) != (after_cm > 0)) {
     side <- function(above) if (above) "ABOVE" else "BELOW"
     cat("\u26a0\ufe0f  This survey puts ", device_label(other), " ",
-        side(new_elev > primary_elev), " the primary;\n", sep = "")
-    cat("   the record had it ", side(old_elev > primary_elev),
+        side(after_cm > 0), " the primary;\n", sep = "")
+    cat("   the record had it ", side(before_cm > 0),
         ". If that is a correction, carry on. If not, check which\n", sep = "")
     cat("   logger was at the backsight end.\n\n")
   }
@@ -1548,20 +1777,18 @@ ui_survey_gut_pair <- function() {
 
   #### Product 0 first - the record of what was measured ####
   survey_dir <- get_gut_survey_dir()
-  if (save_fall && fall$method == "rod") {
+  if (save_fall && !is.null(fall$p0)) {
     r <- write_fall_rod_file(fall$p0$table, file.path(survey_dir, fall$p0$filename))
     if (!isTRUE(r)) return(cancel(paste0("Could not write the rod readings: ", r,
                                          " - nothing saved")))
     cat("\u2713 Readings filed: ", fall$p0$filename, "\n", sep = "")
   }
-  if (save_reach && reach$method == "trupulse") {
+  if (save_reach && isTRUE(reach$trupulse)) {
     r <- archive_trupulse_export(reach$from, file.path(survey_dir, reach$filename))
     if (!isTRUE(r)) return(cancel(paste0("Could not file the TruPulse export: ", r,
                                          " - nothing saved to metadata")))
     cat("\u2713 Export filed:   ", reach$filename, "\n", sep = "")
   }
-
-  backup_metadata()
 
   #### Roles ####
   if (roles_unset) {
@@ -1577,43 +1804,36 @@ ui_survey_gut_pair <- function() {
     cat("\u2713 Roles assigned\n")
   }
 
-  #### Metadata ####
-  result <- survey_dual_logger_elevations(
-    station_id          = station_id,
-    primary_serial      = primary$device_serial,
-    secondary_serial    = other$device_serial,
-    primary_elev        = primary_elev,
-    elevation_diff      = if (save_fall) new_elev - primary_elev else NA_real_,
-    reach_length_m      = if (save_reach) reach$value_m else NA_real_,
-    primary_elev_source = primary_elev_source
-  )
+  #### Survey rows ####
+  rows <- rbind(if (save_fall) fall_rows, if (save_reach) reach_rows)
+  result <- add_survey_rows(rows)
   if (!isTRUE(result)) {
     cat("\u274c ", result, "\n", sep = "")
     return(invisible(NULL))
   }
-  cat("\u2713 Metadata saved\n")
+  cat("\u2713 Survey recorded: ", nrow(rows), " row", if (nrow(rows) != 1) "s", "\n", sep = "")
 
   #### Maintenance log ####
   bits <- character(0)
   if (save_fall) {
-    bits <- c(bits, sprintf("upstream %s, downstream %s; fall %.4f m [%s]; elev %s -> %.3f m",
+    bits <- c(bits, sprintf("upstream %s, downstream %s; fall %.4f m [%s]",
                             device_label(fall$up_dev, with_role = TRUE),
                             device_label(fall$dn_dev, with_role = TRUE),
-                            fall$value_m, fall$summary, show(old_elev), new_elev))
+                            fall$value_m, fall$summary))
   }
   if (save_reach) {
-    bits <- c(bits, sprintf("reach %s -> %.2f m [%s]", show(old_reach, 2),
-                            reach$value_m, reach$summary))
+    bits <- c(bits, sprintf("reach %.2f m [%s]", reach$value_m, reach$summary))
   }
-  slope_saved <- compute_slope(
-    if (save_fall) fall$value_m else abs(old_elev - primary_elev),
-    if (save_reach) reach$value_m else old_reach)
+  saved <- load_surveys()
+  s_cm <- survey_height(other$unique_id, "sensor", primary$unique_id, "sensor", saved)
+  s_reach <- survey_reach(other$unique_id, primary$unique_id, saved)
+  slope_saved <- if (!is.na(s_cm)) compute_slope(abs(s_cm) / 100, s_reach) else NA_real_
   if (!is.na(slope_saved)) bits <- c(bits, sprintf("slope %.5f", slope_saved))
 
   log_result <- create_maintenance_entry(
     field_visit_date = survey_date,
     station_id       = station_id,
-    device_serial    = other$device_serial,
+    unique_id        = other$unique_id,
     action_type      = "survey",
     details          = paste0("Gut survey: ", paste(bits, collapse = "; ")),
     logged_by        = logged_by
@@ -2237,9 +2457,6 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL,
       
       ## Elevation
       # Looked up now, while the coordinates are on screen and correctable.
-      # A secondary or tertiary hydro logger is deliberately NOT looked up -
-      # its elevation is the primary's plus a surveyed difference, and a DEM
-      # value there would make the difference between the pair meaningless.
       elev_result <- ui_prompt_elevation(lat, lon, station_type, device_role)
       elev <- elev_result$elev
       elev_source <- elev_result$elev_source
@@ -2255,21 +2472,11 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL,
       }
       lat <- current_row$lat
       lon <- current_row$lon
-      elev <- current_row$elev
-      elev_source <- if ("elev_source" %in% names(current_row)) {
-        current_row$elev_source
-      } else NA_character_
-      
-      # Coordinates are shared across a station's devices; ELEVATION is not.
-      # A secondary or tertiary hydro logger's elevation is the primary's plus
-      # a surveyed difference - inheriting the primary's value would make that
-      # difference zero and the hydraulic slope meaningless.
-      role_now <- tolower(as.character(device_role))
-      if (tolower(station_type) == "hydro" &&
-          !is.na(role_now) && role_now %in% c("secondary", "tertiary")) {
-        elev <- NA
-        elev_source <- NA_character_
-      }
+      # Never looked up again: at a paired gauge every logger carries the
+      # primary's elevation, and a fresh lookup could differ by DEM noise
+      se <- station_elevation(station_id)
+      elev <- se$elev
+      elev_source <- se$elev_source
       
       cat("✓ Location inherited from station:\n")
       cat("  Latitude:", lat, "\n")
@@ -2277,21 +2484,14 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL,
       if (!is.na(elev)) {
         cat("  Elevation:", elev, "m",
             if (!is.na(elev_source)) paste0(" (", elev_source, ")") else "", "\n")
-      } else if (tolower(station_type) == "hydro" &&
-                 !is.na(role_now) && role_now %in% c("secondary", "tertiary")) {
-        cat("  Elevation: not set - a ", role_now, " logger's elevation is the\n",
-            sep = "")
-        cat("             primary's plus a surveyed difference. Record it with\n")
-        cat("             'Field surveyed elevation' (option 8).\n")
       } else {
         cat("  Elevation: Not recorded\n")
       }
     }
 
     ## Sensor height
-    # Per device, not per station: a replacement logger can sit higher or
-    # lower than the one it replaced, so it is asked fresh rather than
-    # inherited.
+    # Per device, not per station. A replacement in the same housing can have
+    # its predecessor's surveys carried over afterwards instead.
     sensor_height_cm <- ui_prompt_sensor_height(station_type)
     
     ################################################################################
@@ -2408,7 +2608,8 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL,
       cat("  Elevation: not set\n")
     }
     if (!is.na(sensor_height_cm)) {
-      cat("  Sensor height:", sensor_height_cm, "cm above ground\n")
+      cat("  Sensor height:", sensor_height_cm, "cm above the",
+          if (tolower(station_type) == "weather") "ground" else "bed", "\n")
     }
     cat("  Deploy:", format(deploy_datetime), "\n")
     cat("  Status:", status, "\n")
@@ -2644,66 +2845,14 @@ ui_replace_device <- function() {
   cat("  Old:", old_device_serial, "(replaced)\n")
   cat("  New:", new_device_serial, "\n")
 
-  #### Survey geometry that no longer describes reality ####
-  cleared <- invalidate_pair_geometry(station_id, old_device_serial, old_device_row$device_role)
-  if (length(cleared) > 0) {
-    cat("\n--- SURVEY GEOMETRY CLEARED ---\n\n")
-    cat("This station has paired loggers, and their survey describes the\n")
-    cat("positions they were in. Those values have been cleared:\n\n")
-    for (line in cleared) cat("  ", line, "\n", sep = "")
-    cat("\nA wrong slope is worse than a missing one - it biases every\n")
-    cat("discharge value computed from this reach, silently. Re-survey with\n")
-    cat("'Field surveyed elevation' (option 8) once the loggers are settled.\n")
-  }
+  #### Surveys that still hold ####
+  # Surveys belong to the deployment they were measured on, so the new logger
+  # starts with none. Where it went into the same housing and the rebar was not
+  # touched, what was measured still holds, and is carried over row by row -
+  # only a person knows which
+  new_uid <- resolve_deployment(new_device_serial, station_id, when)
+  if (!is.na(new_uid)) ui_carry_surveys(old_device_row$unique_id, new_uid)
 
-  
-  #### Surveyed elevation is now suspect ####
-  # A replacement logger is rarely at exactly the height of the one it
-  # replaced - and at a dual-logger stream gauge, the elevation difference IS
-  # the hydraulic slope. A stale elevation carried forward silently produces a
-  # wrong slope, and a wrong slope produces wrong flow. Missing is safer than
-  # wrong: at least a gap announces itself.
-  old_elev <- old_device_row$elev
-  
-  if (tolower(old_device_row$station_type) == "hydro" &&
-      !is.na(old_elev)) {
-    
-    cat("\n--- SURVEYED ELEVATION ---\n\n")
-    cat("The device you replaced had a surveyed elevation of ", old_elev, " m.\n",
-        sep = "")
-    cat("The replacement is unlikely to sit at exactly that height, and at a\n")
-    cat("dual-logger gauge the elevation difference IS the hydraulic slope.\n")
-    cat("Carrying the old figure forward would silently produce wrong flow.\n\n")
-    
-    surveyed <- ui_yes_no("Have you surveyed the new device's elevation?",
-                          allow_quit = FALSE)
-    
-    # The new row inherited the old elevation from the station, so clearing it
-    # takes an explicit write - it does not start blank.
-    metadata <- load_zentra_metadata()
-    new_idx <- which(metadata$device_serial == new_device_serial &
-                     metadata$station_id == station_id &
-                     !metadata$status %in% c("removed", "replaced", "relocated",
-                                             "decommissioned"))
-
-    if (length(new_idx) > 0 && !is.na(metadata$elev[new_idx[1]])) {
-      metadata$elev[new_idx[1]] <- NA
-
-      if (isTRUE(save_device_metadata(
-            metadata, intent = "clearing the inherited elevation on a replacement"))) {
-        cat("\n✓ Cleared the inherited elevation on the new device\n")
-      }
-    }
-
-    if (surveyed == "Y") {
-      ui_survey_elevations()
-    } else {
-      cat("\nThe elevation is blank until it is surveyed. A missing elevation\n")
-      cat("is safer than a stale one - it announces itself, and the survey\n")
-      cat("workflow will prompt for it.\n")
-    }
-  }
-  
   # Log to maintenance
   log_result <- create_maintenance_entry(
     field_visit_date = Sys.Date(),
@@ -3095,18 +3244,6 @@ ui_relocate_station <- function() {
   if (!is.null(new_device)) {
     cat("  Device changed to ", new_device$device_serial, "\n", sep = "")
     cat("  Ports on ", current_device$device_serial, " closed\n", sep = "")
-  }
-
-  #### Survey geometry that no longer describes reality ####
-  cleared <- invalidate_pair_geometry(station_id, current_device$device_serial, current_device$device_role)
-  if (length(cleared) > 0) {
-    cat("\n--- SURVEY GEOMETRY CLEARED ---\n\n")
-    cat("This station has paired loggers, and their survey describes the\n")
-    cat("positions they were in. Those values have been cleared:\n\n")
-    for (line in cleared) cat("  ", line, "\n", sep = "")
-    cat("\nA wrong slope is worse than a missing one - it biases every\n")
-    cat("discharge value computed from this reach, silently. Re-survey with\n")
-    cat("'Field surveyed elevation' (option 8) once the loggers are settled.\n")
   }
 
   
@@ -4999,21 +5136,7 @@ ui_remove_device <- function() {
   
   cat("\n✓ Device removal complete!\n")
   cat("  Device ", device_serial, " has been removed from service\n", sep = "")
-  
-  #### Survey geometry that no longer describes reality ####
-  # Removing the primary leaves its dependants measured against a logger that
-  # is no longer there; removing a secondary ends that relationship outright.
-  cleared <- invalidate_pair_geometry(station_id, device_serial,
-                                      device_row$device_role)
-  if (length(cleared) > 0) {
-    cat("\n--- SURVEY GEOMETRY CLEARED ---\n\n")
-    cat("This station has paired loggers, and their survey describes the\n")
-    cat("positions they were in. Those values have been cleared:\n\n")
-    for (line in cleared) cat("  ", line, "\n", sep = "")
-    cat("\nA wrong slope is worse than a missing one. Re-survey once the\n")
-    cat("station is settled.\n")
-  }
-  
+
   return(TRUE)
 }
 
@@ -5273,7 +5396,7 @@ ui_correct_device_details <- function() {
   # but note that lat/lon changing because the DEVICE MOVED is an event, and
   # belongs in the relocation or replacement workflow so it leaves a log entry.
   editable <- c("model", "device_name", "device_role", "interval_min",
-                "deploy_datetime", "lat", "lon", "elev", "sensor_height_cm")
+                "deploy_datetime", "lat", "lon", "elev")
   editable <- editable[editable %in% names(metadata)]
 
   # A device already in a terminal state can have that state CORRECTED here -
@@ -5371,9 +5494,6 @@ ui_correct_device_details <- function() {
       }
       # elev_source travels with the value
       metadata$elev_source[idx] <- res$elev_source
-
-    } else if (field == "sensor_height_cm") {
-      new_value <- ui_prompt_sensor_height(metadata$station_type[idx], current)
 
     } else if (field == "deploy_datetime") {
       cat("Enter deploy datetime (YYYY-MM-DD HH:MM:SS): ")
@@ -5737,7 +5857,7 @@ metadata_manager <- function() {
         cat("  5. Device removal (taking device out of service)\n")
         cat("  6. Station relocated (moved to new location)\n")
         cat("  7. Station decommissioned (entire station shut down)\n")
-        cat("  8. Field surveyed elevation of station or loggers\n")
+        cat("  8. Field survey - sensor heights, falls, reach, GNSS elevation\n")
         cat("  9. Correct device details (model, name, role, interval, coords)\n")
         cat("  q. Back to main menu\n")
         
@@ -6047,22 +6167,25 @@ metadata_manager <- function() {
               station_devices <- get_active_station_devices(device_row$station_id)
               roles <- tolower(station_devices$device_role)
               has_pair <- sum(!is.na(roles) & roles %in% c("primary", "secondary")) >= 2
-              unsurveyed <- any(is.na(station_devices$elev))
+              needs <- tryCatch(survey_needs(), error = function(e) NULL)
+              unsurveyed <- !is.null(needs) &&
+                any(needs$unique_id %in% station_devices$unique_id &
+                      needs$need %in% c("fall to primary", "reach to primary"))
               
               if (has_pair && unsurveyed) {
-                cat("\n--- SURVEYED ELEVATION ---\n\n")
+                cat("\n--- GUT SURVEY ---\n\n")
                 cat("This station now has a primary and a secondary logger. The\n")
-                cat("elevation difference between them is the hydraulic slope,\n")
-                cat("and until it is surveyed the water levels cannot become flow.\n\n")
+                cat("fall and reach between them give the hydraulic slope, and\n")
+                cat("until they are surveyed the water levels cannot become flow.\n\n")
                 
-                do_survey <- ui_yes_no("Do you have the elevation survey data to enter now?",
+                do_survey <- ui_yes_no("Do you have the survey data to enter now?",
                                        allow_quit = FALSE)
                 
                 if (do_survey == "Y") {
                   ui_survey_elevations()
                 } else {
-                  cat("\nNo problem - record it later with 'Field surveyed\n")
-                  cat("elevation' (option 8) under existing station work.\n")
+                  cat("\nNo problem - record it later with 'Field survey'\n")
+                  cat("(option 8) under existing station work.\n")
                 }
               }
             }

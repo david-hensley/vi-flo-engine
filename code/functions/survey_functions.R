@@ -523,10 +523,29 @@ survey_links <- function(surveys) {
   pair <- ifelse(a < b, paste(a, b), paste(b, a))
   newest <- order(pair, h$measured_on, decreasing = TRUE)
   keep <- newest[!duplicated(pair[newest])]
-  data.frame(from  = c(b[keep], a[keep]),
-             to    = c(a[keep], b[keep]),
-             value = c(h$value[keep], -h$value[keep]),
-             stringsAsFactors = FALSE)
+  links <- data.frame(from  = c(b[keep], a[keep]),
+                      to    = c(a[keep], b[keep]),
+                      value = c(h$value[keep], -h$value[keep]),
+                      stringsAsFactors = FALSE)
+
+  # A carried row says its points did not move when the logger was replaced:
+  # the new logger's rebar top IS the old one's. So each of its points is
+  # joined to the same point on the logger it was carried from, at no height
+  # - which is what lets a secondary surveyed against the old primary still
+  # chain to the new one
+  cr <- h[!is.na(h$carried_from), , drop = FALSE]
+  if (nrow(cr) > 0) {
+    same <- unique(rbind(
+      data.frame(x = paste(cr$unique_id, cr$point, sep = "|"),
+                 y = paste(cr$carried_from, cr$point, sep = "|")),
+      data.frame(x = paste(cr$unique_id, cr$relative_to, sep = "|"),
+                 y = paste(cr$carried_from, cr$relative_to, sep = "|"))[
+                   is.na(cr$relative_to_id), , drop = FALSE]))
+    links <- rbind(links,
+                   data.frame(from = c(same$x, same$y), to = c(same$y, same$x),
+                              value = 0, stringsAsFactors = FALSE))
+  }
+  links
 }
 
 
@@ -568,17 +587,40 @@ survey_height <- function(unique_id, point, ref_id, ref_point, surveys = NULL) {
 }
 
 
+#' The deployments that stand in the same place as this one
+#'
+#' A logger replaced in the same housing, with surveys carried over, sits
+#' where the old one sat. Followed both ways and through several
+#' replacements.
+#'
+#' @return Character unique_ids, this one included
+survey_same_place <- function(unique_id, surveys) {
+  cr <- surveys[!is.na(surveys$carried_from), c("unique_id", "carried_from"), drop = FALSE]
+  found <- unique_id
+  repeat {
+    more <- unique(c(cr$carried_from[cr$unique_id %in% found],
+                     cr$unique_id[cr$carried_from %in% found]))
+    more <- setdiff(more, found)
+    if (length(more) == 0) return(found)
+    found <- c(found, more)
+  }
+}
+
+
 #' The reach between two loggers, as surveyed
 #'
 #' Either way round: a reach measured from the primary to the secondary is
-#' the same distance. The newest survey stands.
+#' the same distance. A logger replaced in the same housing keeps its
+#' predecessor's reaches. The newest survey stands.
 #'
 #' @return Numeric, meters, or NA if never surveyed
 survey_reach <- function(unique_id, ref_id, surveys = NULL) {
   if (is.null(surveys)) surveys <- load_surveys()
+  a <- survey_same_place(unique_id, surveys)
+  b <- survey_same_place(ref_id, surveys)
   r <- surveys[surveys$quantity == "reach_m" & !is.na(surveys$value) &
-                 ((surveys$unique_id == unique_id & surveys$relative_to_id %in% ref_id) |
-                    (surveys$unique_id == ref_id & surveys$relative_to_id %in% unique_id)),
+                 ((surveys$unique_id %in% a & surveys$relative_to_id %in% b) |
+                    (surveys$unique_id %in% b & surveys$relative_to_id %in% a)),
                , drop = FALSE]
   if (nrow(r) == 0) return(NA_real_)
   r$value[order(r$measured_on, decreasing = TRUE)][1]
@@ -657,4 +699,162 @@ survey_needs <- function(metadata = NULL, surveys = NULL) {
                       detail = character(0), stringsAsFactors = FALSE))
   }
   do.call(rbind, found)
+}
+
+
+
+#### Writing survey records ####
+
+#' One survey row, in the table's columns
+#'
+#' @param station_id,unique_id The logger measured
+#' @param measured_on Date, or text a date can be read from
+#' @param quantity One of SURVEY_QUANTITIES
+#' @param point,relative_to Points from SURVEY_POINTS, or NA if not recorded
+#' @param value In the quantity's unit
+#' @param relative_to_id The other logger, when relative_to is on it
+#' @param method One of SURVEY_METHODS
+#' @param carried_from The logger this row was copied from, if carried
+#' @param notes Free text
+#' @return One-row data frame
+survey_row <- function(station_id, unique_id, measured_on, quantity, point, value,
+                       relative_to, relative_to_id = NA, method, carried_from = NA,
+                       notes = NA) {
+  data.frame(station_id = station_id, unique_id = unique_id,
+             measured_on = as.Date(measured_on), quantity = quantity,
+             point = as.character(point), value = as.numeric(value),
+             relative_to = as.character(relative_to),
+             relative_to_id = as.character(relative_to_id), method = method,
+             carried_from = as.character(carried_from),
+             notes = if (is.null(notes) || (length(notes) == 1 && !is.na(notes) && !nzchar(notes)))
+               NA_character_ else as.character(notes),
+             stringsAsFactors = FALSE)
+}
+
+
+#' Why a survey row cannot be recorded, or NULL if it can
+#'
+#' The same rules validate_metadata() checks across the table, applied to new
+#' rows before they are written, so a workflow can never add one the check
+#' would then report.
+#'
+#' @param rows Data frame of survey rows
+#' @param metadata Data frame of device rows, or NULL to read
+#' @return Character messages, or NULL
+survey_row_problems <- function(rows, metadata = NULL) {
+  if (is.null(metadata)) metadata <- read_table("device_metadata", remember = FALSE)
+  out <- character(0)
+  for (i in seq_len(nrow(rows))) {
+    r <- rows[i, ]
+    say <- function(msg) out <<- c(out, paste0("row ", i, ": ", msg))
+    if (!r$quantity %in% SURVEY_QUANTITIES) say(paste0("unknown quantity '", r$quantity, "'"))
+    if (!r$method %in% SURVEY_METHODS) say(paste0("unknown method '", r$method, "'"))
+    for (p in c(r$point, r$relative_to)) {
+      if (!is.na(p) && !p %in% SURVEY_POINTS) say(paste0("unknown point '", p, "'"))
+    }
+    if (is.na(r$value)) say("no value")
+    if (is.na(r$measured_on)) say("no date")
+    if (!r$unique_id %in% metadata$unique_id) say(paste0("no logger ", r$unique_id))
+    if (!is.na(r$relative_to_id) && !r$relative_to_id %in% metadata$unique_id) {
+      say(paste0("no logger ", r$relative_to_id))
+    }
+    if (r$quantity == "reach_m") {
+      if (!is.na(r$point) || !is.na(r$relative_to)) say("a reach runs between loggers, not points")
+      if (is.na(r$relative_to_id)) say("a reach needs the other logger")
+      if (!is.na(r$value) && r$value <= 0) say("a reach is a length, so positive")
+    }
+    if (r$quantity == "height_cm") {
+      if (is.na(r$point) != is.na(r$relative_to)) {
+        say("a height needs both points, or neither if not recorded")
+      }
+      if (!is.na(r$point) && !is.na(r$relative_to) && r$point == r$relative_to &&
+          (is.na(r$relative_to_id) || r$relative_to_id == r$unique_id)) {
+        say("a point is not above itself")
+      }
+    }
+  }
+  if (length(out) == 0) NULL else out
+}
+
+
+#' Adds survey rows to surveys.csv
+#'
+#' @param rows Data frame of survey rows, as survey_row() makes them
+#' @return TRUE, or an error message - nothing written if any row is wrong
+add_survey_rows <- function(rows) {
+  tryCatch({
+    problems <- survey_row_problems(rows)
+    if (!is.null(problems)) return(paste(problems, collapse = "; "))
+    append_rows("surveys", rows[, names(TABLE_SCHEMA$surveys$columns), drop = FALSE])
+    TRUE
+  }, error = function(e) paste0("Could not record the survey: ", conditionMessage(e)))
+}
+
+
+#' Removes one survey row
+#'
+#' For a row entered by mistake. A measurement superseded by a newer one is
+#' kept - the newest stands, and the older is history.
+#'
+#' @param row One-row data frame, as load_surveys() returned it
+#' @return TRUE, or an error message
+remove_survey_row <- function(row) {
+  tryCatch({
+    s <- read_table("surveys")
+    key <- function(d) do.call(paste, c(lapply(d[, names(TABLE_SCHEMA$surveys$columns)],
+                                                as.character), sep = "\r"))
+    hit <- which(key(s) == key(row))
+    if (length(hit) == 0) return("That row is no longer in surveys.csv")
+    write_table_or_stop("surveys", s[-hit[1], , drop = FALSE],
+                        intent = "removing a survey row")
+    TRUE
+  }, error = function(e) paste0("Could not remove the row: ", conditionMessage(e)))
+}
+
+
+#' A logger's latest survey of each distance it holds
+#'
+#' One row per distinct measurement - the same two points, or the same reach -
+#' the newest of each. What a replacement offers to carry over.
+#'
+#' @return Data frame of survey rows
+latest_surveys <- function(unique_id, surveys = NULL) {
+  if (is.null(surveys)) surveys <- load_surveys()
+  mine <- surveys[surveys$unique_id == unique_id, , drop = FALSE]
+  if (nrow(mine) == 0) return(mine)
+  what <- paste(mine$quantity, mine$point, mine$relative_to, mine$relative_to_id)
+  o <- order(what, mine$measured_on, decreasing = TRUE)
+  mine <- mine[o, , drop = FALSE]
+  mine[!duplicated(what[o]), , drop = FALSE]
+}
+
+
+#' One survey row as a sentence
+#'
+#' "rebar 24.94 cm above sensor - tape, 2026-10-14", with another logger
+#' named by its device name.
+#'
+#' @param r One survey row
+#' @param metadata Data frame of device rows, for names
+#' @param with_logger Logical. Start with the logger measured
+#' @return Character
+describe_survey_row <- function(r, metadata, with_logger = FALSE) {
+  name <- function(uid) {
+    n <- metadata$device_name[match(uid, metadata$unique_id)]
+    if (is.na(n)) uid else n
+  }
+  what <- if (r$quantity == "reach_m") {
+    paste0("reach ", r$value, " m to ", name(r$relative_to_id))
+  } else if (is.na(r$point)) {
+    paste0(r$value, " cm",
+           if (!is.na(r$relative_to_id)) paste0(" relative to ", name(r$relative_to_id)) else "",
+           " (points not recorded)")
+  } else {
+    paste0(r$point, " ", r$value, " cm above ",
+           if (!is.na(r$relative_to_id)) paste0(name(r$relative_to_id), "'s ") else "",
+           r$relative_to)
+  }
+  paste0(if (with_logger) paste0(name(r$unique_id), ": ") else "", what,
+         " - ", r$method, ", ", format(r$measured_on),
+         if (!is.na(r$carried_from)) paste0(", carried from ", name(r$carried_from)) else "")
 }

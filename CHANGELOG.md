@@ -55,7 +55,51 @@ All notable changes to the VI-FLO Engine project are documented here.
   `sensor_height_cm`, `reach_length_m` and surveyed elevations stay until the
   workflows move onto the new table
 
+- **Surveys can be removed when entered by mistake**, from the field survey
+  menu. A measurement that was simply repeated needs no removing - the newest
+  stands - so this is for the wrong logger, a typo, a duplicate. The removal
+  is logged as a `metadata_deletion`
+- `tools/sandbox.R`: try any metadata manager workflow on a throwaway copy of
+  the real metadata. `sandbox_start()` copies every table and the gut survey
+  files to a temporary root and points the session at it; `sandbox_changes()`
+  shows what the workflows did to the copy; `sandbox_end()` returns to the
+  real data and deletes the copy
+- `tools/migrations/migrate_device_surveys_v2.9.R` (step 4.5b) takes
+  `sensor_height_cm` and `reach_length_m` out of `device_metadata.csv`, after
+  checking every value is in `surveys.csv`, and gives each secondary its
+  primary's elevation in place of the primary's-plus-a-fall
+
 ### Changed
+- **Every survey workflow writes `surveys.csv`, recording what was actually
+  measured.** The paired-gauge survey records each logger's rebar top above
+  its sensor and the upstream rebar top above the downstream one, from the
+  rod readings, and the reach; a fall typed by hand asks which points it was
+  measured between - rebar tops, sensors, or not recorded - and how. The
+  sensor-to-sensor fall and the slope are shown chained from the rows, never
+  stored. The single-device survey becomes two: a measured height between any
+  two points, on this logger or another at the station - asked as which two
+  points, which is higher, and by how much, so there is no direction to get
+  backwards - and ground elevation by GNSS. A
+  new device's sensor height, asked as it goes in, becomes a survey row; the
+  standard 200 cm on a weather station is recorded as `nominal`
+- **A replacement offers the old logger's surveys to the new one, one at a
+  time.** A logger in the same housing with the rebar untouched sits where
+  the old one sat; each measurement confirmed as still holding is copied with
+  `carried_from`, and the chain treats a carried point as the same point - so
+  a secondary surveyed against the old primary still chains to the new
+- **A paired gauge carries one ground elevation, the primary's, on every
+  logger.** A secondary's elevation is no longer the primary's plus a fall:
+  the fall is in `surveys.csv`, where it was measured. The primary's value is
+  copied rather than looked up again - a new logger at the station inherits
+  it, a GNSS survey of any of them updates them all - so DEM noise can never
+  put a few centimeters between rows describing one place. `validate_metadata()`
+  checks they agree. `surveyed_relative` is gone from the elevation sources
+- Relocating, replacing or removing a logger no longer clears the pair's
+  survey values. Surveys belong to the deployment they were measured on, so a
+  new deployment simply starts without them; `invalidate_pair_geometry()` is
+  gone
+- `sensor_height_cm` is no longer a field in *Correct device details*; a new
+  measurement is entered as a survey
 - **The network to-do's survey check reads `surveys.csv`.** A paired gauge is
   listed when its sensor cannot be chained to its primary's or it has no
   reach to it - the two things a slope needs - where before it looked for an

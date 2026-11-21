@@ -434,38 +434,37 @@ validate_metadata <- function(verbose = TRUE, stop_on_error = FALSE) {
     }
   }
   
-    # CHECK: reach_length_m belongs to a secondary, not a primary
-    #
-    # The dictionary defines it as the distance from THIS device to its
-    # station's primary. A primary is zero meters from itself, so a value
-    # there means the field was filled for the pair rather than for the
-    # device, and the hydraulic slope it feeds would be computed from a
-    # length that describes nothing.
-    if (all(c("reach_length_m", "device_role") %in% names(metadata))) {
-      misplaced <- which(!is.na(metadata$reach_length_m) &
-                         metadata$station_type == "hydro" &
-                         (is.na(metadata$device_role) |
-                          metadata$device_role == "primary"))
+    if (verbose) cat("\nChecking elevations and datetimes...\n")
 
-      if (length(misplaced) > 0) {
+    # CHECK: a paired gauge's loggers carry the primary's elevation
+    #
+    # One ground elevation per station. Two that differ are two lookups of
+    # the same place disagreeing by DEM noise - or a fall mistaken for an
+    # elevation. The difference between the loggers is measured, in surveys.csv
+    if (all(c("elev", "device_role") %in% names(metadata))) {
+      cur <- metadata[!tolower(metadata$status) %in% TERMINAL_STATUSES &
+                        tolower(metadata$station_type) == "hydro" &
+                        !is.na(metadata$device_role), , drop = FALSE]
+      prim <- cur[tolower(cur$device_role) == "primary", , drop = FALSE]
+      others <- cur[tolower(cur$device_role) != "primary", , drop = FALSE]
+      pe <- prim$elev[match(others$station_id, prim$station_id)]
+      differ <- !is.na(pe) & (is.na(others$elev) | abs(others$elev - pe) > 1e-9)
+      if (any(differ)) {
         record_violation(
-          "REACH_LENGTH_ON_PRIMARY",
-          paste(length(misplaced),
-                "reach_length_m value(s) on a primary or a row with no role"),
-          metadata[misplaced, c("unique_id", "device_serial", "station_id",
-                                "device_role", "reach_length_m")]
+          "PAIRED_ELEVATION_DIFFERS",
+          paste(sum(differ), "paired logger(s) whose elevation is not their primary's"),
+          others[differ, c("unique_id", "station_id", "device_role", "elev")]
         )
       } else {
-        record_pass("reach_length_m only on secondaries")
+        record_pass("paired loggers carry their primary's elevation")
       }
     }
 
     # CHECK: an elevation says where it came from
     #
-    # usgs_3dep_1m and surveyed_relative mean different things - one is a DEM
-    # sample, the other a primary's elevation plus a measured difference - and
-    # elev_source is how a reader tells which. A value without one is a number
-    # nobody can weigh.
+    # A lidar sample, a coarse global DEM and a GNSS shot are not equally
+    # good, and elev_source is how a reader tells which. A value without one
+    # is a number nobody can weigh.
     if (all(c("elev", "elev_source") %in% names(metadata))) {
       unsourced <- which(!is.na(metadata$elev) &
                          (is.na(metadata$elev_source) |

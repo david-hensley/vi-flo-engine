@@ -558,10 +558,9 @@ ui_prompt_metadata_approval <- function(station_id, apply = TRUE) {
 #' coverage, or no connection - the URL is shown so the value can be looked up
 #' by hand, and a typed value is always accepted.
 #'
-#' A secondary or tertiary hydro logger is NOT looked up. Its elevation is the
-#' primary's plus a surveyed difference, so that the difference between the
-#' pair is a real measurement. A DEM value there would be the difference
-#' between two samples of a raster, which is not a slope.
+#' Every row gets one, whatever its role: `elev` is the ground at the
+#' coordinates. The difference between a paired gauge's loggers is never taken
+#' from it - that is measured in the field and kept in surveys.csv.
 #'
 #' @param lat Numeric latitude
 #' @param lon Numeric longitude
@@ -571,19 +570,6 @@ ui_prompt_metadata_approval <- function(station_id, apply = TRUE) {
 ui_prompt_elevation <- function(lat, lon, station_type = NA, device_role = NA) {
 
   none <- list(elev = NA_real_, elev_source = NA_character_)
-
-  #### Paired hydro loggers get theirs from the survey ####
-  role <- tolower(as.character(device_role))
-  if (!is.na(station_type) && tolower(station_type) == "hydro" &&
-      !is.na(role) && role %in% c("secondary", "tertiary")) {
-    cat("\n--- ELEVATION ---\n\n")
-    cat("Not set here. A ", role, " logger's elevation is the primary's plus\n",
-        sep = "")
-    cat("a surveyed difference - that difference is what hydraulic slope uses,\n")
-    cat("so it has to be measured, not looked up.\n\n")
-    cat("Record it with 'Field surveyed elevation' (option 8) once surveyed.\n")
-    return(none)
-  }
 
   cat("\n--- ELEVATION ---\n\n")
 
@@ -663,28 +649,29 @@ ui_prompt_elevation <- function(lat, lon, station_type = NA, device_role = NA) {
 }
 
 
-#' Prompts for a sensor's height above the ground
+#' Prompts for a new device's sensor height
 #'
-#' `elev` is the GROUND at the device's coordinates. Where a reading is turned
-#' into an elevation - a water level becoming a water-surface elevation - the
-#' height of the measuring point above that ground has to be added, so it is
-#' recorded here, in centimeters.
+#' Asked when a device goes in, and recorded in surveys.csv against its new
+#' deployment - the measuring point's height above the ground for a weather
+#' station, above the streambed or pond bed for anything else. Remeasured
+#' later with the survey workflow, where any point can be measured against
+#' any other.
 #'
 #' Asked differently by station type:
 #'   - vwc: not asked. A soil moisture logger carries several sensors at
 #'     several depths, recorded per port as `depth_cm` in zentra_ports.csv
-#'   - weather: 200 cm suggested, the standard mounting height
-#'   - anything else, chiefly hydro and pond: the height of the logger's
-#'     measuring point above the streambed or ground. Blank when not yet
-#'     measured, which is the honest state for most stream gauges today
+#'   - weather: 200 cm offered, the standard mounting height - recorded as
+#'     `nominal` if taken, since nobody measured it
+#'   - anything else, chiefly hydro and pond: blank when not yet measured,
+#'     which is the honest state for most stream gauges
 #'
 #' @param station_type Character
-#' @param current Numeric. Value already on record, offered as the default
-#' @return Numeric cm, or NA
-ui_prompt_sensor_height <- function(station_type, current = NA) {
+#' @return Numeric cm, or NA. Carries attribute "method": "nominal" for the
+#'   standard weather height taken as offered, "tape" for a typed value
+ui_prompt_sensor_height <- function(station_type) {
 
   type <- tolower(trimws(as.character(station_type)))
-  current <- suppressWarnings(as.numeric(current))
+  with_method <- function(v, m) { attr(v, "method") <- m; v }
 
   if (!is.na(type) && type == "vwc") {
     cat("\n\u2713 Sensor height: not applicable - soil sensor depths are recorded per port\n")
@@ -692,32 +679,22 @@ ui_prompt_sensor_height <- function(station_type, current = NA) {
   }
 
   cat("\n--- SENSOR HEIGHT ---\n\n")
-  if (!is.na(type) && type == "weather") {
-    default <- if (!is.na(current)) current else 200
+  weather <- !is.na(type) && type == "weather"
+  if (weather) {
     cat("Height of the sensors above the ground, in centimeters.\n")
-    cat("Enter for ", default, " cm, 'none' to leave blank, or a value: ", sep = "")
+    cat("Enter for the standard 200 cm, 'none' to leave blank, or a measured value: ")
   } else {
-    default <- current
-    cat("Height of the logger's measuring point above the streambed or\n")
-    cat("ground at its coordinates, in centimeters.\n")
-    if (!is.na(default)) {
-      cat("Enter to keep ", default, " cm, 'none' to clear, or a value: ", sep = "")
-    } else {
-      cat("Enter if not yet measured, or a value: ")
-    }
+    cat("Height of the logger's measuring point above the streambed (or pond\n")
+    cat("bed), in centimeters. Enter if not yet measured, or a value: ")
   }
 
   repeat {
     input <- trimws(readline())
-    if (input == "") {
-      if (is.na(default)) {
-        cat("\u2713 Sensor height not recorded\n")
-      } else {
-        cat("\u2713 Sensor height: ", default, " cm\n", sep = "")
-      }
-      return(default)
+    if (input == "" && weather) {
+      cat("\u2713 Sensor height: 200 cm, the standard\n")
+      return(with_method(200, "nominal"))
     }
-    if (tolower(input) == "none") {
+    if (input == "" || tolower(input) == "none") {
       cat("\u2713 Sensor height not recorded\n")
       return(NA_real_)
     }
@@ -726,10 +703,10 @@ ui_prompt_sensor_height <- function(station_type, current = NA) {
       cat("\u26a0\ufe0f  Not a number. Enter centimeters, e.g. 28: ")
       next
     }
-    # Below ground is possible - a sensor in a well - but unusual enough to
+    # Below the bed is possible - a sensor dug in - but unusual enough to
     # confirm, as is anything above 5 m
     if (value < 0 || value > 500) {
-      cat("\u26a0\ufe0f  ", value, " cm is unusual - ", if (value < 0) "below the ground" else "over 5 m up",
+      cat("\u26a0\ufe0f  ", value, " cm is unusual - ", if (value < 0) "below the bed or ground" else "over 5 m up",
           ".\n", sep = "")
       if (ui_yes_no("Is that right?", allow_quit = FALSE) == "N") {
         cat("Enter centimeters: ")
@@ -737,6 +714,6 @@ ui_prompt_sensor_height <- function(station_type, current = NA) {
       }
     }
     cat("\u2713 Sensor height: ", value, " cm\n", sep = "")
-    return(value)
+    return(with_method(value, "tape"))
   }
 }

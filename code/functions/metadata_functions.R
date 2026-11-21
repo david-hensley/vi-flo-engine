@@ -967,124 +967,31 @@ update_device_location <- function(device_serial, lat, lon, elev,
   })
 }
 
-#' Writes a single-device survey to the metadata
+#' Writes a surveyed ground elevation to device rows
 #'
-#' Scoped to ONE row by unique_id. The version this replaces wrote to every
-#' row carrying the serial, retired deployments and other stations included.
+#' Scoped by unique_id: the rows named, never every row with a serial. `elev`
+#' is the ground at the station - what was measured between loggers is in
+#' surveys.csv, not here. At a paired gauge every logger carries the
+#' primary's, so the caller names them all.
 #'
-#' @param unique_id Character. The row to update
-#' @param elev Numeric. New ground elevation (meters), or NA to leave it
+#' @param unique_id Character. The row or rows to update
+#' @param elev Numeric. New ground elevation (meters)
 #' @param elev_source Character. Written with the elevation
-#' @param sensor_height_cm Numeric. Written as given, NA included
-#' @param shift_unique_ids Character. Rows whose elevation moves by shift_by -
-#'   a hydro primary's surveyed partners, so their measured falls survive
-#' @param shift_by Numeric. Meters
 #' @return TRUE if successful, error message if failed
-survey_device_elevation <- function(unique_id, elev = NA, elev_source = NA,
-                                    sensor_height_cm = NA,
-                                    shift_unique_ids = character(0),
-                                    shift_by = NA) {
+survey_device_elevation <- function(unique_id, elev, elev_source) {
   tryCatch({
     metadata <- load_zentra_metadata()
-    idx <- which(metadata$unique_id == unique_id)
-    if (length(idx) != 1) return(paste0("Expected one row for ", unique_id,
-                                        ", found ", length(idx)))
-
-    if (!is.na(elev)) {
-      metadata$elev[idx] <- elev
-      if ("elev_source" %in% names(metadata)) metadata$elev_source[idx] <- elev_source
+    idx <- which(metadata$unique_id %in% unique_id)
+    if (length(idx) != length(unique(unique_id))) {
+      return(paste0("Expected a row for each of ", paste(unique_id, collapse = ", "),
+                    ", found ", length(idx)))
     }
-    if ("sensor_height_cm" %in% names(metadata)) {
-      metadata$sensor_height_cm[idx] <- sensor_height_cm
-    }
-
-    if (length(shift_unique_ids) > 0 && !is.na(shift_by)) {
-      s_idx <- which(metadata$unique_id %in% shift_unique_ids)
-      metadata$elev[s_idx] <- round(as.numeric(metadata$elev[s_idx]) + shift_by, 4)
-    }
-
+    metadata$elev[idx] <- elev
+    metadata$elev_source[idx] <- elev_source
     save_device_metadata(metadata)
     TRUE
   }, error = function(e) {
     paste0("Failed to update elevation: ", e$message)
-  })
-}
-
-#' Writes a paired-gauge survey to the metadata
-#'
-#' The surveyed logger's elevation is the primary's plus a measured
-#' difference, and its reach length is its distance to the primary along the
-#' channel. Either half can be written alone: a re-measured reach does not
-#' need a re-leveled fall. NA means "not surveyed - leave as it is".
-#'
-#' "Secondary" here means the non-primary end of the pair - a tertiary is
-#' surveyed against the primary the same way. The difference is signed:
-#' negative when the surveyed logger is BELOW the primary, which is the normal
-#' case for a tertiary and allowed for any role. Role is not position.
-#'
-#' @param station_id Character. Station being surveyed
-#' @param primary_serial Character. Primary logger device serial
-#' @param secondary_serial Character. The logger surveyed against it
-#' @param primary_elev Numeric. Primary elevation (meters), the anchor
-#' @param elevation_diff Numeric. Surveyed minus primary (meters), or NA to
-#'   leave elevations unchanged
-#' @param reach_length_m Numeric. Along-channel distance, or NA to leave it
-#' @param primary_elev_source Character. Written only when the primary had no
-#'   elevation and one was established for this survey
-#' @return TRUE if successful, error message if failed
-survey_dual_logger_elevations <- function(station_id, primary_serial, secondary_serial,
-                                          primary_elev, elevation_diff = NA,
-                                          reach_length_m = NA,
-                                          primary_elev_source = NA) {
-  tryCatch({
-    metadata <- load_zentra_metadata()
-
-    # Scoped by station AND active status, not by serial alone. A serial can
-    # carry several rows - a relocated one plus its successor - and writing to
-    # all of them would put a current survey onto a closed historical record.
-    terminal <- c("removed", "replaced", "relocated", "decommissioned")
-    active <- !tolower(metadata$status) %in% terminal
-
-    p_idx <- which(metadata$device_serial == primary_serial &
-                   metadata$station_id == station_id & active)
-    s_idx <- which(metadata$device_serial == secondary_serial &
-                   metadata$station_id == station_id & active)
-
-    if (length(p_idx) == 0 || length(s_idx) == 0) {
-      return("Could not find active rows for both loggers at this station")
-    }
-
-    if (!is.na(elevation_diff)) {
-      if (is.na(primary_elev)) {
-        return("The primary has no elevation for the difference to hang from")
-      }
-      metadata$elev[p_idx[1]] <- primary_elev
-      if (!is.na(primary_elev_source) && "elev_source" %in% names(metadata)) {
-        metadata$elev_source[p_idx[1]] <- primary_elev_source
-      }
-
-      metadata$elev[s_idx[1]] <- primary_elev + elevation_diff
-
-      # The surveyed logger's elevation is DERIVED - its absolute accuracy is
-      # the primary's, its accuracy relative to the primary is the survey's.
-      # Saying so is the difference between a usable slope and an unexplained
-      # number.
-      if ("elev_source" %in% names(metadata)) {
-        metadata$elev_source[s_idx[1]] <- "surveyed_relative"
-      }
-    }
-
-    # Reach length belongs to the surveyed logger: its distance to the primary
-    # along the channel. Slope is |surveyed elev - primary elev| / reach.
-    if ("reach_length_m" %in% names(metadata) && !is.na(reach_length_m)) {
-      metadata$reach_length_m[s_idx[1]] <- reach_length_m
-    }
-
-    save_device_metadata(metadata)
-
-    return(TRUE)
-  }, error = function(e) {
-    return(paste0("Failed to update elevations: ", e$message))
   })
 }
 
@@ -1290,10 +1197,6 @@ add_new_device <- function(device_data) {
       lon = device_data$lon,
       elev = device_data$elev,
       elev_source = device_data$elev_source,
-      sensor_height_cm = if (is.null(device_data$sensor_height_cm)) NA_real_
-                         else device_data$sensor_height_cm,
-      reach_length_m = if (is.null(device_data$reach_length_m)) NA_real_
-                       else device_data$reach_length_m,
       interval_min = device_data$interval_min,
       timezone = device_data$timezone,
       deploy_datetime = device_data$deploy_datetime,
@@ -1314,14 +1217,28 @@ add_new_device <- function(device_data) {
       stringsAsFactors = FALSE
     )
     
-    # A file not yet migrated has no sensor_height_cm, and rbind needs the
-    # columns to match
-    new_row <- new_row[, intersect(names(new_row), names(metadata)), drop = FALSE]
-
     # Add to metadata
     metadata <- rbind(metadata, new_row)
     save_device_metadata(metadata)
-    
+
+    # The sensor height asked for on the way in is a measurement, so it goes
+    # to surveys.csv against the new deployment - dated when it went in.
+    # Above the ground for a weather station, the bed for anything else
+    h <- device_data$sensor_height_cm
+    if (!is.null(h) && !is.na(h)) {
+      weather <- tolower(device_data$station_type) == "weather"
+      method <- attr(h, "method")
+      if (is.null(method)) method <- if (weather && h == 200) "nominal" else "tape"
+      res <- add_survey_rows(survey_row(
+        station_id = device_data$station_id, unique_id = unique_id,
+        measured_on = as.Date(device_data$deploy_datetime), quantity = "height_cm",
+        point = "sensor", value = as.numeric(h),
+        relative_to = if (weather) "ground" else "bed", method = method))
+      if (!isTRUE(res)) {
+        return(paste0("Device added, but its sensor height was not recorded: ", res))
+      }
+    }
+
     return(TRUE)
   }, error = function(e) {
     return(paste0("Failed to add device: ", e$message))
@@ -1405,14 +1322,8 @@ relocate_station <- function(station_id, new_lat, new_lon, deploy_datetime,
       if ("elev_source" %in% names(new_row)) {
         new_row$elev_source <- new_elev_source
       }
-      # Sensor height was measured at the old position too
-      if ("sensor_height_cm" %in% names(new_row)) {
-        new_row$sensor_height_cm <- NA_real_
-      }
-      # Reach length describes a distance to the primary from the old position
-      if ("reach_length_m" %in% names(new_row)) {
-        new_row$reach_length_m <- NA_real_
-      }
+      # Surveys need no clearing: they belong to the old deployment, which is
+      # where they were measured
       new_row$deploy_datetime <- deploy_datetime
       new_row$end_datetime <- as.POSIXct(NA, tz = PROJECT_TZ)
       new_row$status <- new_status
@@ -1884,82 +1795,6 @@ device_label <- function(device_row, with_role = FALSE) {
 ################################################################################
 
 
-#' Invalidates survey geometry when half a pair moves or leaves
-#'
-#' A paired stream gauge's numbers describe a RELATIONSHIP between two
-#' positions: the secondary's elevation is the primary's plus a measured
-#' difference, and reach_length_m is the distance between them along the
-#' channel. Move either logger and both statements stop being true - but
-#' nothing about the elevation field changes, so nothing would notice.
-#'
-#' A wrong slope is worse than a missing one. A missing one announces itself;
-#' a wrong one silently biases every discharge value computed from the reach.
-#'
-#' Which values die depends on which logger moved:
-#'   - the PRIMARY moved: its own elevation is for the old position, and the
-#'     secondary's was measured against it. Both go, and the reach length too
-#'   - a SECONDARY or TERTIARY moved: only its own elevation and reach length
-#'   - the primary is REMOVED: the dependants reference nothing
-#'
-#' @param station_id Character
-#' @param changed_serial Character. The device that moved or left
-#' @param changed_role Character. Its role, or NA
-#' @return Character vector describing what was cleared, empty if nothing
-invalidate_pair_geometry <- function(station_id, changed_serial, changed_role) {
-
-  cleared <- character(0)
-
-  metadata <- load_zentra_metadata()
-  terminal <- c("removed", "replaced", "relocated", "decommissioned")
-  active <- !tolower(metadata$status) %in% terminal
-
-  at_station <- which(metadata$station_id == station_id & active)
-  if (length(at_station) == 0) return(cleared)
-
-  if (tolower(metadata$station_type[at_station[1]]) != "hydro") return(cleared)
-
-  roles <- tolower(as.character(metadata$device_role[at_station]))
-  if (!any(roles %in% c("secondary", "tertiary"))) return(cleared)
-
-  role <- tolower(as.character(changed_role))
-  primary_moved <- !is.na(role) && role == "primary"
-
-  has_value <- function(i) {
-    !is.na(metadata$elev[i]) ||
-      ("reach_length_m" %in% names(metadata) && !is.na(metadata$reach_length_m[i]))
-  }
-
-  affected <- if (primary_moved) {
-    at_station
-  } else {
-    at_station[metadata$device_serial[at_station] == changed_serial]
-  }
-
-  affected <- affected[vapply(affected, has_value, logical(1))]
-  if (length(affected) == 0) return(cleared)
-
-  for (i in affected) {
-    label <- paste0(metadata$device_serial[i],
-                    if (!is.na(metadata$device_role[i]))
-                      paste0(" (", metadata$device_role[i], ")") else "")
-    bits <- character(0)
-    if (!is.na(metadata$elev[i])) {
-      bits <- c(bits, paste0("elevation ", metadata$elev[i], " m"))
-      metadata$elev[i] <- NA
-      if ("elev_source" %in% names(metadata)) metadata$elev_source[i] <- NA
-    }
-    if ("reach_length_m" %in% names(metadata) && !is.na(metadata$reach_length_m[i])) {
-      bits <- c(bits, paste0("reach length ", metadata$reach_length_m[i], " m"))
-      metadata$reach_length_m[i] <- NA
-    }
-    cleared <- c(cleared, paste0(label, ": ", paste(bits, collapse = ", ")))
-  }
-
-  save_device_metadata(metadata)
-  cleared
-}
-
-
 #' The row describing a station's CURRENT state
 #'
 #' get_station_devices() returns every row a station has ever had, including
@@ -1990,6 +1825,49 @@ get_station_current_row <- function(station_id) {
   if (all(is.na(deployed))) return(rows[nrow(rows), ])
 
   rows[which.max(deployed), ]
+}
+
+
+#' The ground elevation a new logger at a station takes
+#'
+#' At a paired gauge, the primary's: every logger at the station carries the
+#' one elevation, so that a re-lookup can never put a few centimeters of DEM
+#' noise between two rows that describe the same place. The difference
+#' between the loggers is measured, and kept in surveys.csv. Anywhere else,
+#' the station's current row's.
+#'
+#' @param station_id Character
+#' @param metadata Data frame, or NULL to read
+#' @return List: elev, elev_source; NULL if the station has no rows
+station_elevation <- function(station_id, metadata = NULL) {
+  if (is.null(metadata)) metadata <- load_zentra_metadata()
+  current <- metadata[metadata$station_id == station_id &
+                        !tolower(metadata$status) %in% TERMINAL_STATUSES, , drop = FALSE]
+  p <- current[tolower(as.character(current$device_role)) %in% "primary", , drop = FALSE]
+  row <- if (nrow(p) == 1) p else get_station_current_row(station_id)
+  if (is.null(row)) return(NULL)
+  list(elev = row$elev, elev_source = row$elev_source)
+}
+
+
+#' The rows that share a paired gauge's elevation with this one
+#'
+#' Every current logger at the station that has a role, when this one does;
+#' otherwise just this one.
+#'
+#' @param unique_id Character
+#' @param metadata Data frame, or NULL to read
+#' @return Character unique_ids
+elevation_shared_with <- function(unique_id, metadata = NULL) {
+  if (is.null(metadata)) metadata <- load_zentra_metadata()
+  r <- metadata[metadata$unique_id == unique_id, ]
+  if (nrow(r) != 1 || is.na(r$device_role) || tolower(r$station_type) != "hydro") {
+    return(unique_id)
+  }
+  pair <- metadata$unique_id[metadata$station_id == r$station_id &
+                               !tolower(metadata$status) %in% TERMINAL_STATUSES &
+                               !is.na(metadata$device_role)]
+  unique(c(unique_id, pair))
 }
 
 
