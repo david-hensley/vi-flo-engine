@@ -125,10 +125,9 @@ test_that("a deployment's whole first day counts as its installation", {
 #### A logger's barometer follows its ports ####
 
 close_port <- function(sn, port, when) {
-  path <- file.path(wds("meta_internal"), "zentra_ports.csv")
-  p <- read.csv(path, stringsAsFactors = FALSE)
-  p$valid_to[p$sn == sn & p$port %in% port] <- when
-  write.csv(p, path, row.names = FALSE, na = "")
+  p <- load_zentra_ports_data()
+  p$valid_to[p$sn == sn & p$port %in% port] <- as.POSIXct(when, tz = "America/Puerto_Rico")
+  save_zentra_ports(p)
 }
 barometer_station <- function() {
   r <- read_p1_set(file.path(wds("device_zentra"), "z6-13368_20260928_20260928_20260928T134705_raw.rds"))
@@ -154,4 +153,23 @@ test_that("a logger serving no station through any port has a barometer belongin
   b <- barometer_station()
   expect_length(b$station, 0)
   expect_equal(b$lost, 1)
+})
+
+#### Excluded sensors ####
+
+test_that("an excluded sensor's readings are set aside: neither placed nor reported", {
+  local_test_root(); place_p1("z6-13368_20260928_20260928_20260928T134705_raw.rds")
+  r <- read_p1_set(file.path(wds("device_zentra"), "z6-13368_20260928_20260928_20260928T134705_raw.rds"))
+  on_port_2 <- sum(r$port %in% 2)
+  skip_if(on_port_2 == 0, "the fixture holds nothing on port 2")
+
+  p <- load_zentra_ports_data()
+  p$status[p$sn == "z6-13368" & p$port == 2] <- "excluded"
+  save_zentra_ports(p)
+
+  a <- attribute_readings(r)
+  expect_false(any(a$port %in% 2))
+  expect_false(any(attr(a, "unattributed_readings")$port %in% 2))
+  # The logger's other sensors go on as before
+  expect_true(any(a$port %in% 3))
 })

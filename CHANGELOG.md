@@ -117,6 +117,35 @@ All notable changes to the VI-FLO Engine project are documented here.
   loggers that served it, and the validator checks each logger the log names
   is in the metadata, where it checked a station column
 
+- **The port table moves to its v2.9 shape.** Each row names the deployment
+  its sensor serves, by `unique_id`, in place of a serial and a `type`: on a
+  ZL6 shared between two stations, the ATMOS row names the weather station's
+  deployment and the TEROS rows the vwc station's. The logger and the kind of
+  station come from that deployment - `load_zentra_ports_data()` adds them
+  back as `sn` and `type` for the callers that ask by logger, and
+  `save_zentra_ports()` drops them again. The 71 placeholder rows for empty
+  ports are gone: an empty port has no row. A port that spanned two
+  deployments - Fish Bay Weather's ATMOS, through its 2024 move - is split
+  where the second began. `tools/migrations/migrate_ports_v2.9.R` converts the
+  table. Checked against the live table, every sensor Product 2 reads covers
+  exactly the moments it covered before, so Product 2 builds the same files
+- **A port can be `excluded`:** plugged in and recorded, never ingested. Its
+  readings are set aside before attribution, neither placed on a station nor
+  reported as unexplained. The seven ECRN-50 rain gauges on the early vwc
+  loggers are the first, each attached to the deployment it was plugged into;
+  a start date never known stays blank. Port statuses are listed once, in
+  `PORT_STATUSES`
+- **A move carries the logger's sensors with it.** Ports used to be left open
+  on a relocation, being keyed by serial; now each open port closes at the
+  move and opens again, unchanged, on the deployment the move created
+  (`carry_ports_over()`). A new configuration writes each sensor against the
+  logger's active deployment of its kind (`port_deployment()`)
+- Deleting a metadata row deletes that row's own ports and no other's - the
+  check added in v2.9's data layer, refusing to delete a shared logger's
+  ports at all, is no longer needed
+- The validator checks each port row names a deployment that exists, has a
+  known status, and - unless excluded - a start
+
 ### Fixed
 - `start.R` stopped at its last step when a table could not be read - as
   `pending_ingest.csv` could not between installing v2.9's code and running

@@ -60,6 +60,7 @@ stay until the v2.9 tag, then join the table under *Applied*.
 | `check_layer_v2.9.R` | 2026-11-20 (before), 2026-11-20 (after: pass) | Not a migration: a record of every table and Product 2 file taken before the data layer, and the comparison that showed the layer changed nothing |
 | `migrate_maintenance_log_v2.9.R` | 2026-11-21 | Step 4.1: entries name their deployment; `logged_utc`; `station_type` and `ports_updated` dropped; `elevation_survey` becomes `survey` |
 | `migrate_logs_v2.9.R` | 2026-11-21 | Step 4.2: the download log drops `station` and gains `battery`; pending tasks name their deployment, with UTC stamps |
+| `migrate_ports_v2.9.R` | 2026-11-21 | Step 4.3: port rows name their deployment; empty-port placeholders dropped; rain gauges excluded; a row spanning a move split in two |
 
 ## Applied
 

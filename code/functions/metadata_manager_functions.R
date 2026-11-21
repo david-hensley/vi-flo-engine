@@ -5147,33 +5147,22 @@ ui_delete_metadata_row <- function() {
   #### DELETE FROM ZENTRA PORTS (if applicable) ####
   ################################################################################
   
-  # Check if device has port configs
+  # The row's own ports - each port row names its deployment, so another row
+  # of the same logger keeps its ports
   ports <- load_zentra_ports_data()
-  device_ports <- ports[ports$sn == row_to_delete$device_serial, ]
-  
-  # Port rows are kept by serial, not by deployment, so they cannot say which
-  # of a logger's rows they belong to. While the logger has another row - an
-  # earlier deployment, or a second station on the same ZL6 - deleting "its"
-  # ports would delete that row's too. So that is left to a person.
-  others <- metadata[metadata$device_serial == row_to_delete$device_serial, , drop = FALSE]
+  device_ports <- ports[ports$unique_id == unique_id, ]
 
-  if (nrow(device_ports) > 0 && nrow(others) > 0) {
-    cat("\n⚠️  This logger has ", nrow(device_ports), " port rows, and ", nrow(others),
-        " other metadata row(s) - ", paste(others$station_id, collapse = ", "), ".\n",
-        "   The ports cannot yet tell which row they belong to, so none were deleted.\n",
-        "   Review them with the port workflow.\n", sep = "")
-  } else if (nrow(device_ports) > 0) {
-    cat("\n⚠️  Found ", nrow(device_ports), " port configuration rows for this device\n", sep = "")
+  if (nrow(device_ports) > 0) {
+    cat("\n⚠️  Found ", nrow(device_ports), " port configuration rows for this row\n", sep = "")
     delete_ports <- ui_yes_no("Delete these port rows too?", allow_quit = FALSE)
     
     if (delete_ports == "Y" || delete_ports == "1") {
-      ports <- ports[ports$sn != row_to_delete$device_serial, ]
-      # Through the data layer. This once wrote to whatever folder R happened
-      # to be working in, so a deletion never reached the real port table
-      if (isTRUE(write_table("zentra_ports", ports, intent = "deleting a row's ports"))) {
+      ports <- ports[ports$unique_id != unique_id, ]
+      if (isTRUE(tryCatch(save_zentra_ports(ports, intent = "deleting a row's ports"),
+                          error = function(e) { cat("❌ ", conditionMessage(e), "\n"); FALSE }))) {
         cat("✓ ", nrow(device_ports), " port rows deleted from zentra_ports.csv\n", sep = "")
       } else {
-        cat("❌ Port rows NOT deleted - see the refusal above\n")
+        cat("❌ Port rows NOT deleted\n")
       }
     } else {
       cat("⚠️  Port rows NOT deleted - you may want to clean these up manually\n")

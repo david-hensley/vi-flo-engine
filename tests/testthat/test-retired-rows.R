@@ -53,10 +53,10 @@ test_that("retire_row closes the logger's open ports at that moment, not now", {
 
 test_that("a port already closed keeps its own date", {
   local_test_root()
-  path <- file.path(wds("meta_internal"), "zentra_ports.csv")
-  p <- read.csv(path, stringsAsFactors = FALSE)
-  p$valid_to[p$sn == "z6-13368" & p$port == 2] <- "2024-02-16 00:00:00"
-  write.csv(p, path, row.names = FALSE, na = "")
+  p <- load_zentra_ports_data()
+  p$valid_to[p$sn == "z6-13368" & p$port == 2] <- as.POSIXct("2024-02-16 00:00:00",
+                                                             tz = "America/Puerto_Rico")
+  save_zentra_ports(p)
   uid <- load_zentra_metadata()
   uid <- uid$unique_id[uid$device_serial == "z6-13368"][1]
   retire_row(uid, as.POSIXct("2026-10-29 12:15:00", tz = "America/Puerto_Rico"))
@@ -111,4 +111,50 @@ test_that("an entry is given the deployment serving on the day of the visit", {
   meta2 <- rbind(meta[meta$unique_id != "t-0005", ], old, new)
   expect_equal(resolve_deployment("z6-90001", "uvi_weather", "2026-06-01", meta2), "t-0099")
   expect_equal(resolve_deployment("z6-90001", "uvi_weather", "2026-05-01", meta2), "t-0005")
+})
+
+#### Ports name their deployment ####
+
+PORTS_WEATHER_AND_VWC <- data.frame(
+  port = 1:6,
+  type = c("weather", "vwc", "vwc", "none", "none", "none"),
+  sensor = c("ATMOS 41", "TEROS 10", "TEROS 10", "none", "none", "none"),
+  depth_cm = c(NA, 10, 30, NA, NA, NA), status = NA, stringsAsFactors = FALSE)
+
+test_that("on a shared logger, each sensor's row names the station it serves", {
+  local_test_root()
+  # z6-90001 serves uvi_weather (t-0005) and uvi_vwc1 (t-0006), and has no ports yet
+  expect_true(initialize_ports("z6-90001", PORTS_WEATHER_AND_VWC))
+  p <- read_table("zentra_ports")
+  mine <- p[p$unique_id %in% c("t-0005", "t-0006"), ]
+  expect_equal(nrow(mine), 3)                               # empty ports have no row
+  expect_equal(mine$unique_id[mine$port == 1], "t-0005")
+  expect_equal(sort(mine$unique_id[mine$port != 1]), c("t-0006", "t-0006"))
+})
+
+test_that("changing one port closes it and opens its successor on the right deployment", {
+  local_test_root()
+  initialize_ports("z6-90001", PORTS_WEATHER_AND_VWC)
+  new <- PORTS_WEATHER_AND_VWC
+  new$depth_cm[3] <- 50
+  new$sensor[2] <- "none"; new$type[2] <- "none"
+  when <- as.POSIXct("2026-11-01 10:00:00", tz = "America/Puerto_Rico")
+  expect_true(update_ports("z6-90001", new, when))
+  p <- read_table("zentra_ports")
+  p <- p[p$unique_id %in% c("t-0005", "t-0006"), ]
+  expect_equal(sum(is.na(p$valid_to)), 2)                   # the ATMOS, and port 3 at 50 cm
+  expect_equal(p$depth_cm[p$port == 3 & is.na(p$valid_to)], 50)
+  expect_equal(p$valid_to[p$port == 2], when)               # port 2 emptied: closed, no new row
+  expect_equal(sum(p$port == 2), 1)
+})
+
+test_that("a move carries the logger's open ports to the deployment it created", {
+  local_test_root()
+  when <- as.POSIXct("2026-11-01 10:00:00", tz = "America/Puerto_Rico")
+  expect_true(carry_ports_over("t-0011", "t-0099", when))
+  p <- read_table("zentra_ports")
+  expect_true(all(p$valid_to[p$unique_id == "t-0011"] == when))
+  expect_equal(sum(p$unique_id == "t-0099"), 4)
+  expect_true(all(p$valid_from[p$unique_id == "t-0099"] == when))
+  expect_true(all(is.na(p$valid_to[p$unique_id == "t-0099"])))
 })

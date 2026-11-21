@@ -286,6 +286,66 @@ layer_check_after <- function() {
   invisible(ok)
 }
 
+#### Product 2 before and after one migration ####
+#
+# The layer check above compares only files whose inputs are unchanged. A
+# migration that rewrites a table Product 2 reads - the port table, the device
+# table - changes every fingerprint, so that check would compare nothing. These
+# two compare content alone: a snapshot just before the migration, and a
+# comparison once Product 2 has been rebuilt on it. Run both with no download
+# in between, so that the only thing changed is the table.
+
+p2_snapshot_file <- function(label) {
+  file.path(wds("meta_internal"), "backups", paste0("p2_snapshot_", label, ".rds"))
+}
+
+#' Fingerprints every Product 2 file's content, before a migration
+p2_snapshot <- function(label) {
+  m <- read_manifest(2)
+  cat("Fingerprinting ", nrow(m), " Product 2 files...\n", sep = "")
+  m$content_md5 <- vapply(file.path(wds("products"), m$file), layer_check_content_md5,
+                          character(1), USE.NAMES = FALSE)
+  dir.create(dirname(p2_snapshot_file(label)), showWarnings = FALSE, recursive = TRUE)
+  saveRDS(list(taken_utc = format(Sys.time(), "%Y-%m-%d %H:%M:%S", tz = "UTC"),
+               p2 = m[, c("file", "content_md5", "rows", "observed", "missing", "engine")]),
+          p2_snapshot_file(label))
+  cat("✓ Snapshot '", label, "' taken: ", nrow(m), " files\n", sep = "")
+  invisible(TRUE)
+}
+
+#' Compares Product 2 now with a snapshot, by content. Changes nothing
+#'
+#' @param label Character. The snapshot's label
+#' @param expect Character. Files allowed to differ - a predicted change
+p2_compare <- function(label, expect = character(0)) {
+  b <- readRDS(p2_snapshot_file(label))$p2
+  m <- read_manifest(2)
+  gone <- setdiff(b$file, m$file)
+  new_files <- setdiff(m$file, b$file)
+  both <- intersect(b$file, m$file)
+  rebuilt <- both[m$engine[match(both, m$file)] != b$engine[match(both, b$file)]]
+  if (length(rebuilt) < length(both)) {
+    cat("! ", length(both) - length(rebuilt), " file(s) not rebuilt since the snapshot - ",
+        "run build_p2_stale() first\n", sep = "")
+  }
+  now <- vapply(file.path(wds("products"), both), layer_check_content_md5,
+                character(1), USE.NAMES = FALSE)
+  differ <- both[now != b$content_md5[match(both, b$file)]]
+  bad <- setdiff(c(differ, gone, new_files), expect)
+  cat("Product 2 against snapshot '", label, "':\n", sep = "")
+  cat("  ✓ ", length(both) - length(differ), " identical\n", sep = "")
+  for (x in list(list("differ", differ), list("gone", gone), list("new", new_files))) {
+    if (length(x[[2]]) > 0) {
+      cat("  • ", length(x[[2]]), " ", x[[1]], "\n", sep = "")
+      for (f in head(x[[2]], 20)) cat("      ", f, if (f %in% expect) "  (expected)" else "", "\n", sep = "")
+    }
+  }
+  cat(if (length(bad) == 0) "✓ PASS\n" else "✗ FAIL - an unexpected difference\n")
+  invisible(length(bad) == 0)
+}
+
 cat("check_layer_v2.9.R loaded.\n",
     "  layer_check_before()  once, before the data layer's code is pulled\n",
-    "  layer_check_after()   once the layer is in and Product 2 rebuilt\n", sep = "")
+    "  layer_check_after()   once the layer is in and Product 2 rebuilt\n",
+    "  p2_snapshot(label)    just before a migration Product 2 reads\n",
+    "  p2_compare(label)     after it, once Product 2 is rebuilt\n", sep = "")

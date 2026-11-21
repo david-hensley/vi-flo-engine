@@ -57,10 +57,9 @@ test_that("a battery reading makes nothing stale", {
 test_that("a port change makes its logger's stations stale", {
   local_test_root(); place_p1(VWC)
   build_p2("zzv_vwc1", 2026, quiet = TRUE)
-  path <- file.path(wds("meta_internal"), "zentra_ports.csv")
-  p <- read.csv(path, stringsAsFactors = FALSE)
+  p <- load_zentra_ports_data()
   p$depth_cm[p$sn == "z6-38175" & p$port == 1] <- 15
-  write.csv(p, path, row.names = FALSE, na = "")
+  save_zentra_ports(p)
   expect_equal(reasons(p2_stale(), "zzv_vwc1"), "its loggers' ports changed")
 })
 

@@ -135,7 +135,10 @@ port_windows <- function(ports = NULL) {
 
   if (is.null(ports)) ports <- load_zentra_ports_data()
 
-  p <- ports[!is.na(ports$sensor) & ports$sensor != "none", , drop = FALSE]
+  # An excluded sensor was plugged in, but its readings are never used - see
+  # excluded_port_windows()
+  p <- ports[!is.na(ports$sensor) & ports$sensor != "none" &
+               !ports$status %in% "excluded", , drop = FALSE]
   if (nrow(p) == 0) {
     return(data.frame(device_serial = character(0), port = integer(0),
                       type = character(0), sensor = character(0),
@@ -152,6 +155,33 @@ port_windows <- function(ports = NULL) {
              depth_cm      = p$depth_cm,
              starts        = p$valid_from,
              ends          = p$valid_to,
+             stringsAsFactors = FALSE)
+}
+
+
+#' When each excluded port was excluded
+#'
+#' An excluded sensor was plugged in and recorded, but nothing it measured is
+#' ever used - the ECRN-50 rain gauges on the early vwc loggers. Its readings
+#' are set aside before attribution, so they are neither placed on a station
+#' nor reported as unexplained: what they are is already written down.
+#'
+#' A blank valid_from or valid_to - an excluded port's dates are often not
+#' known - takes its deployment's start or end.
+#'
+#' @param ports Data frame from load_zentra_ports_data(), or NULL to load
+#' @param windows Data frame from deployment_windows(), or NULL to compute
+#' @return Data frame: device_serial, port, starts, ends
+excluded_port_windows <- function(ports = NULL, windows = NULL) {
+  if (is.null(ports)) ports <- load_zentra_ports_data()
+  if (is.null(windows)) windows <- deployment_windows()
+  x <- ports[ports$status %in% "excluded", , drop = FALSE]
+  at <- match(x$unique_id, windows$unique_id)
+  starts <- x$valid_from
+  ends   <- x$valid_to
+  starts[is.na(starts)] <- windows$starts[at][is.na(starts)]
+  ends[is.na(ends)]     <- windows$ends[at][is.na(ends)]
+  data.frame(device_serial = x$sn, port = x$port, starts = starts, ends = ends,
              stringsAsFactors = FALSE)
 }
 

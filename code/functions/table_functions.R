@@ -78,7 +78,7 @@ TABLE_SCHEMA <- list(
   zentra_ports = list(
     file = "zentra_ports.csv", key = NULL, writer = "person",
     columns = c(
-      sn = "text", port = "integer", type = "text", sensor = "text",
+      unique_id = "text", port = "integer", sensor = "text",
       depth_cm = "number", status = "text",
       valid_from = "datetime_local", valid_to = "datetime_local"
     )
@@ -157,6 +157,12 @@ MAINTENANCE_ACTIONS_BY_WORKFLOW <- c(
   "metadata_correction", "metadata_deletion"
 )
 MAINTENANCE_ACTIONS <- c(MAINTENANCE_ACTIONS_BY_HAND, MAINTENANCE_ACTIONS_BY_WORKFLOW)
+
+# A port row's status. Blank is a working sensor
+PORT_STATUSES <- c(
+  "defunct",                 # failed, still plugged in; its readings are kept
+  "excluded"                 # plugged in and recorded, never ingested
+)
 
 #' One table's schema, or an error naming the tables there are
 table_schema <- function(name) {

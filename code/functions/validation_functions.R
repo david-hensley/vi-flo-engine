@@ -342,7 +342,7 @@ validate_metadata <- function(verbose = TRUE, stop_on_error = FALSE) {
     if ("port" %in% names(ports)) {
       invalid_ports <- !ports$port %in% 1:6
       if (any(invalid_ports)) {
-        problem_rows <- ports[invalid_ports, c("device_serial", "port", "sensor")]
+        problem_rows <- ports[invalid_ports, c("unique_id", "port", "sensor")]
         record_violation(
           "INVALID_PORT_NUMBER",
           paste(sum(invalid_ports), "rows have port number outside 1-6"),
@@ -353,21 +353,41 @@ validate_metadata <- function(verbose = TRUE, stop_on_error = FALSE) {
       }
     }
     
-    # CHECK 9: Port device_serial exists in metadata
-    port_serials <- unique(ports$sn)
-    meta_serials <- unique(metadata$device_serial)
-    orphan_serials <- setdiff(port_serials, meta_serials)
-    
-    if (length(orphan_serials) > 0) {
-      problem_rows <- ports[ports$sn %in% orphan_serials, 
-                            c("sn", "port", "sensor")]
+    # CHECK 9: every port row names a deployment that exists
+    orphan <- !ports$unique_id %in% metadata$unique_id
+    if (any(orphan)) {
       record_violation(
-        "ORPHAN_PORT_SERIAL",
-        paste(length(orphan_serials), "device_serial(s) in ports not found in metadata"),
-        problem_rows
+        "ORPHAN_PORT_DEPLOYMENT",
+        paste(sum(orphan), "port row(s) name a deployment not in metadata"),
+        ports[orphan, c("unique_id", "port", "sensor")]
       )
     } else {
-      record_pass("port device_serials exist in metadata")
+      record_pass("port rows name deployments in metadata")
+    }
+
+    # CHECK: a port's status is one of the list
+    bad_status <- !is.na(ports$status) & !ports$status %in% PORT_STATUSES
+    if (any(bad_status)) {
+      record_violation(
+        "UNKNOWN_PORT_STATUS",
+        paste("Unknown port status(es):", paste(unique(ports$status[bad_status]), collapse = ", ")),
+        ports[bad_status, c("unique_id", "port", "sensor", "status")]
+      )
+    } else {
+      record_pass("port statuses known")
+    }
+
+    # CHECK: a sensor that is read has a start. An excluded one never is, and
+    # its dates are often not known
+    no_start <- is.na(ports$valid_from) & !ports$status %in% "excluded"
+    if (any(no_start)) {
+      record_violation(
+        "PORT_WITHOUT_START",
+        paste(sum(no_start), "port row(s) with no valid_from"),
+        ports[no_start, c("unique_id", "port", "sensor")]
+      )
+    } else {
+      record_pass("every read port has a start")
     }
     
     # CHECK 12: Terminal devices should not have active port configs

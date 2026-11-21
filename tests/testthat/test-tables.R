@@ -236,14 +236,16 @@ test_that("nothing but the data layer opens a metadata table", {
                info = paste(paste0(csv$file, ":", csv$line), collapse = ", "))
 })
 
-test_that("deleting a row leaves alone the ports of a logger with another row", {
+test_that("deleting a row deletes its own ports, and only those", {
   local_test_root()
-  # z6-13368 serves two stations in the fixture, zzu_weather and zzu_vwc1
-  ports_before <- readLines(table_path("zentra_ports"))
-  run <- with_inputs(c("t-0010", "Y"), ui_delete_metadata_row())
+  # z6-13368 serves two stations in the fixture: its ATMOS port is zzu_weather's
+  # (t-0009), its TEROS ports zzu_vwc1's (t-0010). Deleting the vwc row takes
+  # the vwc ports with it and leaves the weather station's
+  run <- with_inputs(c("t-0010", "Y", "Y"), ui_delete_metadata_row())
   expect_false("t-0010" %in% load_zentra_metadata()$unique_id)
-  expect_identical(readLines(table_path("zentra_ports")), ports_before)
-  expect_true(any(grepl("none were deleted", run$output)))
+  p <- load_zentra_ports_data()
+  expect_false("t-0010" %in% p$unique_id)
+  expect_equal(p$sensor[p$unique_id == "t-0009"], "ATMOS 41")
 })
 
 test_that("deleting a logger's only row deletes its ports from the real port table", {

@@ -242,10 +242,9 @@ test_that("a station's own deployment date changes its fingerprint, and no one e
 test_that("a port change changes its logger's stations' ports fingerprint", {
   local_test_root()
   before <- fps("zzu_vwc1", 2026)
-  path <- file.path(wds("meta_internal"), "zentra_ports.csv")
-  p <- read.csv(path, stringsAsFactors = FALSE)
+  p <- load_zentra_ports_data()
   p$depth_cm[p$sn == "z6-13368" & p$port == 3] <- 25
-  write.csv(p, path, row.names = FALSE, na = "")
+  save_zentra_ports(p)
   after <- fps("zzu_vwc1", 2026)
   expect_identical(after$metadata, before$metadata)
   expect_false(identical(after$ports, before$ports))

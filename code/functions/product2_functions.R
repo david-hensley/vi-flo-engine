@@ -577,6 +577,20 @@ attribute_readings <- function(readings, windows = NULL, pwindows = NULL,
   if (is.null(windows))  windows  <- deployment_windows(metadata)
   if (is.null(pwindows)) pwindows <- port_windows()
 
+  #### Excluded sensors: set aside, not attributed and not reported ####
+  ex <- excluded_port_windows(windows = windows)
+  if (nrow(ex) > 0 && nrow(readings) > 0 && "port" %in% names(readings)) {
+    drop <- rep(FALSE, nrow(readings))
+    for (i in seq_len(nrow(ex))) {
+      s0 <- if (is.na(ex$starts[i])) -Inf else as.numeric(ex$starts[i])
+      e0 <- if (is.na(ex$ends[i])) Inf else as.numeric(ex$ends[i])
+      t <- as.numeric(readings$datetime)
+      drop <- drop | (readings$device_serial == ex$device_serial[i] &
+                        readings$port %in% ex$port[i] & t >= s0 & t < e0)
+    }
+    readings <- readings[!drop, , drop = FALSE]
+  }
+
   readings$station_id <- NA_character_
   readings$depth_cm   <- NA_real_
 

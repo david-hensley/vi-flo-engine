@@ -24,11 +24,67 @@ load_zentra_metadata <- function(){
 
 #' Loads zentra_ports.csv
 #'
+#' Each row names the deployment its sensor serves, by unique_id. For the
+#' callers that ask by logger and kind of station, two columns are added from
+#' that deployment, never stored: `sn`, its logger's serial, and `type`, its
+#' station type. save_zentra_ports() drops them again.
+#'
 #' valid_from and valid_to as POSIXct in the project time zone.
 #'
 #' @return Data frame. Port configuration history
 load_zentra_ports_data <- function(){
-  read_table("zentra_ports")
+  ports <- read_table("zentra_ports")
+  meta <- read_table("device_metadata", remember = FALSE)
+  at <- match(ports$unique_id, meta$unique_id)
+  ports$sn   <- meta$device_serial[at]
+  ports$type <- tolower(meta$station_type[at])
+  ports
+}
+
+#' Writes the port table, without the columns load_zentra_ports_data() adds
+#'
+#' @param ports Data frame, as load_zentra_ports_data() returns it
+#' @param intent Character. What the caller was doing
+#' @return Invisibly TRUE; an error if the write was refused
+save_zentra_ports <- function(ports, intent = NULL) {
+  ports <- ports[, names(TABLE_SCHEMA$zentra_ports$columns), drop = FALSE]
+  write_table_or_stop("zentra_ports", ports, intent = intent)
+}
+
+#' The deployment a logger's sensors of one kind serve now
+#'
+#' On a ZL6 shared between a weather and a vwc station, the ATMOS serves the
+#' weather row and the TEROS sensors the vwc row: the kind of sensor says
+#' which of the logger's active rows a port belongs to.
+#'
+#' @param device_serial Character
+#' @param type Character. A station type - "weather", "vwc"
+#' @param metadata Data frame. Optional
+#' @return Character unique_id; an error if the logger has no active row of
+#'   that type
+port_deployment <- function(device_serial, type, metadata = NULL) {
+  if (is.null(metadata)) metadata <- read_table("device_metadata", remember = FALSE)
+  terminal <- c("removed", "replaced", "relocated", "decommissioned")
+  rows <- metadata[!is.na(metadata$device_serial) & metadata$device_serial == device_serial &
+                     tolower(metadata$station_type) == tolower(type) &
+                     !tolower(metadata$status) %in% terminal, , drop = FALSE]
+  if (nrow(rows) == 0) {
+    stop("logger ", device_serial, " has no active ", type, " station for this sensor",
+         call. = FALSE)
+  }
+  rows$unique_id[which.max(as.numeric(rows$deploy_datetime))]
+}
+
+#' One port row, with the columns load_zentra_ports_data() adds
+new_port_row <- function(unique_id, port, sensor, depth_cm, status, valid_from,
+                         device_serial, type) {
+  data.frame(unique_id = unique_id, port = as.integer(port), sensor = sensor,
+             depth_cm = suppressWarnings(as.numeric(depth_cm)),
+             status = if (is.null(status) || is.na(status) || !nzchar(status)) NA_character_
+                      else as.character(status),
+             valid_from = as.POSIXct(valid_from, tz = PROJECT_TZ),
+             valid_to = as.POSIXct(NA, tz = PROJECT_TZ),
+             sn = device_serial, type = tolower(type), stringsAsFactors = FALSE)
 }
 
 #' Loads download_log.csv
@@ -505,7 +561,7 @@ ui_ask_whois_logging <- function() {
 get_current_port_config <- function(device_serial) {
   ports <- load_zentra_ports_data()
   
-  device_ports <- ports[ports$sn == device_serial, ]
+  device_ports <- ports[ports$sn %in% device_serial, ]
   
   # Get all ports with valid_to = NA (potentially multiple sextuplets)
   active_ports <- device_ports[is.na(device_ports$valid_to), ]
@@ -1091,51 +1147,22 @@ initialize_ports <- function(device_serial, port_config) {
     valid <- validate_no_duplicate_ports(port_config)
     if (!isTRUE(valid)) return(valid)
     
-    metadata <- load_zentra_metadata()
+    metadata <- read_table("device_metadata", remember = FALSE)
     ports <- load_zentra_ports_data()
-    
-    # Get device deployment datetime
-    # deploy_datetime differs between a serial's rows, and it becomes the
-    # valid_from on every port written below - an arbitrary row would stamp the
-    # ports with the wrong deployment's start time.
-    device_row <- get_device_row(device_serial, metadata = metadata)
-    if (is.null(device_row)) {
-      return(paste0("Device '", device_serial, "' not found in metadata"))
+
+    # An empty port has no row. Each sensor's row names the deployment it
+    # serves - the logger's active row of that sensor's kind - and opens when
+    # that deployment began
+    for (i in seq_len(nrow(port_config))) {
+      if (port_config$sensor[i] == "none") next
+      uid <- port_deployment(device_serial, port_config$type[i], metadata)
+      starts <- metadata$deploy_datetime[metadata$unique_id == uid]
+      ports <- rbind(ports, new_port_row(
+        uid, port_config$port[i], port_config$sensor[i], port_config$depth_cm[i],
+        port_config$status[i], starts, device_serial, port_config$type[i]))
     }
-    deploy_datetime <- parse_datetime_flexible(device_row$deploy_datetime, device_row$timezone)
-    
-    # Add all 6 port rows
-    for (i in 1:nrow(port_config)) {
-      # For empty ports, set valid_from and valid_to to NA
-      if (port_config$sensor[i] == "none") {
-        new_row <- data.frame(
-          sn = device_serial,
-          port = port_config$port[i],
-          type = "none",
-          sensor = "none",
-          depth_cm = NA,
-          status = NA,
-          valid_from = NA,
-          valid_to = NA,
-          stringsAsFactors = FALSE
-        )
-      } else {
-        new_row <- data.frame(
-          sn = device_serial,
-          port = port_config$port[i],
-          type = port_config$type[i],
-          sensor = port_config$sensor[i],
-          depth_cm = port_config$depth_cm[i],
-          status = port_config$status[i],
-          valid_from = deploy_datetime,
-          valid_to = NA,
-          stringsAsFactors = FALSE
-        )
-      }
-      ports <- rbind(ports, new_row)
-    }
-    
-    write_table_or_stop("zentra_ports", ports, intent = "recording a port configuration")
+
+    save_zentra_ports(ports, intent = "recording a port configuration")
     
     return(TRUE)
   }, error = function(e) {
@@ -1164,7 +1191,7 @@ update_ports <- function(device_serial, port_config, change_datetime) {
     current_config <- get_current_port_config(device_serial)
     
     # Get OLD port rows with full timestamp info
-    old_port_rows <- ports[ports$sn == device_serial & is.na(ports$valid_to), ]
+    old_port_rows <- ports[ports$sn %in% device_serial & is.na(ports$valid_to), ]
     
     # Which ports actually changed?
     #
@@ -1206,55 +1233,25 @@ update_ports <- function(device_serial, port_config, change_datetime) {
       new_port <- port_config[port_config$port == port_num, ]
       old_port <- old_port_rows[old_port_rows$port == port_num, ]
 
-      # An empty port that was never configured has no row to close
-      has_old_row <- nrow(old_port) > 0
-
-      is_empty_na_na <- has_old_row &&
-                        old_port$sensor[1] == "none" &&
-                        is.na(old_port$valid_from[1]) &&
-                        is.na(old_port$valid_to[1]) &&
-                        new_port$sensor == "none"
-
-      if (has_old_row && !is_empty_na_na) {
-        ports$valid_to[ports$sn == device_serial &
-                         ports$port == port_num &
+      # The sensor that was there, if any, stops being true now
+      if (nrow(old_port) > 0) {
+        ports$valid_to[ports$sn %in% device_serial & ports$port == port_num &
                          is.na(ports$valid_to)] <- change_datetime
       }
 
-      if (is_empty_na_na) next  # nothing to record
+      # An empty port has no row
+      if (new_port$sensor == "none") next
 
-      if (new_port$sensor == "none") {
-        new_rows_list[[as.character(port_num)]] <- data.frame(
-          sn = as.character(device_serial),
-          port = as.integer(port_num),
-          type = "none",
-          sensor = "none",
-          depth_cm = NA_integer_,
-          status = NA_character_,
-          valid_from = change_datetime,
-          valid_to = as.POSIXct(NA),
-          stringsAsFactors = FALSE
-        )
-      } else {
-        new_rows_list[[as.character(port_num)]] <- data.frame(
-          sn = as.character(device_serial),
-          port = as.integer(port_num),
-          type = as.character(new_port$type),
-          sensor = as.character(new_port$sensor),
-          depth_cm = as.integer(new_port$depth_cm),
-          status = if (is.na(new_port$status)) NA_character_ else as.character(new_port$status),
-          valid_from = change_datetime,
-          valid_to = as.POSIXct(NA),
-          stringsAsFactors = FALSE
-        )
-      }
+      new_rows_list[[as.character(port_num)]] <- new_port_row(
+        port_deployment(device_serial, new_port$type), port_num, new_port$sensor,
+        new_port$depth_cm, new_port$status, change_datetime, device_serial, new_port$type)
     }
 
     if (length(new_rows_list) > 0) {
       ports <- rbind(ports, do.call(rbind, new_rows_list))
     }
     
-    write_table_or_stop("zentra_ports", ports, intent = "recording a port configuration")
+    save_zentra_ports(ports, intent = "recording a port configuration")
     
     return(TRUE)
   }, error = function(e) {
@@ -1508,6 +1505,12 @@ relocate_station <- function(station_id, new_lat, new_lon, deploy_datetime,
           close_device_ports(sn, deploy_datetime)
         }
       }
+    } else {
+      # The same logger moved, and its sensors with it. A port row belongs to
+      # one deployment, so each open one closes at the move and opens again,
+      # unchanged, on the deployment the move created
+      carried <- carry_ports_over(active_devices$unique_id, new_unique_ids, deploy_datetime)
+      if (!isTRUE(carried)) stop(carried)
     }
 
     return(list(success = TRUE, new_unique_ids = new_unique_ids,
@@ -1697,8 +1700,7 @@ get_active_ports <- function(device_serial, station_type = NULL) {
   empty <- data.frame()
   if (is.null(ports) || nrow(ports) == 0) return(empty)
 
-  active <- ports[ports$sn == device_serial & is.na(ports$valid_to), , drop = FALSE]
-  active <- active[!is.na(active$sensor) & active$sensor != "none", , drop = FALSE]
+  active <- ports[ports$sn %in% device_serial & is.na(ports$valid_to), , drop = FALSE]
 
   # A shared logger has ports of more than one type. "Does this device have
   # active ports?" is the wrong question when a weather station is being set
@@ -1718,8 +1720,8 @@ get_active_ports <- function(device_serial, station_type = NULL) {
 #' has to be set - otherwise the record claims sensors are live on a device
 #' that is in a drawer.
 #'
-#' NOT called on relocation: a relocated device keeps its serial and its
-#' sensors, and ports are keyed by serial. Closing them there would be wrong.
+#' On a relocation the logger's sensors move with it: relocate_station()
+#' carries its open ports over to the new deployment rather than closing them.
 #'
 #' @param device_serial Character. Device leaving service
 #' @param close_datetime POSIXct or Date. When it stopped being true
@@ -1730,14 +1732,13 @@ close_device_ports <- function(device_serial, close_datetime) {
 
     ports <- load_zentra_ports_data()
 
-    open_rows <- which(ports$sn == device_serial & is.na(ports$valid_to) &
-                       !is.na(ports$sensor) & ports$sensor != "none")
+    open_rows <- which(ports$sn %in% device_serial & is.na(ports$valid_to))
 
     if (length(open_rows) == 0) return(0)
 
     ports$valid_to[open_rows] <- as.POSIXct(close_datetime)
 
-    write_table_or_stop("zentra_ports", ports, intent = "closing port windows")
+    save_zentra_ports(ports, intent = "closing port windows")
 
     return(length(open_rows))
   }, error = function(e) {
@@ -1763,7 +1764,7 @@ close_specific_ports <- function(port_keys, close_datetime) {
       parts <- strsplit(key, "|", fixed = TRUE)[[1]]
       if (length(parts) != 2) next
 
-      rows <- which(ports$sn == parts[1] &
+      rows <- which(ports$sn %in% parts[1] &
                     as.character(ports$port) == parts[2] &
                     is.na(ports$valid_to))
       if (length(rows) == 0) next
@@ -1774,12 +1775,37 @@ close_specific_ports <- function(port_keys, close_datetime) {
 
     if (n == 0) return(0)
 
-    write_table_or_stop("zentra_ports", ports, intent = "closing port windows")
+    save_zentra_ports(ports, intent = "closing port windows")
 
     return(n)
   }, error = function(e) {
     return(paste0("Failed to close ports: ", e$message))
   })
+}
+
+#' Moves a relocated deployment's open ports to the deployment that replaced it
+#'
+#' @param old_ids,new_ids Character. unique_ids, old and new, in step
+#' @param when POSIXct. The move
+#' @return TRUE, or an error message string
+carry_ports_over <- function(old_ids, new_ids, when) {
+  tryCatch({
+    ports <- load_zentra_ports_data()
+    moved <- list()
+    for (k in seq_along(old_ids)) {
+      open <- which(ports$unique_id == old_ids[k] & is.na(ports$valid_to))
+      if (length(open) == 0) next
+      copy <- ports[open, , drop = FALSE]
+      copy$unique_id  <- new_ids[k]
+      copy$valid_from <- as.POSIXct(when, tz = PROJECT_TZ)
+      ports$valid_to[open] <- as.POSIXct(when, tz = PROJECT_TZ)
+      moved[[length(moved) + 1]] <- copy
+    }
+    if (length(moved) == 0) return(TRUE)
+    ports <- rbind(ports, do.call(rbind, moved))
+    save_zentra_ports(ports, intent = "carrying ports over to a relocated station")
+    TRUE
+  }, error = function(e) paste0("Failed to carry ports over: ", e$message))
 }
 
 #' Is this serial a HOBO logger? (serial-shaped test, for use without metadata)
