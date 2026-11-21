@@ -100,6 +100,14 @@ All notable changes to the VI-FLO Engine project are documented here.
   gone
 - `sensor_height_cm` is no longer a field in *Correct device details*; a new
   measurement is entered as a survey
+- **The orphaned-file check recognizes a duplicate whose dates are a day
+  off.** The September 2026 full-history exports left three copies beside the
+  logged files under names from when filename dates were taken in UTC - a
+  late-evening reading rolled over to the next day - and the check only paired
+  files with identical dates, so it reported them as unaccounted for. It now
+  also pairs the same logger and fetch stamp with each date within a day, and
+  compares the readings themselves where the bytes differ.
+  `remove_duplicate_orphans()` can then clear them, locally and on Box
 - **The network to-do's survey check reads `surveys.csv`.** A paired gauge is
   listed when its sensor cannot be chained to its primary's or it has no
   reach to it - the two things a slope needs - where before it looked for an

@@ -56,15 +56,34 @@ find_orphan_raw_files <- function(verify_duplicates = TRUE) {
                        format(p$end, "%Y%m%d"), "_")
         candidates <- logged[startsWith(logged, stem)]
 
+        # The same fetch under dates a day off: the names were once taken in
+        # UTC, so a reading late in a local evening rolled over to the next
+        # day, and the corrected name was pulled back beside the old one.
+        # Same logger, same fetch stamp, each date within a day
+        if (length(candidates) == 0 && !is.na(p$fetched)) {
+          near <- vapply(logged, function(l) {
+            q <- parse_raw_filename(l)
+            !is.null(q) && identical(q$device_serial, sn) &&
+              identical(q$fetched, p$fetched) &&
+              abs(as.numeric(q$start - p$start)) <= 1 &&
+              abs(as.numeric(q$end - p$end)) <= 1
+          }, logical(1))
+          candidates <- logged[near]
+        }
+
         if (length(candidates) > 0) {
           dup <- candidates[1]
           a <- file.path(dir, o)
           b <- file.path(dir, dup)
           if (file.exists(b)) {
             # Size first - cheap, and settles almost every case
-            same <- file.size(a) == file.size(b)
-            if (isTRUE(same)) {
-              same <- identical(unname(tools::md5sum(a)), unname(tools::md5sum(b)))
+            same <- file.size(a) == file.size(b) &&
+              identical(unname(tools::md5sum(a)), unname(tools::md5sum(b)))
+            # Bytes can differ where the readings do not - compression, or
+            # a name stored inside. What matters is the readings
+            if (!isTRUE(same)) {
+              same <- tryCatch(identical(readRDS(a), readRDS(b)),
+                               error = function(e) FALSE)
             }
           }
         }
