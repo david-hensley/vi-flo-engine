@@ -88,6 +88,19 @@ All notable changes to the VI-FLO Engine project are documented here.
   message. Neither ever holds anything back
 
 ### Changed
+- **The metadata manager acts on the row chosen, not on a row found again by
+  serial.** Removing a device removed "the first active row" of its serial -
+  on a ZL6 serving two stations, whichever came first. A removal is the box
+  coming out of the field, so `remove_device()` now ends every deployment the
+  logger was serving at that moment, and the workflow says first which other
+  station goes with it - and stops, pointing to decommissioning instead, if
+  the logger actually stayed on site. *Correct device details* found its row
+  by serial, station and status, which two `relocated` rows of one logger at
+  one station would both match; it uses the row's `unique_id`. Replacement,
+  removal, the paired survey's role assignment and the after-adding checks
+  of a station's type likewise take the row chosen, or the station it was
+  chosen at. Undoing a mistaken maintenance entry looks only at the
+  logger's deployments at that station
 - **A deployment's ports close by deployment, not by logger.** Retiring a row,
   relocating a station with a new logger, and decommissioning a station each
   close the ports of the deployments that ended - never every port on the

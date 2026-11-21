@@ -711,14 +711,17 @@ create_maintenance_entry <- function(field_visit_date, station_id, action_type,
 #' Delete the most recent maintenance log entry for a device
 #' Used when user realizes they selected wrong workflow
 #' @param device_serial Character. Device whose last entry should be deleted
+#' @param station_id Character. The station it was logged at
 #' @return TRUE if successful, error message if failed
-delete_last_maintenance_entry <- function(device_serial) {
+delete_last_maintenance_entry <- function(device_serial, station_id) {
   tryCatch({
     maint_log <- load_maintenance_log()
 
-    # Entries name deployments; this logger's are those of any of its rows
+    # Entries name deployments: the logger's at this station, not at every
+    # station it has served - the entry being undone was just logged here
     meta <- read_table("device_metadata", remember = FALSE)
-    its_rows <- meta$unique_id[!is.na(meta$device_serial) & meta$device_serial == device_serial]
+    its_rows <- meta$unique_id[!is.na(meta$device_serial) & meta$device_serial == device_serial &
+                                 meta$station_id %in% station_id]
     mine <- which(maint_log$unique_id %in% its_rows)
 
     if (length(mine) == 0) {
@@ -1422,42 +1425,64 @@ retire_row <- function(unique_id, when, close_ports = TRUE, status = NULL) {
   }, error = function(e) paste0("Failed to retire row: ", e$message)))
 }
 
-#' Remove a device from service
-#' @param device_serial Character. Device to remove
-#' @param removal_datetime POSIXct. When device was removed
+#' The current deployments a logger is serving
+#'
+#' One, usually; two on a ZL6 serving a weather and a vwc station at once.
+#'
+#' @param unique_id Character. Any one of them
+#' @param metadata Data frame, or NULL to read
+#' @return Data frame of device rows, the given one first
+logger_current_rows <- function(unique_id, metadata = NULL) {
+  if (is.null(metadata)) metadata <- load_zentra_metadata()
+  r <- metadata[metadata$unique_id == unique_id, , drop = FALSE]
+  if (nrow(r) != 1) return(r)
+  all <- metadata[metadata$device_serial == r$device_serial &
+                    !tolower(metadata$status) %in% TERMINAL_STATUSES, , drop = FALSE]
+  rbind(r, all[all$unique_id != unique_id, , drop = FALSE])
+}
+
+
+#' Remove a logger from service
+#'
+#' The box came out of the field, so every deployment it was serving ends at
+#' that moment - both of a ZL6's stations, not just the one it was chosen
+#' at. A station ending while its logger stays on site is not a removal: it is
+#' a decommissioning, or a port change if only the sensors came off.
+#'
+#' @param unique_id Character. The deployment it was chosen by
+#' @param removal_datetime POSIXct. When the logger came out
 #' @return TRUE if successful, error message if failed
-remove_device <- function(device_serial, removal_datetime) {
+remove_device <- function(unique_id, removal_datetime) {
   tryCatch({
     metadata <- load_zentra_metadata()
-    # The FIRST row matching a serial may be a closed historical one. Take the
-    # first ACTIVE row instead - that is the deployment being removed.
-    terminal_statuses <- c("removed", "replaced", "relocated", "decommissioned")
-    candidates <- metadata[metadata$device_serial == device_serial &
-                           !tolower(metadata$status) %in% terminal_statuses, ]
-    
-    if (nrow(candidates) == 0) {
-      return(paste0("No active deployment found for device '", device_serial, "'"))
+    device_row <- metadata[metadata$unique_id == unique_id, , drop = FALSE]
+    if (nrow(device_row) != 1) return(paste0("No single row '", unique_id, "'"))
+    if (tolower(device_row$status) %in% TERMINAL_STATUSES) {
+      return(paste0(unique_id, " has already ended (", device_row$status, ")"))
     }
-    device_row <- candidates[1, ]
-    
-    # 1. The row ends at the removal: status, end and ports in one change
-    result <- retire_row(device_row$unique_id, removal_datetime, status = "removed")
+    rows <- logger_current_rows(unique_id, metadata)
+
+    # 1. Every deployment it served ends at the removal - status, end and
+    # ports - as one change
+    result <- with_metadata_change(paste("removing logger", device_row$device_serial), {
+      out <- TRUE
+      for (uid in rows$unique_id) {
+        r <- retire_row(uid, removal_datetime, status = "removed")
+        if (!isTRUE(r)) { out <- r; break }
+      }
+      out
+    })
     if (!isTRUE(result)) return(result)
-    
-    # 2. Disable downloads
-    result <- update_metadata_approval(device_row$station_id, FALSE)
-    if (!isTRUE(result)) {
-      # Non-fatal - continue
+
+    for (st in unique(rows$station_id)) {
+      # 2. Disable downloads
+      update_metadata_approval(st, FALSE)
+      # 3. The station's other deployments were visited too - a pair's
+      # partner. update_last_visit() leaves the removed rows alone;
+      # retire_row() dated them
+      update_last_visit(st, as.Date(removal_datetime))
     }
-    
-    # 3. The station's other deployments were visited too - a co-located
-    # logger, a pair's partner. update_last_visit() leaves the removed row
-    # alone; retire_row() dated it
-    result <- update_last_visit(device_row$station_id, as.Date(removal_datetime))
-    if (!isTRUE(result)) {
-      # Non-fatal - no other deployment there is fine
-    }
-    
+
     return(TRUE)
   }, error = function(e) {
     return(paste0("Failed to remove device: ", e$message))

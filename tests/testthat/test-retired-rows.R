@@ -92,7 +92,7 @@ test_that("a port already closed keeps its own date", {
 test_that("a removal dates the removed row to the removal, and visits its partner", {
   local_test_root()
   when <- as.POSIXct("2026-10-28 10:00:00", tz = "America/Puerto_Rico")
-  expect_true(isTRUE(remove_device("90000002", when)))     # bta2_hydro's secondary
+  expect_true(isTRUE(remove_device("t-0002", when)))       # bta2_hydro's secondary
   m <- load_zentra_metadata()
   r <- m[m$unique_id == "t-0002", ]
   expect_equal(r$status, "removed")
@@ -187,4 +187,30 @@ test_that("a move carries the logger's open ports to the deployment it created",
   expect_equal(sum(p$unique_id == "t-0099"), 4)
   expect_true(all(p$valid_from[p$unique_id == "t-0099"] == when))
   expect_true(all(is.na(p$valid_to[p$unique_id == "t-0099"])))
+})
+
+test_that("removing a shared ZL6 ends every station it served", {
+  local_test_root()
+  # z6-13368 serves zzu_weather (t-0009) and zzu_vwc1 (t-0010): the box came
+  # out, so both deployments end at that moment
+  when <- as.POSIXct("2026-11-01 10:00:00", tz = "America/Puerto_Rico")
+  expect_true(isTRUE(remove_device("t-0010", when)))
+  expect_equal(meta_row("t-0010")$status, "removed")
+  expect_equal(meta_row("t-0009")$status, "removed")
+  expect_equal(ends_at("t-0009"), "2026-11-01 10:00")
+  p <- load_zentra_ports_data()
+  expect_false(any(is.na(p$valid_to[p$unique_id %in% c("t-0009", "t-0010")])))
+  # The logger's retired deployments elsewhere are left as they were
+  expect_true(isTRUE(validate_metadata(verbose = FALSE)$valid) ||
+                !"TERMINAL_DEVICE_ACTIVE_PORTS" %in% names(validate_metadata(verbose = FALSE)$violations))
+})
+
+test_that("the removal workflow says what else ends, and stops if the logger stayed", {
+  local_test_root()
+  before <- load_zentra_metadata()
+  # zzu_vwc1, its logger; asked whether the box came out: no
+  out <- with_inputs(c(which(sort(unique(before$station_id[!tolower(before$status) %in% TERMINAL_STATUSES])) == "zzu_vwc1"),
+                       "1", "N"), ui_remove_device())
+  expect_true(any(grepl("also serves zzu_weather", out$output)))
+  expect_identical(load_zentra_metadata(), before)
 })

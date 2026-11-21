@@ -1794,10 +1794,8 @@ ui_survey_gut_pair <- function() {
   if (roles_unset) {
     metadata <- load_zentra_metadata()
     act <- !tolower(metadata$status) %in% terminal
-    p_idx <- which(metadata$device_serial == primary$device_serial &
-                   metadata$station_id == station_id & act)
-    o_idx <- which(metadata$device_serial == other$device_serial &
-                   metadata$station_id == station_id & act)
+    p_idx <- which(metadata$unique_id == primary$unique_id)
+    o_idx <- which(metadata$unique_id == other$unique_id)
     metadata$device_role[p_idx[1]] <- "primary"
     metadata$device_role[o_idx[1]] <- "secondary"
     save_device_metadata(metadata)
@@ -2773,8 +2771,9 @@ ui_replace_device <- function() {
     return(NULL)
   }
   
-  old_device_serial <- station_devices$device_serial[match(selected_device, device_options)]
-  old_device_row <- station_devices[station_devices$device_serial == old_device_serial, ][1, ]
+  # The row chosen, by its place in the menu - not found again by serial
+  old_device_row <- station_devices[match(selected_device, device_options), ]
+  old_device_serial <- old_device_row$device_serial
   
   cat("✓ Replacing device:", old_device_serial, "\n")
   cat("  Manufacturer:", old_device_row$mfger, "\n")
@@ -4894,8 +4893,24 @@ ui_remove_device <- function() {
     return(NULL)
   }
   
-  device_serial <- station_devices$device_serial[match(selected_device, device_options)]
-  device_row <- station_devices[station_devices$device_serial == device_serial, ][1, ]
+  # The row chosen, by its place in the menu - not found again by serial
+  device_row <- station_devices[match(selected_device, device_options), ]
+  device_serial <- device_row$device_serial
+
+  # The box is coming out, so every station it serves ends with it
+  served <- logger_current_rows(device_row$unique_id)
+  also <- served$station_id[served$unique_id != device_row$unique_id]
+  if (length(also) > 0) {
+    cat("\n\u26a0\ufe0f  This logger also serves ", paste(also, collapse = ", "), ".\n", sep = "")
+    cat("   Removing it ends that station's deployment too. If the logger stays\n")
+    cat("   on site running ", paste(also, collapse = ", "), ", this is not a removal:\n", sep = "")
+    cat("   decommission ", station_id, " instead, or change its ports if only the\n", sep = "")
+    cat("   sensors came off.\n\n")
+    if (ui_yes_no("Did the logger itself come out of the field?", allow_quit = FALSE) != "Y") {
+      cat("\u274c Canceled - no changes made\n")
+      return(NULL)
+    }
+  }
   
   ################################################################################
   #### CHECK IF FINAL DEVICE - STRONG DECOMMISSION RECOMMENDATION ####
@@ -5016,7 +5031,7 @@ ui_remove_device <- function() {
   #### CALL LOGIC FUNCTION ####
   ################################################################################
   
-  result <- remove_device(device_serial, removal_datetime)
+  result <- remove_device(device_row$unique_id, removal_datetime)
   
   if (!isTRUE(result)) {
     cat("❌ Error:", result, "\n")
@@ -5285,9 +5300,9 @@ ui_correct_device_details <- function() {
 
   #### Show current values ####
   metadata <- load_zentra_metadata()
-  idx <- which(metadata$device_serial == device_serial &
-               metadata$station_id == station_id &
-               metadata$status == device_status)
+  # The row chosen, by unique_id. Serial, station and status together are not
+  # enough: a logger moved twice within a station leaves two 'relocated' rows
+  idx <- which(metadata$unique_id == devices$unique_id[row_i])
 
   if (length(idx) == 0) {
     cat("Could not find that device row.\n")
@@ -5812,7 +5827,8 @@ metadata_manager <- function() {
               cat("and you can select the workflow you meant.\n\n")
               
               if (ui_yes_no("Remove it?", allow_quit = FALSE) == "Y") {
-                delete_result <- delete_last_maintenance_entry(result$device_serial)
+                delete_result <- delete_last_maintenance_entry(result$device_serial,
+                                                               result$station_id)
                 if (isTRUE(delete_result)) {
                   cat("\u2713 Entry removed - select the correct workflow\n")
                 } else {
@@ -6116,7 +6132,9 @@ metadata_manager <- function() {
             device_station_type <- result$station_type
             if (is.null(device_station_type) || is.na(device_station_type)) {
               meta_lu <- load_zentra_metadata()
-              hit <- meta_lu$station_type[meta_lu$device_serial == result$device_serial]
+              # The station just worked on - a shared ZL6 serves two types
+              hit <- meta_lu$station_type[meta_lu$device_serial == result$device_serial &
+                                            meta_lu$station_id %in% result$station_id]
               device_station_type <- if (length(hit) > 0) hit[1] else NULL
             }
             
@@ -6242,7 +6260,9 @@ metadata_manager <- function() {
             device_station_type <- result$station_type
             if (is.null(device_station_type) || is.na(device_station_type)) {
               meta_lu <- load_zentra_metadata()
-              hit <- meta_lu$station_type[meta_lu$device_serial == result$device_serial]
+              # The station just worked on - a shared ZL6 serves two types
+              hit <- meta_lu$station_type[meta_lu$device_serial == result$device_serial &
+                                            meta_lu$station_id %in% result$station_id]
               device_station_type <- if (length(hit) > 0) hit[1] else NULL
             }
             
