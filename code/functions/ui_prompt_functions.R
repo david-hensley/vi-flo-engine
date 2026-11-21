@@ -332,8 +332,6 @@ ui_prompt_status_change <- function(current_status, allow_quit = TRUE, restrict_
   cat("  manual           = working, no cloud at all - data comes off by\n")
   cat("                     shuttle or cable and is archived by hand\n")
   cat("  defunct          = broken but still deployed\n")
-  cat("  nonresponsive    = should be communicating with the cloud but is\n")
-  cat("                     not, for an unknown reason\n")
   
   if (!restrict_to_device_level) {
     # Show all statuses
@@ -360,7 +358,7 @@ ui_prompt_status_change <- function(current_status, allow_quit = TRUE, restrict_
   
   # Build allowed status list
   if (restrict_to_device_level) {
-    allowed_statuses <- c("online", "local", "manual", "defunct", "nonresponsive")
+    allowed_statuses <- ACTIVE_STATUSES
   } else {
     allowed_statuses <- get_metadata_unique_values("status")
   }
@@ -396,13 +394,12 @@ ui_prompt_status_change <- function(current_status, allow_quit = TRUE, restrict_
 #' @return Status string, or NULL if canceled
 ui_prompt_device_status <- function(allow_quit = TRUE) {
 
-  statuses <- c("manual", "online", "local", "nonresponsive", "defunct")
+  statuses <- c("manual", "online", "local", "defunct")
 
   meanings <- c(
     manual        = "no cloud at all - data comes off by shuttle or cable",
     online        = "reports to the cloud over a cellular connection",
     local         = "out of cellular service - reaches the cloud when offloaded on site",
-    nonresponsive = "should be communicating with the cloud but is not",
     defunct       = "broken or lost, but still deployed"
   )
 

@@ -957,7 +957,7 @@ engine_commit <- function() {
 # from when to when. Battery, download dates, elevation, roles and names do
 # not change what is built, so changing them changes no fingerprint.
 P2_METADATA_COLUMNS <- c("unique_id", "station_id", "station_type", "device_serial",
-                         "deploy_datetime", "status", "last_visit", "timezone")
+                         "deploy_datetime", "end_datetime", "status", "timezone")
 
 #' An MD5 fingerprint of a table's content
 #' @param df Data frame

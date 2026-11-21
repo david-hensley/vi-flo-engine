@@ -146,7 +146,39 @@ All notable changes to the VI-FLO Engine project are documented here.
 - The validator checks each port row names a deployment that exists, has a
   known status, and - unless excluded - a start
 
+- **The device table moves to its v2.9 shape, and is written by a person
+  alone.** It gains `end_datetime`, the moment each retired deployment ended.
+  Until now that was worked out on every build - from the deployment that
+  followed, or the end of the row's last-visit day - so a later visit could
+  move it, and decommissioning set no date at all. Each retired row is given
+  exactly the end Product 2 already used, except three the record shows
+  otherwise: SR1 Hillside and SR2-HS v2, decommissioned on 4 September 2026
+  but ending at the March visit before; and SR2 Hillside, replaced in January
+  2024 but never ended. Retiring a row - removal, replacement, relocation,
+  decommissioning - now writes the moment it happened. `battery`,
+  `last_update`, `last_download_date`, `last_record_date` and `expiry_date`
+  are dropped: the first four are worked out from the download log when
+  needed (`deployment_activity()`), and the weekly job no longer writes the
+  device table at all; the expiry date was typed by hand and had gone stale.
+  `nonresponsive` is retired as a status - going quiet is something the
+  network report already notices. `tools/migrations/migrate_device_metadata_v2.9.R`
+  converts the table
+- A visit no longer makes Product 2 stale: a deployment's end is its own
+  column now, not its last visit
+- `sgm2_hydro` no longer shows a last reading from 2025. What the archive
+  holds for a deployment is now worked out from its own logger's files during
+  that deployment, where it took every file with the logger's serial - its
+  Reef Bay years included
+- The network report names a retired logger still reporting by the station
+  it last served, "(retired)", where it said "(not in metadata)"
+- Statuses are listed once more: `ACTIVE_STATUSES`, beside the existing
+  `TERMINAL_STATUSES`
+
 ### Fixed
+- `validate_metadata()` would have failed every run on loggers the download
+  log names and the metadata does not - the colleague's loggers on the
+  ZentraCloud account, and pre-VI-FLO loggers in the exports. They are now
+  listed as a note, not a fault
 - `start.R` stopped at its last step when a table could not be read - as
   `pending_ingest.csv` could not between installing v2.9's code and running
   its migration - and skipped the rest of the session's start. Listing

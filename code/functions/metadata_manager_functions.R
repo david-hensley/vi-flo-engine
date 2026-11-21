@@ -538,14 +538,9 @@ ui_log_download <- function() {
     cat("✓ Updated last_visit\n")
   }
   
-  #### 9 - Update last_download_date
-  result <- update_last_download_date(device_serial, field_visit_date, station_id = station_id)
-  if (!isTRUE(result)) {
-    cat("⚠️  Warning: Could not update last_download_date:", result, "\n")
-  } else {
-    cat("✓ Updated last_download_date\n")
-  }
-  
+  # The download itself is recorded in download_log.csv when the file is
+  # archived; the device table keeps no copy of when it happened
+
   #### 10 - Metadata review / cloud upload
   # Get device info to check status
   device_row <- station_devices[station_devices$device_serial == device_serial, ][1, ]
@@ -2056,7 +2051,6 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL,
       interval        <- shared_row$interval_min
       timezone        <- shared_row$timezone
       status          <- shared_row$status
-      expiry_date     <- shared_row$expiry_date
 
       # deploy_datetime is NOT inherited. The logger's location, model and
       # elevation are genuinely shared - it is one box - but a station begins
@@ -2395,33 +2389,6 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL,
     # been entered.
     metadata_approved <- FALSE
     
-    ## Expiry date (optional)
-    if (tolower(status) == "manual") {
-      # Manual stations have no cloud subscription. Note that 'local' stations
-      # DO - their data reaches ZentraCloud, just not over the air.
-      expiry_date <- NA
-      cat("✓ No cloud subscription (manual station)\n")
-    } else {
-      cat("\nEnter cloud subscription expiry date if applicable (YYYY-MM-DD) or press Enter to skip:\n")
-      expiry_input <- trimws(readline())
-      if (expiry_input == "") {
-        expiry_date <- NA
-        cat("✓ No expiry date\n")
-      } else {
-        expiry_date <- tryCatch({
-          as.Date(expiry_input)
-        }, error = function(e) {
-          NA
-        })
-        
-        if (!is.na(expiry_date)) {
-          cat("✓ Data expiry:", as.character(expiry_date), "\n")
-        } else {
-          cat("⚠️  Invalid date format, skipping\n")
-          expiry_date <- NA
-        }
-      }
-    }
     
     }
 
@@ -2493,8 +2460,7 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL,
     timezone = timezone,
     deploy_datetime = deploy_datetime,
     status = status,
-    metadata_approved = metadata_approved,
-    expiry_date = expiry_date
+    metadata_approved = metadata_approved
   )
   
   # Call logic function
@@ -3234,7 +3200,7 @@ ui_decommission_station <- function() {
   station_devices <- get_station_devices(station_id)
   
   # Check if there's anything to decommission
-  active_statuses <- c("online", "local", "manual", "nonresponsive", "defunct", "removed")
+  active_statuses <- c(ACTIVE_STATUSES, "removed")
   decommissionable <- station_devices[station_devices$status %in% active_statuses, ]
   
   if (nrow(decommissionable) == 0) {
@@ -3297,7 +3263,7 @@ ui_decommission_station <- function() {
   # other station would be wrong. Where that is possible, ask rather than
   # decide.
   all_meta <- load_zentra_metadata()
-  active_statuses_chk <- c("online", "local", "manual", "nonresponsive", "defunct")
+  active_statuses_chk <- ACTIVE_STATUSES
   
   shared_serials <- character(0)
   for (s in unique(decommissionable$device_serial)) {
@@ -3444,7 +3410,7 @@ ui_reactivate_station <- function() {
   truly_decommissioned <- c()
   for (sid in decommissioned_stations) {
     station_devices <- metadata[metadata$station_id == sid, ]
-    active_statuses <- c("online", "local", "manual", "nonresponsive", "defunct")
+    active_statuses <- ACTIVE_STATUSES
     has_active <- any(station_devices$status %in% active_statuses)
     
     if (!has_active) {
@@ -4377,8 +4343,9 @@ ui_view_metadata <- function() {
     if (!is.na(device$last_visit)) {
       cat("Last visit:   ", format(device$last_visit, "%Y-%m-%d"), "\n", sep = "")
     }
-    if (!is.na(device$last_download_date)) {
-      cat("Last download:", format(device$last_download_date, "%Y-%m-%d"), "\n", sep = "")
+    act <- tryCatch(deployment_activity(device), error = function(e) NULL)
+    if (!is.null(act) && !is.na(act$data_to)) {
+      cat("Data to:      ", format(act$data_to, "%Y-%m-%d %H:%M"), "\n", sep = "")
     }
     # The flag with its age. "TRUE" alone says someone once confirmed the
     # record and nothing about whether that was this morning or in March.
@@ -4885,7 +4852,7 @@ ui_remove_device <- function() {
   ################################################################################
   
   # Check if this is the only active device at the station
-  active_statuses <- c("online", "local", "manual", "nonresponsive")
+  active_statuses <- setdiff(ACTIVE_STATUSES, "defunct")
   active_devices <- station_devices[station_devices$status %in% active_statuses, ]
   
   if (nrow(active_devices) == 1 && active_devices$device_serial[1] == device_serial) {
@@ -5306,8 +5273,7 @@ ui_correct_device_details <- function() {
   # but note that lat/lon changing because the DEVICE MOVED is an event, and
   # belongs in the relocation or replacement workflow so it leaves a log entry.
   editable <- c("model", "device_name", "device_role", "interval_min",
-                "deploy_datetime", "lat", "lon", "elev", "sensor_height_cm",
-                "expiry_date")
+                "deploy_datetime", "lat", "lon", "elev", "sensor_height_cm")
   editable <- editable[editable %in% names(metadata)]
 
   # A device already in a terminal state can have that state CORRECTED here -
@@ -5409,45 +5375,6 @@ ui_correct_device_details <- function() {
     } else if (field == "sensor_height_cm") {
       new_value <- ui_prompt_sensor_height(metadata$station_type[idx], current)
 
-    } else if (field == "expiry_date") {
-      # When the device's ZentraCloud subscription runs out. Read off the
-      # account and typed in, because the API's own subscription_status has
-      # proved unreliable - devices reporting daily have shown as inactive
-      # with dates months past.
-      #
-      # A date, not a datetime: nobody knows the hour a subscription lapses
-      # and pretending otherwise would be false precision.
-      cat("\nThe date this device's ZentraCloud subscription runs out.\n")
-      cat("Read it off the account - the API's own status is not reliable.\n\n")
-      cat("Enter expiry date (YYYY-MM-DD), or 'none' to clear it: ")
-      input <- trimws(readline())
-
-      if (input == "") {
-        cat("Not changed\n")
-        next
-      }
-
-      if (tolower(input) == "none") {
-        new_value <- NA
-        cat("\u2713 Expiry date cleared\n")
-      } else {
-        parsed <- suppressWarnings(as.Date(input))
-        if (is.na(parsed)) {
-          cat("Could not read that as a date\n")
-          next
-        }
-        # Worth saying rather than silently accepting - a typo in the year is
-        # the easiest mistake here and the least visible afterwards
-        days <- as.numeric(parsed - Sys.Date())
-        if (days < -3650 || days > 3650) {
-          cat("\u26a0\ufe0f  That is ", abs(round(days / 365)),
-              " years ", if (days < 0) "ago" else "away", " - is it right?\n",
-              sep = "")
-          if (ui_yes_no("Use it anyway?", allow_quit = FALSE) != "Y") next
-        }
-        new_value <- format(parsed, "%Y-%m-%d")
-      }
-
     } else if (field == "deploy_datetime") {
       cat("Enter deploy datetime (YYYY-MM-DD HH:MM:SS): ")
       input <- trimws(readline())
@@ -5523,7 +5450,7 @@ ui_correct_device_details <- function() {
     # A co-located station can begin years after its logger arrives, roles
     # differ by station, and a paired gauge's elevation is derived from its
     # partner's.
-    per_device <- c("model", "device_name", "interval_min", "expiry_date")
+    per_device <- c("model", "device_name", "interval_min")
 
     rows <- idx
     if (field %in% per_device) {
@@ -5811,8 +5738,7 @@ metadata_manager <- function() {
         cat("  6. Station relocated (moved to new location)\n")
         cat("  7. Station decommissioned (entire station shut down)\n")
         cat("  8. Field surveyed elevation of station or loggers\n")
-        cat("  9. Correct device details (model, name, role, interval, coords,\n")
-        cat("     subscription expiry)\n")
+        cat("  9. Correct device details (model, name, role, interval, coords)\n")
         cat("  q. Back to main menu\n")
         
         work_choice <- trimws(readline())

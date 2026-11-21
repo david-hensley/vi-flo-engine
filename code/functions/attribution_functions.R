@@ -72,44 +72,14 @@ deployment_windows <- function(metadata = NULL) {
                       end_basis = character(0), stringsAsFactors = FALSE))
   }
 
-  # Within a device AND station type, rows are sequential: one replaces the
-  # last. Across types they are concurrent, which is the co-located case.
-  m$key <- paste(m$device_serial, tolower(m$station_type), sep = "|")
-  m <- m[order(m$key, m$deploy_datetime), , drop = FALSE]
-
-  ends <- as.POSIXct(rep(NA, nrow(m)), tz = "America/Puerto_Rico")
-  basis <- rep(NA_character_, nrow(m))
-
-  for (i in seq_len(nrow(m))) {
-    later <- which(m$key == m$key[i] & m$deploy_datetime > m$deploy_datetime[i])
-
-    terminal <- tolower(m$status[i]) %in% TERMINAL_STATUSES
-    if (length(later) > 0) {
-      ends[i] <- min(m$deploy_datetime[later])
-      basis[i] <- "successor"
-      # Removed before its successor went in: it ends the day it came out
-      if (terminal && !is.na(m$last_visit[i])) {
-        out <- as.POSIXct(paste(m$last_visit[i], "23:59:59"), tz = "America/Puerto_Rico")
-        if (out < ends[i]) {
-          ends[i] <- out
-          basis[i] <- "last visit"
-        }
-      }
-    } else if (terminal) {
-      if (!is.na(m$last_visit[i])) {
-        ends[i] <- as.POSIXct(paste(m$last_visit[i], "23:59:59"),
-                              tz = "America/Puerto_Rico")
-        basis[i] <- "last visit"
-      } else {
-        # Terminal, no successor, no visit recorded. The deployment ended at
-        # some unknown point; leaving it open would attribute readings to a
-        # station that was gone.
-        basis[i] <- "unknown"
-      }
-    } else {
-      basis[i] <- "open"
-    }
-  }
+  # Each deployment ends where its row says it did. A retired row with no
+  # end is a gap in the record, not an open deployment: it is reported, and
+  # left open so that nothing is dropped silently - validate_metadata() names
+  # it
+  m <- m[order(m$device_serial, m$deploy_datetime), , drop = FALSE]
+  terminal <- tolower(m$status) %in% TERMINAL_STATUSES
+  ends <- m$end_datetime
+  basis <- ifelse(!is.na(ends), "end", ifelse(terminal, "unknown", "open"))
 
   data.frame(device_serial = m$device_serial,
              station_id    = m$station_id,

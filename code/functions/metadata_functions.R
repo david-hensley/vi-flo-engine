@@ -14,12 +14,12 @@
 #' Loads device_metadata.csv
 #'
 #' Datetimes as POSIXct in the project time zone, dates as Date,
-#' metadata_approved as logical. last_record_date and last_reviewed_utc come
-#' back as text: their callers assign formatted text into them.
+#' metadata_approved as logical. last_reviewed_utc comes back as text: its
+#' callers assign formatted text into it.
 #'
 #' @return Data frame
 load_zentra_metadata <- function(){
-  read_table("device_metadata", as_text = c("last_record_date", "last_reviewed_utc"))
+  read_table("device_metadata", as_text = "last_reviewed_utc")
 }
 
 #' Loads zentra_ports.csv
@@ -836,7 +836,7 @@ update_device_status <- function(device_serial, new_status, station_id = NULL) {
 #' @param new_status Character. New status to apply
 #' @return TRUE if successful, error message if failed
 update_station_status <- function(station_id, new_status,
-                                 close_port_serials = NULL) {
+                                 close_port_serials = NULL, when = Sys.time()) {
   tryCatch({
     metadata <- load_zentra_metadata()
     
@@ -845,13 +845,15 @@ update_station_status <- function(station_id, new_status,
       station_devices <- metadata[metadata$station_id == station_id, ]
       
       # Check if any active devices exist
-      active_statuses <- c("online", "local", "manual", "nonresponsive", "defunct")
+      active_statuses <- ACTIVE_STATUSES
       active_devices <- station_devices[station_devices$status %in% active_statuses, ]
       
       if (nrow(active_devices) > 0) {
-        # Normal case: mark all active devices as decommissioned
-        metadata$status[metadata$station_id == station_id & 
-                          metadata$status %in% active_statuses] <- new_status
+        # Normal case: mark all active devices as decommissioned, and date
+        # them. A decommissioned row with no end has no end to its deployment
+        ending <- metadata$station_id == station_id & metadata$status %in% active_statuses
+        metadata$status[ending] <- new_status
+        metadata$end_datetime[ending] <- as.POSIXct(when, tz = PROJECT_TZ)
         
         # A decommissioned station's sensors are no longer deployed, so their
         # port configurations stop being true and must be closed.
@@ -869,7 +871,7 @@ update_station_status <- function(station_id, new_status,
           }, logical(1))]
         }
         
-        for (s in decom_serials) close_device_ports(s, Sys.time())
+        for (s in decom_serials) close_device_ports(s, when)
       } else {
         # No active devices - check for removed devices
         removed_devices <- station_devices[station_devices$status == "removed", ]
@@ -962,47 +964,6 @@ update_device_location <- function(device_serial, lat, lon, elev,
     return(TRUE)
   }, error = function(e) {
     return(paste0("Failed to update location: ", e$message))
-  })
-}
-
-#' Update last_download_date for a device
-#'
-#' Writes to the logger's ACTIVE row at the station the download was logged
-#' against - never to every row with its serial. A logger that has served two
-#' stations has a row for each, and the old one (TR2, decommissioned, for
-#' 21652376) must not be stamped with a download it never had. Matching by
-#' serial alone also returned one time zone per row, and as.POSIXct() refuses
-#' a time zone that is more than one value: "invalid 'tz' value".
-#'
-#' @param device_serial Character. Device to update
-#' @param download_date Date or character. Date of download
-#' @param station_id Character. The station the download was logged against.
-#'   NULL for a caller that has none: the logger's active rows, wherever they
-#'   are
-#' @return TRUE if successful, error message if failed
-update_last_download_date <- function(device_serial, download_date, station_id = NULL) {
-  tryCatch({
-    metadata <- load_zentra_metadata()
-    terminal <- c("removed", "replaced", "relocated", "decommissioned")
-    device_index <- which(metadata$device_serial == device_serial &
-                          !tolower(metadata$status) %in% terminal &
-                          (is.null(station_id) | metadata$station_id %in% station_id))
-    
-    if (length(device_index) == 0) {
-      return(paste0("No active row for ", device_serial,
-                    if (!is.null(station_id)) paste0(" at ", station_id) else ""))
-    }
-    # One time zone: the rows found are one logger's active rows
-    device_tz <- metadata$timezone[device_index[1]]
-    # Convert date to datetime at noon (realistic for field visits)
-    download_datetime <- as.POSIXct(paste(download_date, "12:00:00"), 
-                                    tz = device_tz)
-    # Update last_download_date
-    metadata$last_download_date[device_index] <- download_datetime
-    save_device_metadata(metadata)
-    return(TRUE)
-  }, error = function(e) {
-    return(paste0("Failed to update last_download_date: ", e$message))
   })
 }
 
@@ -1336,17 +1297,13 @@ add_new_device <- function(device_data) {
       interval_min = device_data$interval_min,
       timezone = device_data$timezone,
       deploy_datetime = device_data$deploy_datetime,
+      end_datetime = as.POSIXct(NA, tz = PROJECT_TZ),
       status = device_data$status,
-      last_update = NA,
-      battery = NA,
       # Establishing a station on a date means somebody stood at it on that
       # date. The deploy datetime IS a field visit, so recording it as one is
       # not an inference - it is the same fact stated in the field that asks
       # "when was this last visited?"
       last_visit = as.Date(device_data$deploy_datetime),
-      expiry_date = device_data$expiry_date,
-      last_download_date = NA,
-      last_record_date = NA,
       metadata_approved = device_data$metadata_approved,
       # Written together: the flag says a human confirmed the record, the
       # timestamp says when. Establishing a station IS that confirmation, so
@@ -1409,6 +1366,9 @@ relocate_station <- function(station_id, new_lat, new_lon, deploy_datetime,
     
     # Mark old devices as relocated
     metadata$status[metadata$unique_id %in% active_devices$unique_id] <- "relocated"
+    # The old position's deployment ends where the new one begins
+    metadata$end_datetime[metadata$unique_id %in% active_devices$unique_id] <-
+      as.POSIXct(deploy_datetime, tz = PROJECT_TZ)
 
     # A station whose sensors came out while the logger went elsewhere. Its
     # row ends as `removed` - the sensors that constituted the station were
@@ -1454,8 +1414,8 @@ relocate_station <- function(station_id, new_lat, new_lon, deploy_datetime,
         new_row$reach_length_m <- NA_real_
       }
       new_row$deploy_datetime <- deploy_datetime
+      new_row$end_datetime <- as.POSIXct(NA, tz = PROJECT_TZ)
       new_row$status <- new_status
-      new_row$last_update <- old_device$last_update  # Copy from old
       new_row$last_visit <- as.Date(deploy_datetime)
       new_row$metadata_approved <- metadata_approved
 
@@ -1474,12 +1434,6 @@ relocate_station <- function(station_id, new_lat, new_lon, deploy_datetime,
         if (!is.null(new_device$model))       new_row$model       <- new_device$model
         if (!is.null(new_device$device_name)) new_row$device_name <- new_device$device_name
 
-        # These describe the OLD logger's history and mean nothing for a box
-        # that has just come out of a cupboard.
-        new_row$last_update        <- NA
-        new_row$battery            <- NA
-        new_row$last_download_date <- NA
-        new_row$last_record_date   <- NA
       }
       # new_row is a copy of the old device, so without this it would inherit
       # the review date from BEFORE the move - claiming the record was
@@ -1538,12 +1492,13 @@ retire_row <- function(unique_id, when, close_ports = TRUE) {
     metadata <- load_zentra_metadata()
     i <- which(metadata$unique_id == unique_id)
     if (length(i) != 1) return(paste0("No single row '", unique_id, "'"))
-    tz <- metadata$timezone[i]
-    if (is.na(tz) || !nzchar(tz)) tz <- "America/Puerto_Rico"
-    lv <- format_datetime_safe(metadata$last_visit)
-    lv[i] <- format(as.Date(when, tz = tz), "%Y-%m-%d")
-    metadata$last_visit <- lv
-    save_device_metadata(metadata)
+    # The moment the deployment ended - the logger's removal, or its
+    # replacement going in. Set once, here; a later visit to the station never
+    # moves it
+    metadata$end_datetime[i] <- as.POSIXct(when, tz = PROJECT_TZ)
+    if (!isTRUE(save_device_metadata(metadata, intent = paste("retiring row", unique_id)))) {
+      stop("the device table changed since it was read")
+    }
 
     sn <- metadata$device_serial[i]
     if (close_ports && grepl("^z", sn, ignore.case = TRUE)) {

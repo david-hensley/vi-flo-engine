@@ -17,6 +17,55 @@
 ################################################################################
 
 
+#' What the archive says about each deployment
+#'
+#' Worked out from download_log.csv each time it is asked, never stored: how
+#' far the archive reaches for the deployment, when its logger was last
+#' downloaded, and its battery as that download found it. Each comes from the
+#' files of the deployment's own logger that overlap the deployment - a logger
+#' that served a station before is not credited with readings from then, which
+#' is how sgm2_hydro's new logger once showed a last reading from its Reef Bay
+#' years.
+#'
+#' @param rows Data frame of device_metadata rows
+#' @param dl Data frame from load_download_log(), or NULL to read
+#' @return Data frame, one row per input row: unique_id, data_to,
+#'   last_download (UTC), battery, battery_as_of (UTC)
+deployment_activity <- function(rows, dl = NULL) {
+  n <- nrow(rows)
+  out <- data.frame(unique_id = rows$unique_id,
+                    data_to = as.POSIXct(rep(NA, n), tz = PROJECT_TZ),
+                    last_download = as.POSIXct(rep(NA, n), tz = "UTC"),
+                    battery = rep(NA_real_, n),
+                    battery_as_of = as.POSIXct(rep(NA, n), tz = "UTC"),
+                    stringsAsFactors = FALSE)
+  if (n == 0) return(out)
+  if (is.null(dl)) dl <- tryCatch(load_download_log(), error = function(e) NULL)
+  if (is.null(dl) || nrow(dl) == 0) return(out)
+  stamp <- as.POSIXct(dl$timestamp_utc, tz = "UTC")
+
+  for (i in seq_len(n)) {
+    from <- rows$deploy_datetime[i]
+    to   <- if ("end_datetime" %in% names(rows)) rows$end_datetime[i] else NA
+    mine <- which(dl$device_serial == rows$device_serial[i] & !is.na(dl$end_date) &
+                    (is.na(from) | dl$end_date >= from) &
+                    (is.na(to) | dl$start_date <= to))
+    if (length(mine) == 0) next
+    last <- max(dl$end_date[mine])
+    if (!is.na(to) && last > to) last <- to
+    out$data_to[i] <- last
+    out$last_download[i] <- max(stamp[mine], na.rm = TRUE)
+    b <- mine[!is.na(dl$battery[mine])]
+    if (length(b) > 0) {
+      newest <- b[which.max(dl$end_date[b])]
+      out$battery[i] <- dl$battery[newest]
+      out$battery_as_of[i] <- stamp[newest]
+    }
+  }
+  out
+}
+
+
 #' What needs attention across the network
 #'
 #' Gathers; does not print. print_network_todo() renders, so a digest or a
@@ -40,8 +89,8 @@ get_network_todo <- function(devices = NULL) {
                       type = "error", stringsAsFactors = FALSE))
   }
 
-  terminal <- c("removed", "replaced", "relocated", "decommissioned")
-  active <- meta[!tolower(meta$status) %in% terminal, , drop = FALSE]
+  active <- meta[!tolower(meta$status) %in% TERMINAL_STATUSES, , drop = FALSE]
+  act <- deployment_activity(active)
 
   now <- Sys.time()
 
@@ -61,7 +110,7 @@ get_network_todo <- function(devices = NULL) {
   # before anyone noticed the silence was the tool and not the network.
   if (is.null(devices)) {
     add(NA_character_, NA_character_, "high",
-        paste0("could not reach ZentraCloud - reporting, battery and ",
+        paste0("could not reach ZentraCloud - reporting and ",
                "unestablished devices were NOT checked",
                if (!is.na(api_error)) paste0(" (", substr(api_error, 1, 60), ")")
                else ""),
@@ -75,8 +124,17 @@ get_network_todo <- function(devices = NULL) {
       if (is.na(last)) next
 
       hours <- as.numeric(difftime(now, last, units = "hours"))
-      row <- active[active$device_serial == sn, ][1, ]
-      station <- if (nrow(row) > 0 && !is.na(row$station_id)) row$station_id else "(not in metadata)"
+      row <- active[active$device_serial == sn, , drop = FALSE]
+      station <- if (nrow(row) > 0 && !is.na(row$station_id[1])) {
+        row$station_id[1]
+      } else {
+        # A retired logger still reporting - out of service, in a shed, waiting
+        # to be collected - is named by the last station it served
+        past <- meta[meta$device_serial == sn, , drop = FALSE]
+        if (nrow(past) > 0) {
+          paste0(past$station_id[which.max(as.numeric(past$deploy_datetime))], " (retired)")
+        } else "(not in metadata)"
+      }
 
       if (hours > 24 * 7) {
         add(station, sn, "high",
@@ -106,23 +164,13 @@ get_network_todo <- function(devices = NULL) {
   # figure arrives with the readings. A battery changed this morning still
   # reads low here until the next download, which is confusing enough to be
   # worth saying rather than leaving the reader to work out.
-  if ("battery" %in% names(active)) {
-    low <- which(!is.na(active$battery) & active$battery < 25)
-    for (i in low) {
-      as_of <- active$last_download_date[i]
-      age <- if (!is.na(as_of))
-        suppressWarnings(as.numeric(difftime(now, as.POSIXct(as_of),
-                                             units = "days")))
-      else NA_real_
-
-      note <- paste0("battery ", active$battery[i], "%")
-      if (!is.na(age) && age >= 1)
-        note <- paste0(note, " as of ", format(round(age)), "d ago")
-
-      add(active$station_id[i], active$device_serial[i],
-          if (active$battery[i] < 15) "high" else "medium",
-          note, "battery")
-    }
+  low <- which(!is.na(act$battery) & act$battery < 25)
+  for (i in low) {
+    age <- as.numeric(difftime(now, act$battery_as_of[i], units = "days"))
+    note <- paste0("battery ", act$battery[i], "%")
+    if (!is.na(age) && age >= 1) note <- paste0(note, " as of ", format(round(age)), "d ago")
+    add(active$station_id[i], active$device_serial[i],
+        if (act$battery[i] < 15) "high" else "medium", note, "battery")
   }
 
   #### 4. Hydro logger memory ####
@@ -145,7 +193,9 @@ get_network_todo <- function(devices = NULL) {
   HOBO_CAPACITY <- 21600
   WARN_WITHIN_DAYS <- 60
 
-  hobo <- active[!grepl("^z6", active$device_serial), , drop = FALSE]
+  is_hobo <- !grepl("^z6", active$device_serial)
+  hobo <- active[is_hobo, , drop = FALSE]
+  hobo_reach <- act$data_to[is_hobo]
 
   for (i in seq_len(nrow(hobo))) {
     sn <- hobo$device_serial[i]
@@ -188,7 +238,9 @@ get_network_todo <- function(devices = NULL) {
 
     # Memory fills from the launch - the last offload, or for a logger nobody
     # has read yet, the deployment
-    since <- hobo$last_download_date[i]
+    # The logger is relaunched when it is offloaded, so its memory fills from
+    # the end of the last file it gave
+    since <- hobo_reach[i]
     from_deploy <- is.na(since)
     if (from_deploy) since <- hobo$deploy_datetime[i]
     if (is.na(since)) next
@@ -224,28 +276,9 @@ get_network_todo <- function(devices = NULL) {
 
   #### 5. Subscriptions ####
   #
-  # Working devices only. A lapsed subscription on a dead box is not an
-  # oversight - nobody pays to keep a nonresponsive logger on the cloud, and
-  # listing it every week buries the ones that matter. It returns to the list
-  # on its own if the device is ever brought back into service.
-  live <- active[!tolower(active$status) %in% c("defunct", "nonresponsive"), ,
-                 drop = FALSE]
-
-  if ("expiry_date" %in% names(live) && nrow(live) > 0) {
-    for (i in which(!is.na(live$expiry_date))) {
-      days <- as.numeric(difftime(live$expiry_date[i], now, units = "days"))
-
-      if (days < 0) {
-        add(live$station_id[i], live$device_serial[i], "high",
-            paste0("subscription expired ", round(-days), " days ago"),
-            "subscription")
-      } else if (days < 60) {
-        add(live$station_id[i], live$device_serial[i], "medium",
-            paste0("subscription expires in ", round(days), " days"),
-            "subscription")
-      }
-    }
-  }
+  # Not checked. The expiry date was typed in by hand and went stale, and the
+  # API's own subscription status has proved unreliable - devices reporting
+  # daily have shown as inactive. ZentraCloud's account page is the record.
 
   #### 6. Zentra devices with no ports configured ####
   ports <- tryCatch(load_zentra_ports_data(), error = function(e) NULL)
@@ -266,8 +299,7 @@ get_network_todo <- function(devices = NULL) {
   # can reach, so a dead logger is invisible there. Without this they show up
   # only as a stale review, which reads as paperwork rather than as a station
   # that needs somebody to drive to it.
-  broken <- active[tolower(active$status) %in% c("defunct", "nonresponsive"), ,
-                   drop = FALSE]
+  broken <- active[tolower(active$status) %in% "defunct", , drop = FALSE]
   for (i in seq_len(nrow(broken))) {
     since <- if (!is.na(broken$last_visit[i])) {
       paste0(" - last seen ", format(as.Date(broken$last_visit[i]), "%d %b %Y"))
@@ -281,8 +313,7 @@ get_network_todo <- function(devices = NULL) {
   # physically out there, and for a logger known to be dead the answer is "yes,
   # still dead" until somebody visits. Nagging about it would age indefinitely
   # while meaning nothing.
-  active <- active[!tolower(active$status) %in% c("defunct", "nonresponsive"), ,
-                   drop = FALSE]
+  active <- active[!tolower(active$status) %in% "defunct", , drop = FALSE]
 
   if ("last_reviewed_utc" %in% names(active)) {
     for (i in seq_len(nrow(active))) {
@@ -330,14 +361,14 @@ get_network_todo <- function(devices = NULL) {
   out$severity <- factor(out$severity, levels = c("high", "medium", "low", "error"))
 
   # Grouped by TYPE, not by severity. These are different kinds of work -
-  # ordering batteries, chasing a subscription, planning a field trip to
+  # ordering batteries, planning a field trip to
   # offload a logger - and a single list sorted by urgency buries one kind
   # under another. Severity orders within each group.
   # Field first, desk after. The first five need somebody to drive somewhere;
   # the last three are answered from here.
   out$type <- factor(out$type, levels = c(
     "reporting", "battery", "memory", "survey", "known broken",
-    "subscription", "ports", "not established", "metadata review", "error"))
+    "ports", "not established", "metadata review", "error"))
 
   out[order(out$type, out$severity, out$station), ]
 }
@@ -358,7 +389,6 @@ print_network_todo <- function(status = NULL, quiet_if_clean = FALSE) {
     "memory"          = "HYDRO LOGGER MEMORY",
     "survey"          = "SURVEY OUTSTANDING",
     "known broken"    = "KNOWN BROKEN - NEEDS A VISIT",
-    "subscription"    = "SUBSCRIPTIONS",
     "ports"           = "PORTS NOT CONFIGURED",
     "not established" = "REPORTING BUT NOT ESTABLISHED",
     "metadata review" = "METADATA REVIEW")
@@ -372,7 +402,6 @@ print_network_todo <- function(status = NULL, quiet_if_clean = FALSE) {
     "memory"          = "no logger fills within 60 days",
     "survey"          = "every paired gauge is surveyed",
     "known broken"    = "nothing known broken in the field",
-    "subscription"    = "no subscriptions expiring",
     "ports"           = "every device has its ports configured",
     "not established" = "nothing reporting that is not in metadata",
     "metadata review" = "every record reviewed recently")
@@ -440,9 +469,9 @@ print_network_todo <- function(status = NULL, quiet_if_clean = FALSE) {
 get_station_roster <- function(devices = NULL) {
 
   meta <- load_zentra_metadata()
-  terminal <- c("removed", "replaced", "relocated", "decommissioned")
-  active <- meta[!tolower(meta$status) %in% terminal, , drop = FALSE]
+  active <- meta[!tolower(meta$status) %in% TERMINAL_STATUSES, , drop = FALSE]
   if (nrow(active) == 0) return(active)
+  act <- deployment_activity(active)
 
   # Asked of the API rather than of metadata, which is only as current as the
   # last thing that wrote it
@@ -458,18 +487,9 @@ get_station_roster <- function(devices = NULL) {
     last_contact <- devices$last_measurement[hit]
   }
 
-  # How far the archive actually reaches for each device - the question a
-  # metadata field cannot answer, because files arrive without touching it
-  data_to <- as.POSIXct(rep(NA, nrow(active)), tz = "UTC")
-  dl <- tryCatch(load_download_log(), error = function(e) NULL)
-  if (!is.null(dl) && nrow(dl) > 0) {
-    ends <- suppressWarnings(as.POSIXct(dl$end_date, tz = "America/Puerto_Rico"))
-    for (i in seq_len(nrow(active))) {
-      mine <- ends[dl$device_serial == active$device_serial[i]]
-      mine <- mine[!is.na(mine)]
-      if (length(mine)) data_to[i] <- max(mine)
-    }
-  }
+  # How far the archive reaches for each deployment - from the download log,
+  # through the files of its own logger during its own deployment
+  data_to <- act$data_to
 
   out <- data.frame(
     watershed    = active$watershed,
@@ -477,13 +497,13 @@ get_station_roster <- function(devices = NULL) {
     device_serial= active$device_serial,
     station_type = active$station_type,
     status       = active$status,
-    battery      = if ("battery" %in% names(active)) active$battery else NA,
+    battery      = act$battery,
     last_contact = last_contact,
     data_to      = data_to,
     last_visit   = active$last_visit,
     # A device that reaches the cloud, against one read by hand in the field.
     # They fail differently and are worth telling apart at a glance.
-    reports      = tolower(active$status) %in% c("online", "nonresponsive"),
+    reports      = tolower(active$status) %in% "online",
     stringsAsFactors = FALSE)
 
   # Carried on the result so the printer can distinguish "no contact recorded"

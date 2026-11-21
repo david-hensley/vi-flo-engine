@@ -14,7 +14,7 @@ test_that("datetimes load as datetimes and are written as text, never epochs", {
   local_test_root()
   m <- load_zentra_metadata()
   expect_s3_class(m$deploy_datetime, "POSIXct")
-  expect_s3_class(m$last_download_date, "POSIXct")
+  expect_s3_class(m$end_datetime, "POSIXct")
 
   save_device_metadata(m)
   raw <- read.csv(file.path(wds("meta_internal"), "device_metadata.csv"),

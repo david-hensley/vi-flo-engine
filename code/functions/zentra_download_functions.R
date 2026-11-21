@@ -298,16 +298,9 @@ zentra_download <- function(devices = NULL, end = NULL, max_active = 4L,
   cat("Fetched ", format(sum(res$rows), big.mark = ","), " reading(s) across ",
       sum(res$rows > 0), " device(s)\n\n", sep = "")
 
-  #### What the download revealed about each device ####
-  facts <- res[!is.na(res$last_reading), c("device_sn", "battery", "last_reading")]
-  names(facts)[1] <- "device_serial"
-  if (nrow(facts) > 0) {
-    n_meta <- zentra_update_device_facts(facts)
-    if (n_meta > 0) {
-      cat("Updated battery and last reading on ", n_meta, " metadata row(s)\n\n",
-          sep = "")
-    }
-  }
+  # The job writes the logs and nothing else. Battery and the newest reading
+  # travel with each download's row in download_log.csv, where the network
+  # status reads them; the device table is a person's to write
 
   n_errored <- sum(res$errored, na.rm = TRUE)
   status <- if (n_errored == 0) "ok" else "partial"
@@ -416,84 +409,4 @@ zentra_log_run <- function(run_id, started, finished, seen, fetched, current,
 }
 
 
-#' Record battery, last reading and last download from a completed download
-#'
-#' REPLACES the existing function in code/functions/zentra_download_functions.R.
-#'
-#' Two things were wrong with the previous version.
-#'
-#' It assigned `updates$last_reading` straight into a character column. R
-#' coerces a POSIXct that way to its numeric epoch, so eighteen rows came to
-#' read "1791468900" instead of "2026-10-08 10:15:00". The values were right
-#' and nothing could read them.
-#'
-#' It never wrote `last_download_date`, leaving every Zentra row blank in a
-#' field the dictionary defines for all devices.
-#'
-#' On the distinction between the two timestamps it writes: `last_update` is
-#' the last remote contact, `last_record_date` the last logged observation.
-#' For a reporting Zentra these are the same instant - the device uploads what
-#' it has just recorded - so both take the reading time. They are separate
-#' fields because for a `manual` device the first is meaningless and the
-#' second is the only measure of how current the data is.
-#'
-#' @param updates Data frame with device_serial, battery, last_reading
-#' @return Invisible count of rows changed
-zentra_update_device_facts <- function(updates) {
-
-  if (is.null(updates) || nrow(updates) == 0) return(invisible(0L))
-
-  meta <- tryCatch(load_zentra_metadata(), error = function(e) NULL)
-  if (is.null(meta)) {
-    cat("  ! could not read device_metadata - battery not updated\n")
-    return(invisible(0L))
-  }
-
-  TZ       <- "America/Puerto_Rico"
-  terminal <- c("removed", "replaced", "relocated", "decommissioned")
-  changed  <- 0
-
-  # When this download ran. Local, because last_download_date is a datetime
-  # in the metadata table, whose times are project local; the UTC form of the
-  # same moment goes in the download log as timestamp_utc.
-  ran_at <- format_datetime_safe(Sys.time(), tz = TZ)
-
-  for (i in seq_len(nrow(updates))) {
-    sn   <- updates$device_serial[i]
-    rows <- which(meta$device_serial == sn & !tolower(meta$status) %in% terminal)
-    if (length(rows) == 0) next
-
-    if (!is.na(updates$battery[i]) && "battery" %in% names(meta)) {
-      meta$battery[rows] <- updates$battery[i]
-    }
-
-    if (!is.na(updates$last_reading[i])) {
-      # Through the shared helper, never a bare assignment: a POSIXct put
-      # straight into a character column becomes its epoch. This is the
-      # mistake that left eighteen rows reading 1791468900.
-      lr <- format_datetime_safe(as.POSIXct(updates$last_reading[i]), tz = TZ)
-      if ("last_update" %in% names(meta))      meta$last_update[rows]      <- lr
-      if ("last_record_date" %in% names(meta)) meta$last_record_date[rows] <- lr
-    }
-
-    if ("last_download_date" %in% names(meta)) {
-      meta$last_download_date[rows] <- ran_at
-    }
-
-    changed <- changed + length(rows)
-  }
-
-  if (changed == 0) return(invisible(0L))
-
-  ok <- save_device_metadata(
-    meta,
-    intent = "recording battery, last reading and last download from a download")
-
-  if (!isTRUE(ok)) {
-    cat("  ! device_metadata was not updated - see the refusal above\n")
-    return(invisible(0L))
-  }
-
-  invisible(changed)
-}
 

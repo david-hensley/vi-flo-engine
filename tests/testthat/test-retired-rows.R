@@ -20,6 +20,10 @@ lv <- function(uid) {
   m <- load_zentra_metadata()
   format(as.Date(m$last_visit[m$unique_id == uid]), "%Y-%m-%d")
 }
+ends_at <- function(uid) {
+  m <- load_zentra_metadata()
+  format(m$end_datetime[m$unique_id == uid], "%Y-%m-%d %H:%M", tz = "America/Puerto_Rico")
+}
 
 for (status in c("removed", "replaced", "relocated", "decommissioned")) {
   test_that(paste0("a routine visit leaves a ", status, " row's date alone"), {
@@ -31,11 +35,13 @@ for (status in c("removed", "replaced", "relocated", "decommissioned")) {
   })
 }
 
-test_that("retire_row dates the row to the day its logger left", {
+test_that("retire_row ends the deployment at the moment its logger left", {
   local_test_root()
+  before <- lv("t-0001")
   when <- as.POSIXct("2026-10-29 12:15:00", tz = "America/Puerto_Rico")
   expect_true(isTRUE(retire_row("t-0001", when, close_ports = FALSE)))
-  expect_equal(lv("t-0001"), "2026-10-29")
+  expect_equal(ends_at("t-0001"), "2026-10-29 12:15")
+  expect_equal(lv("t-0001"), before)                        # the last visit is what it was
 })
 
 test_that("retire_row closes the logger's open ports at that moment, not now", {
@@ -72,11 +78,11 @@ test_that("a removal dates the removed row to the removal, and visits its partne
   m <- load_zentra_metadata()
   r <- m[m$unique_id == "t-0002", ]
   expect_equal(r$status, "removed")
-  expect_equal(lv("t-0002"), "2026-10-28")
+  expect_equal(ends_at("t-0002"), "2026-10-28 10:00")
   expect_equal(lv("t-0001"), "2026-10-28")                  # the primary was visited too
-  # And a later visit leaves it there
+  # And a later visit leaves its end where it is
   update_last_visit("bta2_hydro", as.Date("2026-11-15"))
-  expect_equal(lv("t-0002"), "2026-10-28")
+  expect_equal(ends_at("t-0002"), "2026-10-28 10:00")
 })
 
 test_that("a replaced row's deployment ends at its replacement, for Product 2", {
@@ -87,8 +93,8 @@ test_that("a replaced row's deployment ends at its replacement, for Product 2", 
   retire_row("t-0001", when)
   w <- deployment_windows()
   w <- w[w$unique_id == "t-0001", ]
-  expect_equal(w$end_basis, "last visit")
-  expect_equal(format(w$ends, "%Y-%m-%d", tz = "America/Puerto_Rico"), "2026-10-29")
+  expect_equal(w$end_basis, "end")
+  expect_equal(format(w$ends, "%Y-%m-%d %H:%M", tz = "America/Puerto_Rico"), "2026-10-29 12:15")
 })
 
 test_that("an entry is given the deployment serving on the day of the visit", {

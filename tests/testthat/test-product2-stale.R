@@ -47,10 +47,10 @@ test_that("a station's metadata changing makes it stale, and no other", {
   expect_length(reasons(s, "zzv_vwc1"), 0)
 })
 
-test_that("a battery reading makes nothing stale", {
+test_that("a visit makes nothing stale", {
   local_test_root(); place_p1(U20)
   build_p2("zzb_hydro", 2026, quiet = TRUE)
-  set_meta(function(m) { m$battery[m$unique_id == "t-0007"] <- 50; m })
+  set_meta(function(m) { m$last_visit[m$unique_id == "t-0007"] <- "2026-10-19"; m })
   expect_equal(nrow(p2_stale()), 0)
 })
 

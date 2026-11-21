@@ -59,7 +59,7 @@ PROJECT_TZ <- "America/Puerto_Rico"
 TABLE_SCHEMA <- list(
 
   device_metadata = list(
-    file = "device_metadata.csv", key = "unique_id", writer = "both",
+    file = "device_metadata.csv", key = "unique_id", writer = "person",
     columns = c(
       unique_id = "text", watershed = "text", area = "text", site_full = "text",
       site = "text", station_type = "text", station_id = "text",
@@ -67,10 +67,8 @@ TABLE_SCHEMA <- list(
       mfger = "text", model = "text", lat = "number", lon = "number",
       elev = "number", elev_source = "text", sensor_height_cm = "number",
       reach_length_m = "number", interval_min = "integer", timezone = "text",
-      deploy_datetime = "datetime_local", status = "text",
-      last_update = "datetime_local", battery = "number", last_visit = "date",
-      expiry_date = "date", last_download_date = "datetime_local",
-      last_record_date = "datetime_local", metadata_approved = "logical",
+      deploy_datetime = "datetime_local", end_datetime = "datetime_local",
+      status = "text", last_visit = "date", metadata_approved = "logical",
       last_reviewed_utc = "datetime_utc"
     )
   ),
@@ -157,6 +155,16 @@ MAINTENANCE_ACTIONS_BY_WORKFLOW <- c(
   "metadata_correction", "metadata_deletion"
 )
 MAINTENANCE_ACTIONS <- c(MAINTENANCE_ACTIONS_BY_HAND, MAINTENANCE_ACTIONS_BY_WORKFLOW)
+
+# A deployment's status. Active statuses say how a working device's data
+# reaches the archive; terminal ones how its deployment ended. TERMINAL_STATUSES
+# itself is defined in attribution_functions.R, which loads first
+ACTIVE_STATUSES <- c(
+  "online",                  # reports to the cloud over cellular
+  "local",                   # offloaded on site, then uploaded
+  "manual",                  # no cloud pathway; archived by hand
+  "defunct"                  # broken or assumed lost, still deployed
+)
 
 # A port row's status. Blank is a working sensor
 PORT_STATUSES <- c(

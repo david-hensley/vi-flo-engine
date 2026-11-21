@@ -115,7 +115,7 @@ network status, the to-do list, the doctor report - and never kept as a copy.
 | Last download | `timestamp_utc` of the newest row for the logger in `download_log.csv` |
 | Battery | `battery` on the newest row for the logger in `download_log.csv` |
 | Silent `online` logger | last record more than 14 days old |
-| Cloud subscription expiry | asked of ZentraCloud when needed, if its API offers it; otherwise not tracked |
+| Cloud subscription expiry | not tracked - typed by hand it went stale, and the API's own subscription status has proved unreliable. ZentraCloud's account page is the record |
 | Surveyed elevations, slope, sensor height | `surveys.csv` |
 
 ### `surveys.csv`

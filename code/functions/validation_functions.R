@@ -160,8 +160,7 @@ validate_metadata <- function(verbose = TRUE, stop_on_error = FALSE) {
   
   # CHECK 2: Only one active row per device_serial PER STATION_TYPE
   # (Same physical device CAN serve multiple station types, e.g., weather + vwc)
-  active_statuses <- c("online", "local", "nonresponsive", "defunct")
-  active_devices <- metadata[metadata$status %in% active_statuses, ]
+  active_devices <- metadata[metadata$status %in% ACTIVE_STATUSES, ]
   
   if (nrow(active_devices) > 0) {
     # Create composite key: serial + station_type
@@ -245,8 +244,7 @@ validate_metadata <- function(verbose = TRUE, stop_on_error = FALSE) {
   }
   
   # CHECK 5: Valid status values
-  valid_statuses <- c("online", "local", "manual", "nonresponsive", "defunct", 
-                      "removed", "replaced", "relocated", "decommissioned")
+  valid_statuses <- c(ACTIVE_STATUSES, TERMINAL_STATUSES)
   
   invalid_status <- !metadata$status %in% valid_statuses
   if (any(invalid_status)) {
@@ -483,13 +481,12 @@ validate_metadata <- function(verbose = TRUE, stop_on_error = FALSE) {
     # R coerces a POSIXct into a character column as its numeric epoch -
     # "1791468900" rather than "2026-10-08 10:15:00". The value is not wrong,
     # but nothing downstream parses it, and it is invisible unless someone
-    # opens the file. zentra_update_device_facts() did this to eighteen rows
-    # by assigning updates$last_reading without formatting it first.
+    # opens the file. The job once did this to eighteen rows by assigning a
+    # reading time without formatting it first.
     #
     # Any writer can make this mistake. This catches all of them.
-    dt_fields <- intersect(c("deploy_datetime", "last_update", "last_visit",
-                             "expiry_date", "last_download_date",
-                             "last_record_date", "last_reviewed_utc"),
+    dt_fields <- intersect(c("deploy_datetime", "end_datetime", "last_visit",
+                             "last_reviewed_utc"),
                            names(metadata))
 
     if (length(dt_fields) > 0) {
@@ -678,22 +675,19 @@ validate_metadata <- function(verbose = TRUE, stop_on_error = FALSE) {
       }
     }
     
-    # CHECK: every logger the download log names exists in metadata
+    # NOTE: loggers the download log names that the metadata does not
     #
-    # The log is kept by logger: a Product 1 file is what a physical logger
-    # recorded, and which station a reading belongs to is decided at Product 2.
-    # A logger the metadata has never heard of has readings nothing can claim
-    if (!is.null(metadata)) {
-      unknown <- which(!is.na(dlog$device_serial) & !dlog$device_serial %in% metadata$device_serial)
+    # Not a fault. The job downloads every logger on the ZentraCloud account,
+    # and some are not VI-FLO's - a colleague's experiment, a test box - while
+    # the full-history exports reach loggers from before VI-FLO. Their files
+    # are kept and attributed to nothing. Listed so that a VI-FLO logger
+    # missing its metadata row does not hide among them
+    if (!is.null(metadata) && verbose) {
+      unknown <- setdiff(unique(dlog$device_serial[!is.na(dlog$device_serial)]),
+                         metadata$device_serial)
       if (length(unknown) > 0) {
-        record_violation(
-          "UNKNOWN_DOWNLOAD_LOGGER",
-          paste("Download log names logger(s) not in metadata:",
-                paste(unique(dlog$device_serial[unknown]), collapse = ", ")),
-          dlog[unknown, c("timestamp_utc", "device_serial", "filepath")]
-        )
-      } else {
-        record_pass("download log loggers exist in metadata")
+        cat("  \u2139 Downloaded, but in no metadata row (kept, attributed to nothing): ",
+            paste(sort(unknown), collapse = ", "), "\n", sep = "")
       }
     }
     
@@ -808,80 +802,29 @@ validate_metadata <- function(verbose = TRUE, stop_on_error = FALSE) {
   if (!is.null(metadata) && nrow(metadata) > 0) {
     if (verbose) cat("\nChecking metadata against the data...\n")
 
-    # CHECK: a record date falls inside its own deployment
+    # CHECK: a deployment's end
     #
-    # A device that served two stations has a row for each, and each reaches
-    # only as far as the readings taken during it. Writing one serial-wide
-    # figure to every row gives a retired deployment its successor's dates -
-    # which is how Fish Bay's 2021 upstream logger came to claim a last
-    # reading from 2026, three years after it left the gut.
-    #
-    # A deployment ends at whichever comes first: the next deployment, or the
-    # day the device left.
-    tz_local <- "America/Puerto_Rico"
-    terminal <- c("removed", "replaced", "relocated", "decommissioned")
-    outside  <- data.frame()
-
-    if (all(c("deploy_datetime", "last_record_date", "device_serial")
-            %in% names(metadata))) {
-
-      for (sn in unique(metadata$device_serial)) {
-        idx <- which(metadata$device_serial == sn)
-        starts <- suppressWarnings(as.POSIXct(metadata$deploy_datetime[idx],
-                                              tz = tz_local))
-        ord <- order(starts)
-        idx <- idx[ord]; starts <- starts[ord]
-
-        for (k in seq_along(idx)) {
-          i  <- idx[k]
-          lr <- suppressWarnings(as.POSIXct(metadata$last_record_date[i],
-                                            tz = tz_local))
-          if (is.na(lr) || is.na(starts[k])) next
-
-          # Only a row that has ENDED has an upper bound. Two rows for one
-          # serial need not be two deployments in sequence: a ZL6 serves a
-          # weather station on port 1 and a soil moisture station on ports 2
-          # to 5 at the same time, and the second row's deploy date is when
-          # the sensors were added, not when the first station stopped.
-          #
-          # An active row runs to now, whatever else shares its serial.
-          bounds <- as.POSIXct(character(0), tz = tz_local)
-
-          if (tolower(metadata$status[i]) %in% terminal) {
-            if (k < length(idx)) bounds <- c(bounds, starts[k + 1])
-            if (!is.na(metadata$last_visit[i]) &&
-                nzchar(as.character(metadata$last_visit[i])))
-              bounds <- c(bounds, suppressWarnings(as.POSIXct(
-                paste(as.character(metadata$last_visit[i]), "23:59:59"),
-                tz = tz_local)))
-          }
-
-          too_early <- lr < starts[k]
-          too_late  <- length(bounds) > 0 && lr > min(bounds)
-
-          if (too_early || too_late) {
-            outside <- rbind(outside, data.frame(
-              unique_id     = metadata$unique_id[i],
-              device_serial = sn,
-              station_id    = metadata$station_id[i],
-              deployed      = format(starts[k], "%Y-%m-%d"),
-              last_record   = format(lr, "%Y-%m-%d"),
-              problem       = if (too_early) "before deployment"
-                              else "after the device left",
-              stringsAsFactors = FALSE))
-          }
-        }
-      }
-    }
-
-    if (nrow(outside) > 0) {
+    # A retired row must say when its deployment ended - Product 2 ends it
+    # there, and without it the deployment runs on forever. A current one must
+    # not have an end. And no deployment ends before it began.
+    terminal_row <- tolower(metadata$status) %in% TERMINAL_STATUSES
+    no_end   <- terminal_row & is.na(metadata$end_datetime)
+    has_end  <- !terminal_row & !is.na(metadata$end_datetime)
+    backward <- !is.na(metadata$end_datetime) & !is.na(metadata$deploy_datetime) &
+                metadata$end_datetime < metadata$deploy_datetime
+    if (any(no_end | has_end | backward)) {
+      problem <- ifelse(no_end, "retired, no end_datetime",
+                 ifelse(has_end, "current, but has an end_datetime",
+                        "ends before it began"))
+      bad <- no_end | has_end | backward
       record_violation(
-        "RECORD_DATE_OUTSIDE_DEPLOYMENT",
-        paste(nrow(outside), "last record date(s) fall outside their deployment"),
-        outside
+        "DEPLOYMENT_END",
+        paste(sum(bad), "row(s) with a missing, stray or backward end_datetime"),
+        data.frame(metadata[bad, c("unique_id", "station_id", "status")],
+                   problem = problem[bad], stringsAsFactors = FALSE)
       )
     } else {
-      record_pass("record dates fall inside their deployments")
+      record_pass("every retired deployment has an end, and no current one does")
     }
   }
 

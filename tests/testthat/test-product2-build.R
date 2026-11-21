@@ -192,15 +192,15 @@ test_that("a logger removed and later redeployed belongs to no station in betwee
   path <- file.path(wds("meta_internal"), "device_metadata.csv")
   m <- read.csv(path, stringsAsFactors = FALSE)
   m$status[m$unique_id == "t-0007"] <- "removed"
-  m$last_visit[m$unique_id == "t-0007"] <- "2026-08-29"
+  m$end_datetime[m$unique_id == "t-0007"] <- "2026-08-29 23:59:59"
   again <- m[m$unique_id == "t-0007", ]
-  again$unique_id <- "t-0014"; again$status <- "manual"; again$last_visit <- NA
+  again$unique_id <- "t-0014"; again$status <- "manual"; again$end_datetime <- NA
   again$deploy_datetime <- "2026-09-01 12:00:00"
   write.csv(rbind(m, again), path, row.names = FALSE)
 
   w <- deployment_windows()
   w <- w[w$unique_id == "t-0007", ]
-  expect_equal(w$end_basis, "last visit")
+  expect_equal(w$end_basis, "end")
   expect_equal(format(w$ends, "%Y-%m-%d %H:%M"), "2026-08-29 23:59")
 
   out <- build_p2("zzb_hydro", 2026, quiet = TRUE)
@@ -223,11 +223,10 @@ set_meta <- function(edit) {
 fps <- function(st, yr) p2_fingerprints(st, yr, load_zentra_metadata(), load_zentra_ports_data(),
                                         deployment_windows())
 
-test_that("a battery reading or a download date changes no fingerprint", {
+test_that("a visit changes no fingerprint - a deployment no longer ends at one", {
   local_test_root()
   before <- fps("zzb_hydro", 2026)
-  set_meta(function(m) { m$battery[m$unique_id == "t-0007"] <- 77
-                         m$last_download_date[m$unique_id == "t-0007"] <- "2026-10-19 08:00:00"; m })
+  set_meta(function(m) { m$last_visit[m$unique_id == "t-0007"] <- "2026-10-19"; m })
   expect_identical(fps("zzb_hydro", 2026), before)
 })
 

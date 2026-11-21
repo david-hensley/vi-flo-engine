@@ -625,8 +625,7 @@ ui_ingest_local_data <- function(station_id, device_serial, station_type,
     # after the station it served was decommissioned.
     #
     # A warning rather than a refusal. The operator has the file in front of
-    # them and knows things the metadata does not; last_visit in particular is
-    # only as current as the last logged visit.
+    # them and knows things the metadata does not.
     dep <- tryCatch({
       mm <- load_zentra_metadata()
       mm[mm$station_id == station_id & mm$device_serial == device_serial, ]
@@ -636,7 +635,7 @@ ui_ingest_local_data <- function(station_id, device_serial, station_type,
       deployed <- min(dep$deploy_datetime, na.rm = TRUE)
       terminal <- c("removed", "replaced", "relocated", "decommissioned")
       ended <- if (all(tolower(dep$status) %in% terminal)) {
-        suppressWarnings(max(as.POSIXct(dep$last_visit), na.rm = TRUE))
+        suppressWarnings(max(dep$end_datetime, na.rm = TRUE))
       } else as.POSIXct(NA)
 
       before <- !is.na(deployed) && parsed$start < deployed - 86400
@@ -855,13 +854,6 @@ archive_local_data <- function(station_id, device_serial, csv_path, parsed,
     warnings <- c(warnings, paste0("Could not write download log: ", logged))
   }
 
-  result <- update_last_record_date(device_serial, parsed$end)
-  if (isTRUE(result)) {
-    messages <- c(messages, "Updated last_record_date")
-  } else {
-    warnings <- c(warnings, paste0("Could not update last_record_date: ", result))
-  }
-
   #### Clear the pending row - the workflow is complete ####
   clear_pending_ingest(station_id, device_serial)
 
@@ -870,50 +862,3 @@ archive_local_data <- function(station_id, device_serial, csv_path, parsed,
 }
 
 
-#' Updates last_record_date for a device
-#'
-#' last_record_date is the timestamp of the last actual observation now held in
-#' the archive - distinct from last_download_date, which records when someone
-#' went and pulled data, and from last_update, which records remote contact and
-#' is NA for local devices by design.
-#'
-#' Comparing last_record_date against last_visit is how gap detection works for
-#' local devices: a logger that died three weeks before the visit shows records
-#' ending well before the visit date.
-#'
-#' Modeled on update_last_download_date() in metadata_manager_functions.R.
-#'
-#' @param device_serial Character. Device to update
-#' @param record_datetime POSIXct. Timestamp of the last record archived
-#' @return TRUE if successful, error message string if failed
-update_last_record_date <- function(device_serial, record_datetime) {
-  tryCatch({
-    metadata <- load_zentra_metadata()
-    device_index <- which(metadata$device_serial == device_serial)
-
-    if (length(device_index) == 0) {
-      return("Device not found in metadata")
-    }
-
-    if (!"last_record_date" %in% names(metadata)) {
-      return("last_record_date column not present in device_metadata.csv")
-    }
-
-    # Assign into a CHARACTER column, not the raw one. If last_record_date is
-    # entirely NA - as it is until the first ingest - read.csv types it as
-    # logical, and assigning a POSIXct into a logical vector silently strips
-    # the class and leaves the underlying number. The result looks like
-    # 1769927566 in the CSV: the right instant, stored uselessly.
-    lrd <- format_datetime_safe(metadata$last_record_date)
-    #
-    # format_datetime_safe() is the guard, and the reason it is a shared
-    # helper rather than a local fix: the Zentra downloader made the same
-    # mistake independently and left eighteen rows holding epochs.
-    lrd[device_index] <- format_datetime_safe(as.POSIXct(record_datetime))
-    metadata$last_record_date <- lrd
-    save_device_metadata(metadata)
-    return(TRUE)
-  }, error = function(e) {
-    return(paste0("Failed to update last_record_date: ", e$message))
-  })
-}
