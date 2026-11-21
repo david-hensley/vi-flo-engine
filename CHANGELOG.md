@@ -94,6 +94,16 @@ All notable changes to the VI-FLO Engine project are documented here.
   message. Neither ever holds anything back
 
 ### Changed
+- **The network status keeps the cloud's date and the archive's apart.**
+  "contact" is now "cloud contact" - the newest reading ZentraCloud holds -
+  and "data to" is "archived to" - the newest reading downloaded into the
+  archive - with the battery between them, so the two dates are never read
+  as one. That confusion is how a station looked as if it thought it was
+  still 20 November
+- **The network status and the to-do list name devices** by the name each
+  carries at that station, falling back to the serial only where there is
+  none
+- `orphan_sweep.R`'s header gave its own name as "oprhansweep.R"
 - **The statuses are written once.** `ACTIVE_STATUSES`, `TERMINAL_STATUSES`
   and what each status means, `STATUS_MEANINGS`, live together in the data
   layer; the 21 copies of the terminal list spelled out across six files are

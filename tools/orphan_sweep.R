@@ -1,5 +1,5 @@
 ################################################################################
-# oprhansweep.R - clear Box of what this machine's products no longer hold
+# orphan_sweep.R - clear Box of what this machine's products no longer hold
 #
 # Run after a commit and push, on the machine that did the last Product 2
 # build, with start.R loaded. Two jobs:

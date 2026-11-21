@@ -28,3 +28,28 @@ test_that("a deployment with no files has no reach, rather than a borrowed one",
   a <- deployment_activity(m[m$unique_id == "t-0004", ])
   expect_true(is.na(a$data_to))
 })
+
+test_that("the network status names devices, and keeps the cloud and archive dates apart", {
+  local_test_root()
+  roster <- get_station_roster(devices = data.frame(device_id = character(0),
+                                                    last_measurement = as.POSIXct(character(0))))
+  out <- utils::capture.output(print_station_roster(roster))
+  header <- out[grepl("station", out) & grepl("archived to", out)]
+  expect_length(header, 1)
+  expect_true(regexpr("cloud contact", header) < regexpr("batt", header))
+  expect_true(regexpr("batt", header) < regexpr("archived to", header))
+  expect_true(any(grepl("testb", out)))                    # bta2b by its name
+  expect_false(any(grepl("90000002", out)))                # not its serial
+})
+
+test_that("the to-do list names devices too", {
+  local_test_root()
+  todo <- data.frame(station = "bta2_hydro", device = "90000002", severity = "low",
+                     issue = "no survey", type = "survey", stringsAsFactors = FALSE)
+  todo$severity <- factor(todo$severity, levels = c("high", "medium", "low", "error"))
+  todo$type <- factor(todo$type, levels = c("reporting", "battery", "memory", "survey",
+                                            "known broken", "ports", "not established", "metadata review"))
+  out <- utils::capture.output(print_network_todo(todo))
+  expect_true(any(grepl("testb", out)))
+  expect_false(any(grepl("90000002", out)))
+})

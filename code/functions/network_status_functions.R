@@ -387,6 +387,7 @@ get_network_todo <- function(devices = NULL) {
 print_network_todo <- function(status = NULL, quiet_if_clean = FALSE) {
 
   if (is.null(status)) status <- get_network_todo()
+  meta <- tryCatch(load_zentra_metadata(), error = function(e) NULL)
 
   headings <- c(
     "reporting"       = "NOT REPORTING",
@@ -436,7 +437,8 @@ print_network_todo <- function(status = NULL, quiet_if_clean = FALSE) {
       mark <- switch(as.character(rows$severity[i]),
                      high = "!", medium = " ", low = " ", "?")
       cat(" ", mark, " ", format(rows$station[i], width = 14),
-          format(rows$device[i], width = 11), rows$issue[i], "\n", sep = "")
+          format(todo_device_name(rows$station[i], rows$device[i], meta), width = 20),
+          rows$issue[i], "\n", sep = "")
     }
   }
 
@@ -469,8 +471,8 @@ print_network_todo <- function(status = NULL, quiet_if_clean = FALSE) {
 #' Every active station, with its current state
 #'
 #' @param devices Optional data frame from zc_list_devices(), to save a call
-#' @return Data frame: watershed, station_id, device_serial, station_type,
-#'   status, battery, last_contact, data_to, last_visit, reports
+#' @return Data frame: watershed, station_id, device_serial, device_name,
+#'   station_type, status, battery, last_contact, data_to, last_visit, reports
 get_station_roster <- function(devices = NULL) {
 
   meta <- load_zentra_metadata()
@@ -500,6 +502,7 @@ get_station_roster <- function(devices = NULL) {
     watershed    = active$watershed,
     station_id   = active$station_id,
     device_serial= active$device_serial,
+    device_name  = active$device_name,
     station_type = active$station_type,
     status       = active$status,
     battery      = act$battery,
@@ -545,9 +548,12 @@ print_station_roster <- function(roster = NULL) {
   cat("  Network - ", nrow(roster), " active station(s)\n", sep = "")
   cat("============================================\n")
 
-  cat("\n  ", format("station", width = 14), format("device", width = 11),
-      format("status", width = 14), format("batt", width = 5),
-      format("contact", width = 9), "data to\n", sep = "")
+  # Device by name, as a person knows it; the serial only where it has none.
+  # The cloud's newest reading and the archive's sit either side of the
+  # battery, so the two dates are never read as one
+  cat("\n  ", format("station", width = 14), format("device", width = 20),
+      format("status", width = 9), format("cloud contact", width = 15),
+      format("batt", width = 6), "archived to\n", sep = "")
 
   ws <- NULL
   for (i in seq_len(nrow(roster))) {
@@ -562,26 +568,55 @@ print_station_roster <- function(roster = NULL) {
     # meaningless rather than missing
     contact <- if (!roster$reports[i]) "offload" else ago(roster$last_contact[i])
 
+    name <- roster$device_name[i]
+    if (is.na(name) || !nzchar(trimws(name))) name <- roster$device_serial[i]
+    if (nchar(name) > 19) name <- paste0(substr(name, 1, 18), "\u2026")
+
     cat("  ", format(roster$station_id[i], width = 14),
-        format(roster$device_serial[i], width = 11),
-        format(roster$status[i], width = 14),
-        format(batt, width = 5),
-        format(contact, width = 9),
+        format(name, width = 20),
+        format(roster$status[i], width = 9),
+        format(contact, width = 15),
+        format(batt, width = 6),
         if (is.na(roster$data_to[i])) "-"
         else format(as.Date(roster$data_to[i]), "%Y-%m-%d"),
         "\n", sep = "")
   }
 
   if (identical(attr(roster, "api_reached"), FALSE)) {
-    cat("\n  ! ZentraCloud could not be reached, so every contact time above is\n")
+    cat("\n  ! ZentraCloud could not be reached, so every cloud contact above is\n")
     cat("    unknown rather than absent. Check the API key.\n")
   }
 
-  cat("\n  contact is the last reading ZentraCloud holds; data to is the last\n")
-  cat("  reading in the archive\n")
+  cat("\n  cloud contact is the newest reading ZentraCloud holds; archived to is\n")
+  cat("  the newest reading downloaded into the archive\n")
   cat("\n  print_network_todo() for what needs attention\n\n")
 
   invisible(TRUE)
+}
+
+
+#' A to-do row's device, by the name it carries at that station
+#'
+#' The name of the logger's current deployment there, else its latest; the
+#' serial only where it has no name, or no row at all.
+#'
+#' @param station,serial Character
+#' @param meta Data frame of device rows, or NULL
+#' @return Character, at most 19 characters
+todo_device_name <- function(station, serial, meta) {
+  if (is.na(serial) || !nzchar(serial)) return("")
+  name <- NA_character_
+  if (!is.null(meta)) {
+    r <- meta[meta$device_serial %in% serial & meta$station_id %in% station, , drop = FALSE]
+    if (nrow(r) > 0) {
+      cur <- r[!tolower(r$status) %in% TERMINAL_STATUSES, , drop = FALSE]
+      r <- if (nrow(cur) > 0) cur else r[order(r$deploy_datetime, decreasing = TRUE), , drop = FALSE]
+      name <- r$device_name[1]
+    }
+  }
+  if (is.na(name) || !nzchar(trimws(name))) name <- serial
+  if (nchar(name) > 19) name <- paste0(substr(name, 1, 18), "\u2026")
+  name
 }
 
 
