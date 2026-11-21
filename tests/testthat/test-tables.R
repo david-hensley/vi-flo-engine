@@ -302,3 +302,31 @@ test_that("the statuses are written once, in the data layer", {
   hits <- code[grepl(re, code$text) & code$file != "table_functions.R", ]
   expect_equal(nrow(hits), 0, info = paste(paste0(hits$file, ":", hits$line), collapse = ", "))
 })
+
+test_that("a port window reaching outside its deployment is flagged, and the repair clips it", {
+  local_test_root()
+  p <- read_table("zentra_ports")
+  m <- read_table("device_metadata")
+  i <- which(p$unique_id == "t-0009")[1]
+  start <- m$deploy_datetime[m$unique_id == "t-0009"]
+  p$valid_from[i] <- start - 12 * 3600                       # midnight, before a midday start
+  write_table("zentra_ports", p, guard = FALSE)
+  v <- validate_metadata(verbose = FALSE)$violations$PORT_OUTSIDE_DEPLOYMENT
+  expect_equal(nrow(v$data), 1)
+
+  source(file.path(Sys.getenv("VI_FLO_ENGINE_ROOT"), "tools/migrations/migrate_port_windows_v2.9.R"))
+  utils::capture.output(migrate_port_windows(dry_run = FALSE))
+  p2 <- read_table("zentra_ports")
+  expect_equal(p2$valid_from[i], start)
+  expect_null(validate_metadata(verbose = FALSE)$violations$PORT_OUTSIDE_DEPLOYMENT)
+})
+
+test_that("a save that would put a port outside its deployment is refused", {
+  local_test_root()
+  p <- load_zentra_ports_data()
+  m <- read_table("device_metadata")
+  i <- which(p$unique_id == "t-0009")[1]
+  p$valid_from[i] <- m$deploy_datetime[m$unique_id == "t-0009"] - 86400
+  utils::capture.output(ok <- tryCatch(save_zentra_ports(p), error = function(e) FALSE))
+  expect_false(isTRUE(ok))
+})

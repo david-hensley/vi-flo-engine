@@ -64,6 +64,7 @@ stay until the v2.9 tag, then join the table under *Applied*.
 | `migrate_device_metadata_v2.9.R` | 2026-11-21 | Step 4.4: `end_datetime` added - Product 2's ends, three by decision; machine-written columns and `expiry_date` dropped; `nonresponsive` retired |
 | `migrate_surveys_v2.9.R` | 2026-11-21 | Step 4.5a: `surveys.csv` created - weather and pond sensor heights from the device table, and the field surveys as measured; each pair's chained fall checked against the log |
 | `migrate_device_surveys_v2.9.R` | 2026-11-21 | Step 4.5b: `sensor_height_cm` and `reach_length_m` leave the device table, each value checked to be in `surveys.csv` first; each secondary takes its primary's elevation |
+| `migrate_port_windows_v2.9.R` | 2026-11-21 | Step 7b: every port window clipped to its deployment's dates |
 
 ## Applied
 

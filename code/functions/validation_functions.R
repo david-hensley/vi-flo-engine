@@ -410,6 +410,35 @@ validate_metadata <- function(verbose = TRUE, stop_on_error = FALSE, tables = NU
       record_pass("port statuses known")
     }
 
+    # CHECK: a port's window lies inside its deployment's
+    #
+    # A port row says this sensor was on this port, for this deployment, from
+    # this time to that. It cannot begin before the deployment did, or run on
+    # after it ended. Readings are only taken inside both windows, so one that
+    # overreaches is not attributed wrongly - but it states something that did
+    # not happen, and hides a date that is wrong in one table or the other.
+    # An open window on an ended deployment is the check above; a start not
+    # known is the check below
+    dep <- match(ports$unique_id, metadata$unique_id)
+    d_start <- metadata$deploy_datetime[dep]
+    d_end <- metadata$end_datetime[dep]
+    early <- !is.na(dep) & !is.na(ports$valid_from) & !is.na(d_start) &
+      ports$valid_from < d_start
+    late <- !is.na(dep) & !is.na(ports$valid_to) & !is.na(d_end) & ports$valid_to > d_end
+    outside <- early | late
+    if (any(outside)) {
+      shown <- ports[outside, c("unique_id", "port", "sensor", "valid_from", "valid_to")]
+      shown$deployed <- d_start[outside]
+      shown$ended <- d_end[outside]
+      record_violation(
+        "PORT_OUTSIDE_DEPLOYMENT",
+        paste(sum(outside), "port row(s) starting before their deployment or ending after it"),
+        shown
+      )
+    } else {
+      record_pass("port windows lie inside their deployments")
+    }
+
     # CHECK: a sensor that is read has a start. An excluded one never is, and
     # its dates are often not known
     no_start <- is.na(ports$valid_from) & !ports$status %in% "excluded"

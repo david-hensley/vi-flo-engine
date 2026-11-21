@@ -77,6 +77,12 @@ All notable changes to the VI-FLO Engine project are documented here.
   row would lock every workflow, the one that would fix it included. The
   checks that look at the disk are left out of this; they are about the
   archive, not the table being written
+- **A port's window must lie inside its deployment's.** `validate_metadata()`
+  flags a port row starting before its deployment or ending after it, so the
+  save check refuses a new one. `tools/migrations/migrate_port_windows_v2.9.R`
+  (step 7b) clips the existing ones to their deployment's dates, listing each
+  first; one lying wholly outside stops it for a decision by hand. Readings
+  were only ever taken inside both windows, so Product 2 is unchanged
 - `with_metadata_change()`: several saves made as one checked change.
   Retiring a logger, relocating a station, changing a station's status and
   deleting a row each pass through a state that is not valid halfway - a row
