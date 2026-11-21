@@ -90,3 +90,25 @@ test_that("a replaced row's deployment ends at its replacement, for Product 2", 
   expect_equal(w$end_basis, "last visit")
   expect_equal(format(w$ends, "%Y-%m-%d", tz = "America/Puerto_Rico"), "2026-10-29")
 })
+
+test_that("an entry is given the deployment serving on the day of the visit", {
+  local_test_root()
+  meta <- load_zentra_metadata()
+  # 90000002 has a row at bta2_hydro (t-0002) and one at rb2_hydro (t-0003):
+  # the station decides
+  expect_equal(resolve_deployment("90000002", "bta2_hydro", "2026-10-14"), "t-0002")
+  expect_equal(resolve_deployment("90000002", "rb2_hydro", "2026-10-14"), "t-0003")
+  expect_true(is.na(resolve_deployment("90000002", "srl1_pond", "2026-10-14")))
+
+  # A move within a station: two rows, the old ending and the new beginning on
+  # the same day. The entry for that day belongs to the new position
+  old <- meta[meta$unique_id == "t-0005", ]
+  new <- old
+  new$unique_id <- "t-0099"
+  new$deploy_datetime <- as.POSIXct("2026-06-01 10:00:00", tz = "America/Puerto_Rico")
+  old$status <- "relocated"
+  old$last_visit <- as.Date(NA)       # as at fb1_weather: it ends where the new one starts
+  meta2 <- rbind(meta[meta$unique_id != "t-0005", ], old, new)
+  expect_equal(resolve_deployment("z6-90001", "uvi_weather", "2026-06-01", meta2), "t-0099")
+  expect_equal(resolve_deployment("z6-90001", "uvi_weather", "2026-05-01", meta2), "t-0005")
+})

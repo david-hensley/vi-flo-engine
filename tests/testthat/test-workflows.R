@@ -43,7 +43,7 @@ test_that("the BTA2 paired survey of 14 October writes 17.669 m and 24.16 m", {
 
   log <- read_log()
   entry <- log[nrow(log), ]
-  expect_equal(entry$action_type, "elevation_survey")
+  expect_equal(entry$action_type, "survey")
   expect_match(entry$details, "accepted 2+3", fixed = TRUE)
   expect_match(entry$details, "upstream 90000002", fixed = TRUE)
 })
@@ -84,7 +84,7 @@ test_that("Windsor's single-device survey converts through GEOID18 and logs the 
   expect_equal(w$sensor_height_cm, 28)
 
   entry <- read_log()[nrow(read_log()), ]
-  expect_equal(entry$action_type, "elevation_survey")
+  expect_equal(entry$action_type, "survey")
   expect_match(entry$details, "GEOID18 N -41.632 m = H 31.266 m", fixed = TRUE)
   expect_match(entry$details, "test note", fixed = TRUE)
 })

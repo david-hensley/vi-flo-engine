@@ -551,7 +551,7 @@ validate_metadata <- function(verbose = TRUE, stop_on_error = FALSE) {
     
     if (length(orphan_stations) > 0) {
       problem_rows <- maint[maint$station_id %in% orphan_stations, 
-                            c("field_visit_date", "station_id", "device_serial", "action_type")]
+                            c("field_visit_date", "station_id", "unique_id", "action_type")]
       record_violation(
         "ORPHAN_MAINT_STATION",
         paste(length(orphan_stations), "station_id(s) in maintenance log not found in metadata"),
@@ -562,7 +562,7 @@ validate_metadata <- function(verbose = TRUE, stop_on_error = FALSE) {
     }
     
     # CHECK 11: Required fields in maintenance log
-    maint_required <- c("field_visit_date", "station_id", "device_serial", "action_type", "logged_by")
+    maint_required <- c("field_visit_date", "station_id", "unique_id", "action_type", "logged_by")
     
     for (field in maint_required) {
       if (field %in% names(maint)) {
@@ -594,14 +594,28 @@ validate_metadata <- function(verbose = TRUE, stop_on_error = FALSE) {
       }
     }
     
-    # Check action types are from known set
-    known_actions <- c("cleaning", "maintenance", "inspection", "battery", "download",
-                       "station_established", "device_added", "device_replacement", 
-                       "device_removal", "station_relocation", "station_decommissioned",
-                       "station_reactivated", "port_config_change", "elevation_survey",
-                       "metadata_deletion", "logger_relaunch", "device_renamed",
-                       "metadata_correction")
-    
+    # CHECK: every entry names a deployment that exists, at its own station.
+    # A metadata deletion is the exception: it names the row it deleted
+    if ("unique_id" %in% names(maint)) {
+      live <- maint$action_type != "metadata_deletion" | is.na(maint$action_type)
+      at <- match(maint$unique_id, metadata$unique_id)
+      lost <- live & !is.na(maint$unique_id) & is.na(at)
+      elsewhere <- live & !is.na(at) & metadata$station_id[at] != maint$station_id
+      if (any(lost | elsewhere)) {
+        record_violation(
+          "MAINT_DEPLOYMENT",
+          paste(sum(lost), "maintenance entr(ies) name a row not in metadata;",
+                sum(elsewhere), "name a row at another station"),
+          maint[lost | elsewhere, c("field_visit_date", "station_id", "unique_id", "action_type")]
+        )
+      } else {
+        record_pass("maintenance entries name deployments at their own stations")
+      }
+    }
+
+    # Check action types are from the one list
+    known_actions <- MAINTENANCE_ACTIONS
+
     if ("action_type" %in% names(maint)) {
       unknown_actions <- unique(maint$action_type[!maint$action_type %in% known_actions & 
                                                    !is.na(maint$action_type)])
@@ -633,7 +647,7 @@ validate_metadata <- function(verbose = TRUE, stop_on_error = FALSE) {
       missing <- !file.exists(full_paths)
       
       if (any(missing)) {
-        problem_rows <- dlog[missing, c("timestamp", "station", "filepath")]
+        problem_rows <- dlog[missing, c("timestamp_utc", "device_serial", "filepath")]
         record_violation(
           "MISSING_ARCHIVED_FILE",
           paste(sum(missing), "download log entr(ies) point at files that do not exist"),
@@ -657,7 +671,7 @@ validate_metadata <- function(verbose = TRUE, stop_on_error = FALSE) {
       unknown <- named[!dlog$station[named] %in% metadata$station_id]
       
       if (length(unknown) > 0) {
-        problem_rows <- dlog[unknown, c("timestamp", "station", "filepath")]
+        problem_rows <- dlog[unknown, c("timestamp_utc", "device_serial", "filepath")]
         record_violation(
           "UNKNOWN_DOWNLOAD_STATION",
           paste("Download log references station(s) not in metadata:",
@@ -713,7 +727,7 @@ validate_metadata <- function(verbose = TRUE, stop_on_error = FALSE) {
           "DOWNLOAD_ROW_UNIDENTIFIED",
           paste(length(orphan),
                 "download row(s) name neither a station nor a device"),
-          dlog[orphan, c("timestamp", "filepath")]
+          dlog[orphan, c("timestamp_utc", "filepath")]
         )
       } else {
         record_pass("download rows identify a station or a device")

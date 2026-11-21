@@ -252,11 +252,9 @@ ui_log_maintenance <- function(prefill_station = NULL, prefill_device = NULL,
   result <- create_maintenance_entry(
     field_visit_date = field_visit_date,
     station_id = station_id,
-    station_type = station_type,
     device_serial = device_serial,
     action_type = action_type,
     details = details,
-    ports_updated = FALSE,  # Always FALSE for routine maintenance
     logged_by = logged_by
   )
   
@@ -322,12 +320,10 @@ ui_log_maintenance <- function(prefill_station = NULL, prefill_device = NULL,
           rename_log <- create_maintenance_entry(
             field_visit_date = field_visit_date,
             station_id       = station_id,
-            station_type     = station_type,
             device_serial    = device_serial,
             action_type      = "device_renamed",
             details          = paste0("Renamed from '", blank_or_value(old_name),
                                       "' to '", new_name, "' at relaunch"),
-            ports_updated    = FALSE,
             logged_by        = logged_by
           )
           if (isTRUE(rename_log)) cat("\u2713 Rename logged\n")
@@ -521,11 +517,9 @@ ui_log_download <- function() {
   result <- create_maintenance_entry(
     field_visit_date = field_visit_date,
     station_id = station_id,
-    station_type = station_type,
     device_serial = device_serial,
     action_type = "download",
     details = details,
-    ports_updated = FALSE,
     logged_by = logged_by
   )
   
@@ -943,11 +937,9 @@ ui_survey_single_device <- function() {
   log_result <- create_maintenance_entry(
     field_visit_date = survey_date,
     station_id       = station_id,
-    station_type     = dev$station_type,
     device_serial    = dev$device_serial,
-    action_type      = "elevation_survey",
+    action_type      = "survey",
     details          = paste0("Single-device survey: ", paste(bits, collapse = "; ")),
-    ports_updated    = FALSE,
     logged_by        = logged_by
   )
   if (!isTRUE(log_result)) {
@@ -1626,11 +1618,9 @@ ui_survey_gut_pair <- function() {
   log_result <- create_maintenance_entry(
     field_visit_date = survey_date,
     station_id       = station_id,
-    station_type     = other$station_type,
     device_serial    = other$device_serial,
-    action_type      = "elevation_survey",
+    action_type      = "survey",
     details          = paste0("Gut survey: ", paste(bits, collapse = "; ")),
-    ports_updated    = FALSE,
     logged_by        = logged_by
   )
   # create_maintenance_entry() announces its own success
@@ -2531,11 +2521,9 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL,
       log_result <- create_maintenance_entry(
         field_visit_date = as.Date(deploy_datetime),
         station_id = station_id,
-        station_type = station_type,
         device_serial = device_serial,
         action_type = "station_established",
         details = with_note(paste0("New station established: ", site_full)),
-        ports_updated = FALSE,
         logged_by = ui_ask_whois_logging()
       )
       
@@ -2547,11 +2535,9 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL,
       log_result <- create_maintenance_entry(
         field_visit_date = as.Date(deploy_datetime),
         station_id = station_id,
-        station_type = station_type,
         device_serial = device_serial,
         action_type = "device_added",
         details = with_note("Device added to existing station"),
-        ports_updated = FALSE,
         logged_by = ui_ask_whois_logging()
       )
       
@@ -2756,11 +2742,9 @@ ui_replace_device <- function() {
   log_result <- create_maintenance_entry(
     field_visit_date = Sys.Date(),
     station_id = station_id,
-    station_type = old_device_row$station_type,
     device_serial = new_device_serial,
     action_type = "device_replacement",
     details = paste0("Replaced device ", old_device_serial, " with ", new_device_serial),
-    ports_updated = FALSE,
     logged_by = ui_ask_whois_logging()
   )
   
@@ -3193,12 +3177,10 @@ ui_relocate_station <- function() {
   log_result <- create_maintenance_entry(
     field_visit_date = as.Date(deploy_datetime),
     station_id = station_id,
-    station_type = current_device$station_type,
     device_serial = if (is.null(new_device)) current_device$device_serial
                     else new_device$device_serial,
     action_type = "station_relocation",
     details = reloc_details,
-    ports_updated = !is.null(new_device),
     logged_by = ui_ask_whois_logging()
   )
   
@@ -3418,11 +3400,9 @@ ui_decommission_station <- function() {
   log_result <- create_maintenance_entry(
     field_visit_date = Sys.Date(),
     station_id = station_id,
-    station_type = current_device$station_type,
     device_serial = current_device$device_serial,
     action_type = "station_decommissioned",
     details = "Station decommissioned - monitoring stopped",
-    ports_updated = FALSE,
     logged_by = ui_ask_whois_logging()
   )
   
@@ -3648,11 +3628,9 @@ ui_reactivate_station <- function() {
   log_result <- create_maintenance_entry(
     field_visit_date = Sys.Date(),
     station_id = station_id,
-    station_type = old_device$station_type,
     device_serial = new_device_serial,
     action_type = "station_reactivated",
     details = "Station reactivated with new device",
-    ports_updated = FALSE,
     logged_by = ui_ask_whois_logging()
   )
   
@@ -4276,11 +4254,9 @@ ui_update_ports <- function(preset_device_serial = NULL) {
   log_result <- create_maintenance_entry(
     field_visit_date = as.Date(change_datetime),
     station_id = device_row$station_id,
-    station_type = device_row$station_type,
     device_serial = device_serial,
     action_type = "port_config_change",
     details = "Port configuration updated",
-    ports_updated = TRUE,
     logged_by = ui_ask_whois_logging()
   )
   
@@ -4591,6 +4567,7 @@ ui_view_maintenance_log <- function() {
   cat("============================================\n\n")
   
   maint_log <- load_maintenance_log()
+  meta_for_log <- read_table("device_metadata", remember = FALSE)
   
   if (is.null(maint_log) || nrow(maint_log) == 0) {
     cat("❌ No maintenance log entries found\n")
@@ -4687,14 +4664,16 @@ ui_view_maintenance_log <- function() {
     
     cat("--- ENTRY ", i, " ---\n", sep = "")
     cat("Date:         ", format(as.Date(entry$field_visit_date), "%Y-%m-%d"), "\n", sep = "")
-    cat("Station:      ", entry$station_id, " (", entry$station_type, ")\n", sep = "")
-    cat("Device:       ", entry$device_serial, "\n", sep = "")
+    cat("Station:      ", entry$station_id, "\n", sep = "")
+    dev <- meta_for_log[match(entry$unique_id, meta_for_log$unique_id), ]
+    cat("Device:       ", if (nrow(dev) == 1 && !is.na(dev$device_name)) paste0(dev$device_name, " (", dev$device_serial, ")")
+                          else "(row no longer in metadata)",
+        "  [", entry$unique_id, "]\n", sep = "")
     cat("Action:       ", entry$action_type, "\n", sep = "")
     cat("Details:      ", entry$details, "\n", sep = "")
-    cat("Ports updated:", entry$ports_updated, "\n", sep = "")
     cat("Logged by:    ", entry$logged_by, "\n", sep = "")
-    if (!is.na(entry$timestamp)) {
-      cat("Logged:       ", format(entry$timestamp, "%Y-%m-%d %H:%M:%S"), "\n", sep = "")
+    if (!is.na(entry$logged_utc)) {
+      cat("Logged:       ", format(entry$logged_utc, "%Y-%m-%d %H:%M:%S", tz = PROJECT_TZ), "\n", sep = "")
     }
     cat("\n")
   }
@@ -5035,11 +5014,9 @@ ui_remove_device <- function() {
   log_result <- create_maintenance_entry(
     field_visit_date = removal_date,
     station_id = device_row$station_id,
-    station_type = device_row$station_type,
     device_serial = device_serial,
     action_type = "device_removal",
     details = details,
-    ports_updated = TRUE,
     logged_by = logged_by
   )
   
@@ -5211,11 +5188,9 @@ ui_delete_metadata_row <- function() {
   log_result <- create_maintenance_entry(
     field_visit_date = Sys.Date(),
     station_id = row_to_delete$station_id,
-    station_type = row_to_delete$station_type,
-    device_serial = row_to_delete$device_serial,
+    unique_id = unique_id,          # the row just deleted - nothing left to look it up by
     action_type = "metadata_deletion",
     details = log_details,
-    ports_updated = FALSE,
     logged_by = "ADMIN"
   )
   
@@ -5584,13 +5559,11 @@ ui_correct_device_details <- function() {
       log_result <- create_maintenance_entry(
         field_visit_date = Sys.Date(),
         station_id       = station_id,
-        station_type     = metadata$station_type[idx],
         device_serial    = device_serial,
         action_type      = "metadata_correction",
         details          = paste0("Terminal status corrected from '",
                                   blank_or_value(current), "' to '",
                                   blank_or_value(new_value), "'"),
-        ports_updated    = FALSE,
         logged_by        = ui_ask_whois_logging()
       )
       if (isTRUE(log_result)) cat("Logged correction to maintenance\n")
@@ -5618,13 +5591,11 @@ ui_correct_device_details <- function() {
       log_result <- create_maintenance_entry(
         field_visit_date = Sys.Date(),
         station_id       = station_id,
-        station_type     = metadata$station_type[idx],
         device_serial    = device_serial,
         action_type      = "device_renamed",
         details          = paste0("Device name changed from '",
                                   blank_or_value(current), "' to '",
                                   blank_or_value(new_value), "'"),
-        ports_updated    = FALSE,
         logged_by        = ui_ask_whois_logging()
       )
       if (isTRUE(log_result)) cat("Logged rename to maintenance\n")

@@ -55,12 +55,12 @@ test_that("a quote in a maintenance note is doubled, and the row keeps its colum
   local_test_root()
   note <- 'in "device tools", set battery type'
   utils::capture.output(create_maintenance_entry(
-    field_visit_date = "2026-10-26", station_id = "bta2_hydro", station_type = "hydro",
+    field_visit_date = "2026-10-26", station_id = "bta2_hydro",
     device_serial = "90000002", action_type = "maintenance", details = note,
-    ports_updated = FALSE, logged_by = "DAH"))
+    logged_by = "DAH"))
   log <- read_log()
   expect_equal(log$details[nrow(log)], note)
-  expect_equal(as.character(log$device_serial[nrow(log)]), "90000002")
+  expect_equal(log$unique_id[nrow(log)], "t-0002")      # the deployment, found by serial
 })
 
 test_that("nothing is appended to a log whose columns are not the schema's", {

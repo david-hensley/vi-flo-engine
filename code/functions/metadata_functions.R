@@ -227,42 +227,71 @@ set_metadata_approved <- function(device_serial = NULL, station_id = NULL, appro
 }
 
 #' Writes a maintenance entry to maintenance_log.csv
-#' Core function - can be called by interactive script or future GUI
-#' Requires setup_functions.R
-#' @param field_visit_date Character or Date. When you visited (YYYY-MM-DD)
-#' @param station_id Character. Station ID
-#' @param station_type Character. Station type (vwc, weather, streamflow, etc.)
-#' @param device_serial Character. Device serial number
-#' @param action_type Character. What was done
-#' @param details Character. Free text description
-#' @param ports_updated Logical. Did you update zentra_ports.csv?
-#' @param logged_by Character. Your name/initials
+#'
+#' An entry names the deployment it concerns by unique_id - a logger can have
+#' several rows at one station, and a serial alone cannot say which.
+#'
+#' @param field_visit_date Character or Date. The day of the visit
+#' @param station_id Character
+#' @param unique_id Character. The deployment the entry concerns
+#' @param action_type Character. One of MAINTENANCE_ACTIONS
+#' @param details Character. Free text
+#' @param logged_by Character. Initials
 #' @return Invisible TRUE on success
-write_maintenance_entry <- function(field_visit_date, station_id, station_type, 
-                                    device_serial, action_type, details, 
-                                    ports_updated, logged_by) {
-  # Get timezone from metadata for timestamp
-  metadata <- load_zentra_metadata()
-  timezone <- metadata$timezone[1]
-  # Create new entry
+write_maintenance_entry <- function(field_visit_date, station_id, unique_id,
+                                    action_type, details, logged_by) {
   new_entry <- data.frame(
-    timestamp = format_datetime_safe(as.POSIXct(Sys.time(), tz = timezone)),
+    logged_utc       = format(Sys.time(), "%Y-%m-%d %H:%M:%S", tz = "UTC"),
     field_visit_date = as.character(field_visit_date),
-    station_id = station_id,
-    station_type = station_type,
-    device_serial = device_serial,
-    action_type = action_type,
-    details = details,
-    ports_updated = ports_updated,
-    logged_by = logged_by,
+    station_id       = station_id,
+    unique_id        = unique_id,
+    action_type      = action_type,
+    details          = details,
+    logged_by        = logged_by,
     stringsAsFactors = FALSE
   )
-  
+
   # By column name, through the data layer
   append_rows("maintenance_log", new_entry)
-  
-  message("✓ Maintenance entry logged for ", station_id, " (", device_serial, ")")
+
+  message("✓ Maintenance entry logged for ", station_id, " (", unique_id, ")")
   invisible(TRUE)
+}
+
+
+#' The deployment a logger was serving at a station on a given day
+#'
+#' A serial does not name a row: a logger can have several at one station -
+#' moved within it, or deployed there twice. Which one is meant is told by the
+#' day, through the same deployment windows Product 2 uses. Where two cover the
+#' day - the old position ends and the new one begins on the day of a move -
+#' the later is taken: what a move, a replacement or a new deployment records
+#' is the deployment it created. Where none covers it, the latest of the
+#' logger's rows at the station.
+#'
+#' Reads the device table without remembering it, so asking does not refresh
+#' what a caller's own read of the table has the write guard expect.
+#'
+#' @param device_serial Character
+#' @param station_id Character
+#' @param when Date, or text a date can be read from
+#' @param metadata Data frame. Optional; read if not given
+#' @return Character unique_id, or NA if the logger has no row at the station
+resolve_deployment <- function(device_serial, station_id, when, metadata = NULL) {
+  if (is.null(metadata)) metadata <- read_table("device_metadata", remember = FALSE)
+  rows <- metadata[!is.na(metadata$device_serial) & metadata$device_serial == device_serial &
+                     !is.na(metadata$station_id) & metadata$station_id == station_id, ,
+                   drop = FALSE]
+  if (nrow(rows) == 0) return(NA_character_)
+  if (nrow(rows) == 1) return(rows$unique_id)
+
+  w <- deployment_windows(metadata)
+  w <- w[w$unique_id %in% rows$unique_id, , drop = FALSE]
+  day0 <- as.POSIXct(paste(as.Date(when), "00:00:00"), tz = PROJECT_TZ)
+  day1 <- day0 + 86400
+  covering <- w[w$starts < day1 & (is.na(w$ends) | w$ends >= day0), , drop = FALSE]
+  pool <- if (nrow(covering) > 0) covering else w
+  pool$unique_id[which.max(as.numeric(pool$starts))]
 }
 
 
@@ -585,30 +614,37 @@ get_unique_action_types <- function() {
 # IMPORTANT: These functions WRITE to files
 
 #' Create a new maintenance log entry
+#'
+#' Names the deployment by unique_id where the caller has it. Given a serial
+#' instead, it finds the deployment that logger was serving at the station on
+#' the day of the visit - see resolve_deployment().
+#'
 #' @param field_visit_date Character or Date. Date of field visit
 #' @param station_id Character. Station visited
-#' @param station_type Character. Type of station
-#' @param device_serial Character. Device worked on
-#' @param action_type Character. What was done
+#' @param action_type Character. What was done - one of MAINTENANCE_ACTIONS
 #' @param details Character. Description
-#' @param ports_updated Logical. Whether ports were updated
 #' @param logged_by Character. Who logged this (initials)
+#' @param unique_id Character. The deployment the entry concerns
+#' @param device_serial Character. Or the logger, to find it by
 #' @return TRUE if successful, error message if failed
-create_maintenance_entry <- function(field_visit_date, station_id, station_type,
-                                    device_serial, action_type, details,
-                                    ports_updated, logged_by) {
+create_maintenance_entry <- function(field_visit_date, station_id, action_type,
+                                     details, logged_by, unique_id = NULL,
+                                     device_serial = NULL) {
   tryCatch({
-    # Use the existing write_maintenance_entry function
-    # (from metadata_functions.R)
+    if (is.null(unique_id)) {
+      if (is.null(device_serial)) stop("give the deployment's unique_id, or the logger's serial")
+      unique_id <- resolve_deployment(device_serial, station_id, field_visit_date)
+      if (is.na(unique_id)) {
+        stop("logger ", device_serial, " has no row at ", station_id)
+      }
+    }
     write_maintenance_entry(
       field_visit_date = field_visit_date,
-      station_id = station_id,
-      station_type = station_type,
-      device_serial = device_serial,
-      action_type = action_type,
-      details = details,
-      ports_updated = ports_updated,
-      logged_by = logged_by
+      station_id       = station_id,
+      unique_id        = unique_id,
+      action_type      = action_type,
+      details          = details,
+      logged_by        = logged_by
     )
     return(TRUE)
   }, error = function(e) {
@@ -623,17 +659,18 @@ create_maintenance_entry <- function(field_visit_date, station_id, station_type,
 delete_last_maintenance_entry <- function(device_serial) {
   tryCatch({
     maint_log <- load_maintenance_log()
-    
-    # Find the most recent entry for this device
-    device_entries <- maint_log[maint_log$device_serial == device_serial, ]
-    
-    if (nrow(device_entries) == 0) {
+
+    # Entries name deployments; this logger's are those of any of its rows
+    meta <- read_table("device_metadata", remember = FALSE)
+    its_rows <- meta$unique_id[!is.na(meta$device_serial) & meta$device_serial == device_serial]
+    mine <- which(maint_log$unique_id %in% its_rows)
+
+    if (length(mine) == 0) {
       return("No maintenance entries found for this device")
     }
-    
-    # Get the last entry (most recent row)
-    last_entry_index <- which(maint_log$device_serial == device_serial)
-    last_entry_index <- last_entry_index[length(last_entry_index)]
+
+    # The last entry (most recent row)
+    last_entry_index <- mine[length(mine)]
     
     # Remove that row
     maint_log <- maint_log[-last_entry_index, ]

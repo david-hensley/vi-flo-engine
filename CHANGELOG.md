@@ -82,7 +82,32 @@ All notable changes to the VI-FLO Engine project are documented here.
   the products, the datamap, logger and survey exports - may read or write
   CSV directly
 
+- **The maintenance log moves to its v2.9 shape** - the first table to. Each
+  entry names the deployment it concerns, by `unique_id`, rather than a
+  logger's serial, which cannot say which of a logger's rows at a station is
+  meant; `timestamp` becomes `logged_utc`, in UTC like every other record of
+  when something was written; `station_type` and `ports_updated` go, the one
+  repeating the station and the other used once in 178 entries; and
+  `elevation_survey` becomes `survey`, since a survey now records more than
+  elevations. `tools/migrations/migrate_maintenance_log_v2.9.R` converts the
+  log. Product 2 never reads it, so nothing built changes
+- A new entry still may be logged by serial: `create_maintenance_entry()`
+  finds the deployment through the new `resolve_deployment()` - the logger's
+  row at the station, and where it has several, the one serving on the day of
+  the visit; on the day of a move, the new position. It reads the device table
+  without refreshing what the write guard expects, so logging mid-workflow
+  cannot mask a change made underneath. `station_type` and `ports_updated` are
+  gone from its arguments and from its 16 callers
+- The maintenance actions are listed once, in `table_functions.R`, split into
+  those chosen by hand and those only a workflow writes. The validator reads
+  that list rather than its own copy, and now checks that every entry names a
+  deployment that exists, at the entry's own station
+
 ### Fixed
+- `validate_metadata()` stopped with an error whenever it found a logged file
+  missing, an unknown one, or an orphan. Listing them selected a `timestamp`
+  column the download log has not had since it became `timestamp_utc` - it
+  existed only through the loader's partial-matching accident, removed above
 - **Deleting a metadata row could delete the ports of a logger's other
   rows.** Port rows are kept by serial, so "this device's ports" were every
   port the logger had ever had - an earlier deployment's, or a second

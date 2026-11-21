@@ -30,8 +30,8 @@
 #   - numbers in full, never in scientific notation                            #
 #   - Unix line endings, so every machine writes identical bytes               #
 #                                                                              #
-# This schema describes the tables as they are at v2.8.1. v2.9 changes it in   #
-# one migration, described in data/DATA_DICTIONARY.md.                        #
+# The schema moves to v2.9's, described in data/DATA_DICTIONARY.md, one table  #
+# at a time - each by a migration in tools/migrations.                         #
 #                                                                              #
 # Requires: wds() from setup_functions.R; remember_file_hash(),                #
 #           remembered_file_hash() and report_write_conflict() from            #
@@ -87,10 +87,9 @@ TABLE_SCHEMA <- list(
   maintenance_log = list(
     file = "maintenance_log.csv", key = NULL, writer = "person",
     columns = c(
-      timestamp = "datetime_local", field_visit_date = "date",
-      station_id = "text", station_type = "text", device_serial = "text",
-      action_type = "text", details = "text", ports_updated = "logical",
-      logged_by = "text"
+      logged_utc = "datetime_utc", field_visit_date = "date",
+      station_id = "text", unique_id = "text", action_type = "text",
+      details = "text", logged_by = "text"
     )
   ),
 
@@ -137,6 +136,27 @@ TABLE_SCHEMA <- list(
     )
   )
 )
+
+#### Vocabularies ####
+
+# What a maintenance entry can record. Chosen by hand for a routine visit, or
+# written by the workflow that makes the change - never both: an action a
+# workflow writes is not offered for hand entry, since logging it by hand
+# would record a change that was never made.
+MAINTENANCE_ACTIONS_BY_HAND <- c(
+  "inspection", "cleaning", "maintenance", "battery",
+  "logger_relaunch"          # HOBO only - a ZL6 is not launched and relaunched
+)
+MAINTENANCE_ACTIONS_BY_WORKFLOW <- c(
+  "download",
+  "station_established", "station_relocation", "station_decommissioned",
+  "station_reactivated",
+  "device_added", "device_replacement", "device_removal", "device_renamed",
+  "port_config_change",
+  "survey",                  # the numbers themselves are in the survey records
+  "metadata_correction", "metadata_deletion"
+)
+MAINTENANCE_ACTIONS <- c(MAINTENANCE_ACTIONS_BY_HAND, MAINTENANCE_ACTIONS_BY_WORKFLOW)
 
 #' One table's schema, or an error naming the tables there are
 table_schema <- function(name) {

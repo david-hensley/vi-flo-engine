@@ -254,3 +254,12 @@ test_that("deleting a logger's only row deletes its ports from the real port tab
   expect_true("z6-13368" %in% load_zentra_ports_data()$sn)
   expect_false(file.exists(file.path(getwd(), "zentra_ports.csv")))
 })
+
+test_that("validate_metadata runs to the end when logged files are missing", {
+  local_test_root()
+  # The fixture's download log names Product 1 files the test root does not
+  # hold. Listing them once selected a `timestamp` column the log never had -
+  # it existed only through a partial-matching accident in the old loader
+  out <- capture.output(v <- validate_metadata(verbose = TRUE))
+  expect_type(v, "list")
+})
