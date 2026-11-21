@@ -32,6 +32,7 @@ local_test_root <- function(env = parent.frame()) {
   file.copy(fixture_path("maintenance_log.csv"), meta)
   file.copy(fixture_path("download_log.csv"), meta)
   file.copy(fixture_path("zentra_ports.csv"), meta)
+  file.copy(fixture_path("surveys.csv"), meta)
 
   old <- Sys.getenv("VI_FLO_DATA_ROOT")
   Sys.setenv(VI_FLO_DATA_ROOT = root)

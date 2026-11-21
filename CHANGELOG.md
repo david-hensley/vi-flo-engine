@@ -31,8 +31,35 @@ All notable changes to the VI-FLO Engine project are documented here.
 - `tools/migrations/check_layer_v2.9.R`: a record of every metadata table and
   every Product 2 file taken before the layer, and a comparison once it is in,
   to show the move changed nothing it should not have
+- **`surveys.csv`: field measurements, each a distance between two named
+  points.** A row reads as a sentence - "Dor-2025b's rebar top sits 237.5 cm
+  above Dor-2025a's rebar top" - with the points (`rebar`, `sensor`, `bed`,
+  `ground`, `overflow`) named on both ends, so a survey is recorded against
+  whatever it was actually measured from rather than assuming the rebar. Two
+  quantities, `height_cm` and `reach_m`; a negative height means below.
+  Anything not measured directly - a secondary's sensor relative to its
+  primary's, which a slope needs - is chained from the rows by
+  `survey_height()`, never stored, so re-surveying one link cannot leave
+  another silently wrong. `survey_needs()` works out what each current
+  deployment still lacks by station type. `validate_metadata()` checks every
+  row reads as a distance between two points, in the fixed vocabularies, on
+  loggers that exist
+- `tools/migrations/migrate_surveys_v2.9.R` (step 4.5a) creates the table:
+  the weather mounting heights and Windsor Pond's sensor height from
+  `device_metadata.csv`, and the field surveys as measured - October 2026's
+  four pairs and RB C from the TruPulse files, bta2's rod survey of 14 October
+  2026, and SR2's gauge of zero flow from the prototype rating curves, carried
+  to the current logger in the same housing. Every pair's chained fall is
+  checked against the fall the maintenance log recorded. The surveys from
+  before October 2026 are not carried forward. The device table's
+  `sensor_height_cm`, `reach_length_m` and surveyed elevations stay until the
+  workflows move onto the new table
 
 ### Changed
+- **The network to-do's survey check reads `surveys.csv`.** A paired gauge is
+  listed when its sensor cannot be chained to its primary's or it has no
+  reach to it - the two things a slope needs - where before it looked for an
+  elevation and a reach length on the device row
 - **Every loader now reads through the data layer** - `load_zentra_metadata()`,
   `load_zentra_ports_data()`, `load_download_log()`, `load_maintenance_log()`,
   `load_record_confirmed()`, `load_pending_ingest()`,

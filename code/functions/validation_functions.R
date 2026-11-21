@@ -109,6 +109,13 @@ validate_metadata <- function(verbose = TRUE, stop_on_error = FALSE) {
     return(NULL)
   })
   
+  surveys <- tryCatch({
+    load_surveys()
+  }, error = function(e) {
+    record_violation("LOAD_SURVEYS", paste("Failed to load surveys.csv:", e$message))
+    return(NULL)
+  })
+  
   pending <- tryCatch({
     if (exists("load_pending_ingest")) load_pending_ingest() else NULL
   }, error = function(e) {
@@ -874,6 +881,81 @@ validate_metadata <- function(verbose = TRUE, stop_on_error = FALSE) {
       } else {
         record_pass("pending task stages known")
       }
+    }
+  }
+  
+  # ==========================================================================
+  # SURVEY CHECKS
+  # ==========================================================================
+  #
+  # Every row must read as the sentence the dictionary promises - "this
+  # logger's point sits value above relative_to" - with words from the fixed
+  # lists, and loggers that exist. A row that cannot be read that way is a
+  # number nobody can use, or worse, one that gets chained into a slope.
+  
+  if (!is.null(surveys) && nrow(surveys) > 0) {
+    if (verbose) cat("\nChecking survey records...\n")
+    sv_cols <- c("station_id", "unique_id", "measured_on", "quantity", "point",
+                 "value", "relative_to", "relative_to_id")
+    
+    off_list <- (!surveys$quantity %in% SURVEY_QUANTITIES) |
+      (!is.na(surveys$point) & !surveys$point %in% SURVEY_POINTS) |
+      (!is.na(surveys$relative_to) & !surveys$relative_to %in% SURVEY_POINTS) |
+      (!surveys$method %in% SURVEY_METHODS)
+    if (any(off_list)) {
+      record_violation("SURVEY_UNKNOWN_WORD",
+                       paste(sum(off_list), "survey row(s) with a quantity, point or method not in the fixed lists"),
+                       surveys[off_list, c(sv_cols, "method")])
+    } else {
+      record_pass("survey rows use the fixed lists")
+    }
+    
+    incomplete <- is.na(surveys$unique_id) | is.na(surveys$station_id) |
+      is.na(surveys$measured_on) | is.na(surveys$value)
+    if (any(incomplete)) {
+      record_violation("SURVEY_INCOMPLETE",
+                       paste(sum(incomplete), "survey row(s) missing a station, logger, date or value"),
+                       surveys[incomplete, sv_cols])
+    } else {
+      record_pass("survey rows name a station, logger, date and value")
+    }
+    
+    if (!is.null(metadata)) {
+      ids <- metadata$unique_id
+      bad_id <- !surveys$unique_id %in% ids |
+        (!is.na(surveys$relative_to_id) & !surveys$relative_to_id %in% ids) |
+        (!is.na(surveys$carried_from) & !surveys$carried_from %in% ids)
+      wrong_station <- !bad_id &
+        surveys$station_id != metadata$station_id[match(surveys$unique_id, ids)]
+      if (any(bad_id | wrong_station)) {
+        record_violation("SURVEY_UNKNOWN_LOGGER",
+                         paste(sum(bad_id | wrong_station),
+                               "survey row(s) naming a logger not in metadata, or not at that station"),
+                         surveys[bad_id | wrong_station, c(sv_cols, "carried_from")])
+      } else {
+        record_pass("survey rows name loggers that exist, at their station")
+      }
+    }
+    
+    # A reach runs between two loggers and is a length; a height runs between
+    # two points, both named or neither - a reference with no point measured,
+    # or the reverse, reads as nothing. And a point is not above itself
+    reach <- surveys$quantity == "reach_m"
+    height <- surveys$quantity == "height_cm"
+    malformed <-
+      (reach & (!is.na(surveys$point) | !is.na(surveys$relative_to) |
+                  is.na(surveys$relative_to_id) | !(surveys$value > 0))) |
+      (height & (is.na(surveys$point) != is.na(surveys$relative_to))) |
+      (height & !is.na(surveys$point) & !is.na(surveys$relative_to) &
+         surveys$point == surveys$relative_to &
+         (is.na(surveys$relative_to_id) | surveys$relative_to_id == surveys$unique_id))
+    malformed[is.na(malformed)] <- TRUE
+    if (any(malformed)) {
+      record_violation("SURVEY_MALFORMED",
+                       paste(sum(malformed), "survey row(s) that do not read as a distance between two points"),
+                       surveys[malformed, sv_cols])
+    } else {
+      record_pass("survey rows read as distances between two points")
     }
   }
   

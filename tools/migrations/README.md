@@ -62,6 +62,7 @@ stay until the v2.9 tag, then join the table under *Applied*.
 | `migrate_logs_v2.9.R` | 2026-11-21 | Step 4.2: the download log drops `station` and gains `battery`; pending tasks name their deployment, with UTC stamps |
 | `migrate_ports_v2.9.R` | 2026-11-21 | Step 4.3: port rows name their deployment; empty-port placeholders dropped; rain gauges excluded; a row spanning a move split in two |
 | `migrate_device_metadata_v2.9.R` | 2026-11-21 | Step 4.4: `end_datetime` added - Product 2's ends, three by decision; machine-written columns and `expiry_date` dropped; `nonresponsive` retired |
+| `migrate_surveys_v2.9.R` | 2026-11-21 | Step 4.5a: `surveys.csv` created - weather and pond sensor heights from the device table, and the field surveys as measured; each pair's chained fall checked against the log |
 
 ## Applied
 

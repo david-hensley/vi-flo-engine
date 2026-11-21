@@ -1,0 +1,7 @@
+"station_id","unique_id","measured_on","quantity","point","value","relative_to","relative_to_id","method","carried_from","notes"
+"bta2_hydro","t-0001","2026-10-14","height_cm","rebar",24.94,"sensor",,"tape",,
+"bta2_hydro","t-0002","2026-10-14","height_cm","rebar",24.94,"sensor",,"tape",,
+"bta2_hydro","t-0002","2026-10-14","height_cm","rebar",12.94,"rebar","t-0001","level",,"bta2_hydro_fall_rod_20261014.csv, setups 2 and 3"
+"bta2_hydro","t-0002","2026-10-14","reach_m",,24.16,,"t-0001","laser",,"bta2_hydro_reach_trupulse_20261014.txt"
+"srl1_pond","t-0004","2026-05-13","height_cm","sensor",28,"bed",,"tape",,
+"uvi_weather","t-0005","2021-10-08","height_cm","sensor",200,"ground",,"nominal",,

@@ -9,7 +9,8 @@
 
 test_that("every fixture table keeps its values through the layer, then its bytes", {
   local_test_root()
-  for (name in c("device_metadata", "download_log", "maintenance_log", "zentra_ports")) {
+  for (name in c("device_metadata", "download_log", "maintenance_log", "zentra_ports",
+                "surveys")) {
     first <- table_round_trip(name)
     expect_true(first$values_identical, info = paste(name, first$differences, collapse = "; "))
 

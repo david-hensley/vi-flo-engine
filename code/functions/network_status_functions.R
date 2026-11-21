@@ -334,20 +334,25 @@ get_network_todo <- function(devices = NULL) {
   }
 
   #### 8. Paired gauges with no survey ####
-  # Without both, no slope, and without slope no discharge - so the pair is
-  # recording water level that cannot yet be used for the thing it was
-  # installed to measure.
-  paired <- active[tolower(as.character(active$device_role)) %in%
-                     c("secondary", "tertiary") &
-                   tolower(active$station_type) == "hydro", , drop = FALSE]
-  for (i in seq_len(nrow(paired))) {
-    missing <- character(0)
-    if (is.na(paired$elev[i])) missing <- c(missing, "elevation")
-    if (is.na(paired$reach_length_m[i])) missing <- c(missing, "reach length")
-    if (length(missing) > 0) {
-      add(paired$station_id[i], paired$device_serial[i], "low",
-          paste0("no survey - ", paste(missing, collapse = " or "), " missing"),
-          "survey")
+  # Without a fall and a reach, no slope, and without slope no discharge - so
+  # the pair is recording water level that cannot yet be used for the thing it
+  # was installed to measure. Worked out from surveys.csv by survey_needs();
+  # the other things it finds missing - a sensor height at a single gauge -
+  # stop nothing working, and belong in the doctor report rather than here.
+  # Asked of every current row, so a primary marked defunct - still in its
+  # housing, still surveyed - is still found to survey against
+  needs <- tryCatch(survey_needs(meta), error = function(e) {
+    add("(all)", NA, "error", paste("surveys.csv could not be read:", conditionMessage(e)),
+        "survey")
+    NULL
+  })
+  if (!is.null(needs)) {
+    needs <- needs[needs$need %in% c("fall to primary", "reach to primary", "no primary") &
+                     needs$unique_id %in% active$unique_id, , drop = FALSE]
+    for (uid in unique(needs$unique_id)) {
+      n <- needs[needs$unique_id == uid, , drop = FALSE]
+      add(n$station_id[1], active$device_serial[match(uid, active$unique_id)], "low",
+          paste0("no survey - ", paste(n$detail, collapse = "; ")), "survey")
     }
   }
 

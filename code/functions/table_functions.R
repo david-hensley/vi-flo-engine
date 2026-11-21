@@ -125,6 +125,16 @@ TABLE_SCHEMA <- list(
     columns = c(station_id = "text", confirmed_from = "date", reason = "text")
   ),
 
+  surveys = list(
+    file = "surveys.csv", key = NULL, writer = "person",
+    columns = c(
+      station_id = "text", unique_id = "text", measured_on = "date",
+      quantity = "text", point = "text", value = "number",
+      relative_to = "text", relative_to_id = "text", method = "text",
+      carried_from = "text", notes = "text"
+    )
+  ),
+
   pending_ingest = list(
     file = "pending_ingest.csv", key = NULL, writer = "person",
     columns = c(
@@ -170,6 +180,24 @@ ACTIVE_STATUSES <- c(
 PORT_STATUSES <- c(
   "defunct",                 # failed, still plugged in; its readings are kept
   "excluded"                 # plugged in and recorded, never ingested
+)
+
+# A survey row is a distance between two points: what kind of distance, which
+# points, and how it was measured. See surveys.csv in data/DATA_DICTIONARY.md
+SURVEY_QUANTITIES <- c(
+  "height_cm",               # vertical: point above relative_to; negative is below
+  "reach_m"                  # along the channel, to the logger in relative_to_id
+)
+SURVEY_POINTS <- c(
+  "rebar",                   # the top of the logger's rebar
+  "sensor",                  # the logger's measuring point
+  "bed",                     # the streambed, or pond bed, at the logger
+  "ground",                  # the ground at the station's coordinates
+  "overflow"                 # where the pool spills - the gauge of zero flow
+)
+SURVEY_METHODS <- c(
+  "laser", "level", "tape",
+  "nominal"                  # a standard value, not measured
 )
 
 #' One table's schema, or an error naming the tables there are

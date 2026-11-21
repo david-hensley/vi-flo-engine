@@ -30,7 +30,8 @@
 # they were read in, and the TruPulse export exactly as it came off the        #
 # device. The numbers written to metadata can always be recomputed from them.  #
 #                                                                              #
-# Requires: setup_functions.R                                                  #
+# Requires: setup_functions.R; the survey records also table_functions.R       #
+#           and TERMINAL_STATUSES from attribution_functions.R                 #
 ################################################################################
 
 
@@ -479,4 +480,181 @@ archive_trupulse_export <- function(from, to) {
     }
     TRUE
   }, error = function(e) conditionMessage(e))
+}
+
+
+#### The survey records ####
+#
+# surveys.csv holds what was measured: one row per distance between two named
+# points. Anything else - one logger's sensor relative to another's, which is
+# what a hydraulic slope needs - is computed here by chaining rows, never
+# stored, so re-surveying one link never leaves another value silently wrong.
+
+#' Loads surveys.csv
+#'
+#' @return Data frame. measured_on as Date, value numeric. Empty, with the
+#'   schema's columns, if nothing has been surveyed yet
+load_surveys <- function() {
+  read_table("surveys", remember = FALSE)
+}
+
+
+#' Every vertical link the survey records make, both ways
+#'
+#' A height_cm row with both points named says how far one point sits above
+#' another. Each becomes two links - up and down - between points written
+#' "unique_id|point". Where the same two points were surveyed more than once,
+#' the newest survey stands; how older ones might be weighed is decided with
+#' Product 3. A row whose points were not recorded links nothing.
+#'
+#' @param surveys Data frame from load_surveys()
+#' @return Data frame: from, to, value - how far `to` sits above `from`, in cm
+survey_links <- function(surveys) {
+  h <- surveys[surveys$quantity == "height_cm" &
+                 !is.na(surveys$point) & !is.na(surveys$relative_to) &
+                 !is.na(surveys$value), , drop = FALSE]
+  if (nrow(h) == 0) {
+    return(data.frame(from = character(0), to = character(0), value = numeric(0),
+                      stringsAsFactors = FALSE))
+  }
+  ref_id <- ifelse(is.na(h$relative_to_id), h$unique_id, h$relative_to_id)
+  a <- paste(h$unique_id, h$point, sep = "|")        # the point measured
+  b <- paste(ref_id, h$relative_to, sep = "|")       # the point it sits above
+  pair <- ifelse(a < b, paste(a, b), paste(b, a))
+  newest <- order(pair, h$measured_on, decreasing = TRUE)
+  keep <- newest[!duplicated(pair[newest])]
+  data.frame(from  = c(b[keep], a[keep]),
+             to    = c(a[keep], b[keep]),
+             value = c(h$value[keep], -h$value[keep]),
+             stringsAsFactors = FALSE)
+}
+
+
+#' How far one point sits above another, chained through the surveys
+#'
+#' Walks the survey links from one point to the other, adding heights as it
+#' goes: Dor-2025b's sensor, down to its rebar top, across to Dor-2025a's
+#' rebar top, down to Dor-2025a's sensor.
+#'
+#' @param unique_id,point The point asked about
+#' @param ref_id,ref_point The point it is measured from
+#' @param surveys Data frame from load_surveys(), or NULL to read
+#' @return Numeric, centimeters: how far the first point sits above the
+#'   second. NA if no chain of surveys joins them
+survey_height <- function(unique_id, point, ref_id, ref_point, surveys = NULL) {
+  if (is.null(surveys)) surveys <- load_surveys()
+  start <- paste(ref_id, ref_point, sep = "|")
+  goal  <- paste(unique_id, point, sep = "|")
+  if (start == goal) return(0)
+  links <- survey_links(surveys)
+
+  # Breadth-first from the reference: each point reached carries its height
+  # above the reference
+  reached <- setNames(0, start)
+  frontier <- start
+  while (length(frontier) > 0) {
+    nxt <- character(0)
+    for (f in frontier) {
+      out <- links[links$from == f & !links$to %in% names(reached), , drop = FALSE]
+      for (k in seq_len(nrow(out))) {
+        reached[out$to[k]] <- reached[[f]] + out$value[k]
+        if (out$to[k] == goal) return(round(unname(reached[[goal]]), 4))
+        nxt <- c(nxt, out$to[k])
+      }
+    }
+    frontier <- nxt
+  }
+  NA_real_
+}
+
+
+#' The reach between two loggers, as surveyed
+#'
+#' Either way round: a reach measured from the primary to the secondary is
+#' the same distance. The newest survey stands.
+#'
+#' @return Numeric, meters, or NA if never surveyed
+survey_reach <- function(unique_id, ref_id, surveys = NULL) {
+  if (is.null(surveys)) surveys <- load_surveys()
+  r <- surveys[surveys$quantity == "reach_m" & !is.na(surveys$value) &
+                 ((surveys$unique_id == unique_id & surveys$relative_to_id %in% ref_id) |
+                    (surveys$unique_id == ref_id & surveys$relative_to_id %in% unique_id)),
+               , drop = FALSE]
+  if (nrow(r) == 0) return(NA_real_)
+  r$value[order(r$measured_on, decreasing = TRUE)][1]
+}
+
+
+#' What each current deployment still needs surveyed
+#'
+#' What each station type needs is set out in data/DATA_DICTIONARY.md:
+#'
+#'   weather   sensor above ground
+#'   pond      sensor above bed
+#'   hydro     sensor above bed, every logger; and for a secondary or tertiary,
+#'             its sensor chained to the primary's, and a reach to the primary
+#'
+#' Never recorded as missing - worked out here each time, and cleared by a
+#' measurement. The overflow is surveyed only at some stations, so it is never
+#' listed.
+#'
+#' @param metadata Data frame of device_metadata rows, or NULL to read. Only
+#'   rows whose status is not terminal are considered
+#' @param surveys Data frame from load_surveys(), or NULL to read
+#' @return Data frame: station_id, unique_id, device_name, need, where need is
+#'   "sensor height" or "fall to primary" or "reach to primary" or
+#'   "no primary", and detail, a sentence saying what is missing
+survey_needs <- function(metadata = NULL, surveys = NULL) {
+  if (is.null(metadata)) metadata <- read_table("device_metadata", remember = FALSE)
+  if (is.null(surveys)) surveys <- load_surveys()
+  current <- metadata[!tolower(metadata$status) %in% TERMINAL_STATUSES, , drop = FALSE]
+
+  found <- list()
+  add <- function(r, need, detail) {
+    found[[length(found) + 1]] <<- data.frame(
+      station_id = r$station_id, unique_id = r$unique_id,
+      device_name = r$device_name, need = need, detail = detail,
+      stringsAsFactors = FALSE)
+  }
+  has_direct <- function(uid, point, ref) {
+    any(surveys$unique_id == uid & surveys$quantity == "height_cm" &
+          surveys$point %in% point & surveys$relative_to %in% ref &
+          is.na(surveys$relative_to_id) & !is.na(surveys$value))
+  }
+
+  for (i in seq_len(nrow(current))) {
+    r <- current[i, ]
+    type <- tolower(r$station_type)
+    if (type == "weather" && !has_direct(r$unique_id, "sensor", "ground")) {
+      add(r, "sensor height", "sensor height above the ground")
+    }
+    if (type %in% c("hydro", "pond") && !has_direct(r$unique_id, "sensor", "bed")) {
+      add(r, "sensor height", "sensor height above the bed")
+    }
+    role <- tolower(as.character(r$device_role))
+    if (type == "hydro" && !is.na(role) && role %in% c("secondary", "tertiary")) {
+      p <- current[current$station_id == r$station_id &
+                     tolower(as.character(current$device_role)) %in% "primary", ,
+                   drop = FALSE]
+      if (nrow(p) != 1) {
+        add(r, "no primary", paste0("the station has ", nrow(p),
+                                    " current primaries, so nothing to survey against"))
+        next
+      }
+      if (is.na(survey_height(r$unique_id, "sensor", p$unique_id, "sensor", surveys))) {
+        add(r, "fall to primary",
+            paste0("its sensor cannot be chained to ", p$device_name, "'s"))
+      }
+      if (is.na(survey_reach(r$unique_id, p$unique_id, surveys))) {
+        add(r, "reach to primary", paste0("no reach to ", p$device_name))
+      }
+    }
+  }
+
+  if (length(found) == 0) {
+    return(data.frame(station_id = character(0), unique_id = character(0),
+                      device_name = character(0), need = character(0),
+                      detail = character(0), stringsAsFactors = FALSE))
+  }
+  do.call(rbind, found)
 }
