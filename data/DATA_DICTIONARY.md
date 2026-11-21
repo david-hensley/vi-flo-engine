@@ -25,7 +25,7 @@ discuss before making.
    visit - is project-local. See *Which times are local, and which are UTC*.
 5. **Fixed vocabularies are defined once,** in code, and every workflow and
    check reads that one definition: statuses, maintenance actions, survey
-   quantities, port statuses.
+   quantities and points, port statuses.
 6. **Unknown is blank, never a placeholder.** A plausible invented value looks
    authoritative and will never be questioned. The one documented exception is
    the fetch stamp on the full-history export rows of `download_log.csv`.
@@ -122,46 +122,60 @@ network status, the to-do list, the doctor report - and never kept as a copy.
 
 Measurements taken in the field with an instrument or a tape: one row per
 number measured. Written only by a person, through the metadata manager.
-Long rather than wide, so a new kind of measurement is a new word in the list
-of quantities rather than a new column.
 
-What is stored is what was measured, against what it was measured from. A
-value relative to anything else - the overflow point relative to the
-streambed, say - is computed by chaining rows, so that re-surveying one link
-never leaves another value silently wrong.
+Every row is a distance between two points, and reads as a sentence: "this
+logger's `point` sits `value` above `relative_to`" - on this logger, or on the
+logger named in `relative_to_id`. Nothing assumes a particular reference: a
+survey is recorded against whatever it was actually measured from, so a new
+way of surveying needs no new column and no new word for the quantity.
 
-**Signs.** Every quantity is defined so that its normal arrangement is
-positive. A negative value means the reverse of what is expected - a rebar
-top below the overflow point, a sensor below the streambed - and the doctor
-report flags it for a second look.
+What is stored is what was measured. A distance between any other two points -
+one logger's sensor relative to another's, say, which is what a hydraulic
+slope needs - is computed by chaining rows, so that re-surveying one link
+never leaves another value silently wrong. Where a chain cannot be completed,
+the doctor report names the missing link.
 
 * `station_id`: The station
 * `unique_id`: The deployment measured
 * `measured_on`: Date of the measurement, project-local
-* `quantity`: What was measured, from a fixed list. The unit is part of the name:
+* `quantity`: What kind of distance, from a fixed list. The unit is part of the name:
 
-  * `rebar_offset_cm`: How far this logger's rebar top sits above `relative_to` - normally `bed`, the streambed at the logger - in centimeters
-  * `sensor_height_cm`: How far the logger's measuring point sits above `relative_to`, in centimeters. For a stream gauge `bed`, the streambed - a few centimeters. For a pond logger, also `bed`, and it can be tens of centimeters. For a weather station `ground`, the mounting height, normally 200 and recorded with method `nominal`. Never recorded for vwc: a soil moisture logger carries several sensors at several depths, recorded per port as `depth_cm` in `zentra_ports.csv`
-  * `gzf_offset_cm`: Gauge of zero flow - how deep the pool must be before it overflows and streamflow begins. Recorded as how far `relative_to` - normally `rebar`, the main logger's rebar top - sits above the overflow point at the pool's edge, in centimeters. Surveyed only at some hydro stations, on the main logger, so never listed as missing
-  * `elev_rel_m`: How far this logger's rebar top sits above the rebar top of `relative_to`, another deployment - normally the station's primary - in meters
-  * `reach_length_m`: Distance from this logger to `relative_to`, another deployment - normally the station's primary - measured ALONG THE CHANNEL, in meters. Always positive. On a straight reach the along-channel distance and the straight-line distance are the same; where the channel bends the straight line is shorter, and using it overestimates slope and therefore discharge
+  * `height_cm`: Vertical - how far `point` sits above `relative_to`, in centimeters. Negative means below: RB C's rebar top sits below RB-standby2's, so it is recorded as negative
+  * `reach_m`: Distance from this logger to the logger in `relative_to_id`, measured ALONG THE CHANNEL, in meters. Always positive. `point` and `relative_to` are blank. On a straight reach the along-channel distance and the straight-line distance are the same; where the channel bends the straight line is shorter, and using it overestimates slope and therefore discharge
+* `point`: The point measured, on this logger. Blank if what the instrument stood on was not recorded - the number is kept, and nothing pretends to know more
 * `value`: The measured number, in the unit the quantity names
-* `relative_to`: What the measurement was taken from. Always filled in, even where it is the usual reference, so no row depends on a convention to be read:
+* `relative_to`: The point it was measured from. Blank under the same rule as `point`, and always blank for `reach_m`
+* `relative_to_id`: The `unique_id` of the other logger when `relative_to` is on a different deployment - the secondary's rebar top relative to the primary's rebar top, say. Blank when both points are on this logger
 
-  * `rebar`: this logger's rebar top
+  Points, for both `point` and `relative_to`:
+
+  * `rebar`: the top of the logger's rebar
+  * `sensor`: the logger's measuring point
   * `bed`: the streambed (or pond bed) at the logger
-  * `ground`: the ground at the station's coordinates
-  * a `unique_id`: another deployment's rebar top
-* `method`: How it was measured: `laser`, `level`, `tape`, `nominal` (a standard value, not measured - weather mounting height), or `record` (taken from an earlier record, such as prototype code or a field book, rather than measured for VI-FLO)
-* `carried_from`: Blank for a measurement made on this deployment. When a logger is replaced and a survey still holds - the rebar did not move - the replacement workflow copies the row to the new deployment, keeping its original date and method, and records here the `unique_id` it was copied from. The row then reads truthfully: measured on that date, by that method, on the logger before this one
-* `notes`: Free text - the source file, conditions, anything worth knowing
+  * `ground`: the ground at the station's coordinates - the reference for a weather station's mounting height
+  * `overflow`: the point at the pool's edge where it overflows and streamflow begins - the gauge of zero flow. How deep the pool must be before water flows is the overflow's height above the sensor, recorded directly or chained from other rows
+* `method`: How it was measured: `laser`, `level` (a level and survey rod), `tape`, or `nominal` (a standard value, not measured - weather mounting height, normally 200 cm)
+* `carried_from`: Blank for a measurement made on this deployment. When a logger is replaced and a survey still holds - the same housing, the rebar did not move - the replacement workflow copies the row to the new deployment, keeping its original date and method, and records here the `unique_id` it was copied from. The row then reads truthfully: measured on that date, by that method, on the logger before this one
+* `notes`: Free text - the raw file, conditions, anything worth knowing
 
-A quantity a station type requires and its current deployment lacks - sensor
-height at a hydro station, say - is not recorded as missing. The doctor report
-works it out and lists it as needing survey; a measurement clears it.
+What each station type needs, and what the doctor report lists as needing
+survey when the current deployment lacks it - never recorded as missing, and
+cleared by a measurement:
 
-How Product 3 chooses among several surveys of the same quantity over time is
+| Station type | Needs |
+|---|---|
+| weather | sensor above ground |
+| hydro | sensor above bed, every logger |
+| hydro, paired | a chain from each secondary's sensor to the primary's sensor, and a reach to the primary |
+| pond | sensor above bed |
+| vwc | nothing here - sensor depths are per port, `depth_cm` in `zentra_ports.csv` |
+
+The overflow is surveyed only at some hydro stations, so it is never listed as
+missing.
+
+How Product 3 chooses among several surveys of the same distance over time is
 decided with Product 3.
+
 
 ### Which times are local, and which are UTC
 
