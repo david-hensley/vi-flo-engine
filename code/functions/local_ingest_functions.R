@@ -637,7 +637,7 @@ ui_ingest_local_data <- function(station_id, device_serial, station_type,
 
     if (!is.null(dep) && nrow(dep) > 0) {
       deployed <- min(dep$deploy_datetime, na.rm = TRUE)
-      terminal <- c("removed", "replaced", "relocated", "decommissioned")
+      terminal <- TERMINAL_STATUSES
       ended <- if (all(tolower(dep$status) %in% terminal)) {
         suppressWarnings(max(dep$end_datetime, na.rm = TRUE))
       } else as.POSIXct(NA)

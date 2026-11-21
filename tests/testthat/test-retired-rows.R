@@ -214,3 +214,20 @@ test_that("the removal workflow says what else ends, and stops if the logger sta
   expect_true(any(grepl("also serves zzu_weather", out$output)))
   expect_identical(load_zentra_metadata(), before)
 })
+
+test_that("a relocation moves the station's current loggers, not its retired ones", {
+  local_test_root()
+  # bta2_hydro gets a removed logger in its past
+  m <- read_table("device_metadata")
+  old <- m[m$unique_id == "t-0002", ]
+  old$unique_id <- "t-0097"; old$device_serial <- "90000097"; old$device_role <- NA
+  old$deploy_datetime <- as.POSIXct("2023-01-01 10:00:00", tz = PROJECT_TZ)
+  old$end_datetime <- as.POSIXct("2024-01-01 10:00:00", tz = PROJECT_TZ)
+  old$status <- "removed"
+  write_table("device_metadata", rbind(m, old), guard = FALSE)
+  res <- relocate_station("bta2_hydro", 17.72, -64.80,
+                          as.POSIXct("2026-11-10 10:00:00", tz = PROJECT_TZ), "manual", TRUE)
+  expect_true(isTRUE(res$success))
+  expect_equal(length(res$new_unique_ids), 2)                 # bta2a and bta2b, not the removed one
+  expect_equal(meta_row("t-0097")$status, "removed")
+})

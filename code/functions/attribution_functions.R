@@ -48,9 +48,6 @@
 ################################################################################
 
 
-TERMINAL_STATUSES <- c("removed", "replaced", "relocated", "decommissioned")
-
-
 #' Every deployment window, with derived ends
 #'
 #' One row per device-station-period: which station a device served, of which

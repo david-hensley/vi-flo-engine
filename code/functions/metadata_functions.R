@@ -64,7 +64,7 @@ save_zentra_ports <- function(ports, intent = NULL) {
 #'   that type
 port_deployment <- function(device_serial, type, metadata = NULL) {
   if (is.null(metadata)) metadata <- read_table("device_metadata", remember = FALSE)
-  terminal <- c("removed", "replaced", "relocated", "decommissioned")
+  terminal <- TERMINAL_STATUSES
   rows <- metadata[!is.na(metadata$device_serial) & metadata$device_serial == device_serial &
                      tolower(metadata$station_type) == tolower(type) &
                      !tolower(metadata$status) %in% terminal, , drop = FALSE]
@@ -239,7 +239,7 @@ set_metadata_approved <- function(device_serial = NULL, station_id = NULL, appro
     # deployment that has ended - nobody reviewed it today, and re-dating it
     # would claim they had. Its own approval and date stay as they were when
     # it was current, which is what makes its archived data attributable.
-    terminal <- c("removed", "replaced", "relocated", "decommissioned")
+    terminal <- TERMINAL_STATUSES
     rows_to_update <- metadata$station_id == station_id &
                       !tolower(metadata$status) %in% terminal
     if (sum(rows_to_update) == 0) {
@@ -250,7 +250,7 @@ set_metadata_approved <- function(device_serial = NULL, station_id = NULL, appro
   } else if (!is.null(device_serial)) {
     # Active rows for this serial, for the same reason. A serial can carry a
     # terminal row plus its successor, or serve two stations at once.
-    terminal <- c("removed", "replaced", "relocated", "decommissioned")
+    terminal <- TERMINAL_STATUSES
     rows_to_update <- metadata$device_serial == device_serial &
                       !tolower(metadata$status) %in% terminal
     if (sum(rows_to_update) == 0) {
@@ -423,7 +423,7 @@ get_station_list <- function(include_retired = FALSE) {
   # maintained, downloaded from or surveyed, so listing it among thirty live
   # stations is noise in every workflow except 'Correct device details', which
   # exists partly to reach exactly those rows.
-  terminal_statuses <- c("removed", "replaced", "relocated", "decommissioned")
+  terminal_statuses <- TERMINAL_STATUSES
 
   if (!include_retired) {
     live <- metadata$station_id[!tolower(metadata$status) %in% terminal_statuses]
@@ -506,7 +506,7 @@ get_station_devices <- function(station_id) {
 #' @return Data frame of active devices (excludes removed, replaced, decommissioned)
 get_active_station_devices <- function(station_id) {
   all_devices <- get_station_devices(station_id)
-  terminal_statuses <- c("removed", "replaced", "decommissioned", "relocated")
+  terminal_statuses <- TERMINAL_STATUSES
   active_devices <- all_devices[!all_devices$status %in% terminal_statuses, ]
   return(active_devices)
 }
@@ -761,7 +761,7 @@ update_last_visit <- function(station_id, visit_date) {
     # came back into tr1_hydro. A retired row is dated once, by the workflow
     # that retires it - see retire_row().
     active_mask <- !tolower(station_devices$status) %in%
-      c("removed", "replaced", "relocated", "decommissioned")
+      TERMINAL_STATUSES
     active_unique_ids <- station_devices$unique_id[active_mask]
     
     if (length(active_unique_ids) == 0) {
@@ -800,7 +800,7 @@ update_device_status <- function(device_serial, new_status, station_id = NULL) {
     #
     # Terminal rows are excluded because they are closed history. Where the
     # caller knows which station it is acting on, that narrows it further.
-    terminal_statuses <- c("removed", "replaced", "relocated", "decommissioned")
+    terminal_statuses <- TERMINAL_STATUSES
     
     rows <- metadata$device_serial == device_serial &
             !tolower(metadata$status) %in% terminal_statuses
@@ -941,7 +941,7 @@ update_device_location <- function(device_serial, lat, lon, elev,
     # Scoped to active rows, and to a station where the caller knows it. A
     # serial can carry several rows, and writing a new location onto a closed
     # historical one would move a station that never went anywhere.
-    terminal <- c("removed", "replaced", "relocated", "decommissioned")
+    terminal <- TERMINAL_STATUSES
     device_index <- which(metadata$device_serial == device_serial &
                           !tolower(metadata$status) %in% terminal)
     if (!is.null(station_id)) {
@@ -1142,7 +1142,7 @@ add_new_device <- function(device_data) {
     existing <- metadata[metadata$device_serial == device_data$device_serial, ]
     
     if (nrow(existing) > 0) {
-      terminal_statuses <- c("removed", "decommissioned", "replaced", "relocated")
+      terminal_statuses <- TERMINAL_STATUSES
       
       # A serial active at a DIFFERENT station type is legitimate: one ZL6
       # serves both a weather station and a vwc station, which is what
@@ -1282,8 +1282,10 @@ relocate_station_unchecked <- function(station_id, new_lat, new_lon, deploy_date
 
     station_devices <- metadata[metadata$station_id %in% moving, ]
 
-    # Filter to active devices only
-    active_mask <- !(station_devices$status %in% c("decommissioned", "relocated"))
+    # Current deployments only. This once left out only decommissioned and
+    # relocated rows, so a station's removed and replaced loggers would have
+    # been "moved" with it too, each given a new row at the new position
+    active_mask <- !tolower(station_devices$status) %in% TERMINAL_STATUSES
     active_devices <- station_devices[active_mask, ]
     
     if (nrow(active_devices) == 0) {
@@ -1302,7 +1304,7 @@ relocate_station_unchecked <- function(station_id, new_lat, new_lon, deploy_date
     # `decommissioned`, which implies a site nobody returns to.
     if (length(staying_behind) > 0) {
       left <- metadata$station_id %in% staying_behind &
-              !metadata$status %in% c("decommissioned", "relocated", "removed", "replaced")
+              !metadata$status %in% TERMINAL_STATUSES
       metadata$status[left] <- "removed"
     }
     
@@ -1551,7 +1553,7 @@ get_device_row <- function(device_serial, station_id = NULL, metadata = NULL) {
 
   if (is.null(metadata)) metadata <- load_zentra_metadata()
 
-  terminal_statuses <- c("removed", "replaced", "relocated", "decommissioned")
+  terminal_statuses <- TERMINAL_STATUSES
 
   rows <- metadata[metadata$device_serial == device_serial &
                    !tolower(metadata$status) %in% terminal_statuses, , drop = FALSE]
@@ -1799,7 +1801,7 @@ get_station_current_row <- function(station_id) {
 
   if (nrow(rows) == 0) return(NULL)
 
-  terminal <- c("removed", "replaced", "relocated", "decommissioned")
+  terminal <- TERMINAL_STATUSES
   active <- rows[!tolower(rows$status) %in% terminal, , drop = FALSE]
   if (nrow(active) > 0) rows <- active
 

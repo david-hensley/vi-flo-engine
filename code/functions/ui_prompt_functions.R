@@ -324,21 +324,10 @@ ui_prompt_datetime <- function(prompt, allow_now = TRUE, allow_quit = TRUE,
 ui_prompt_status_change <- function(current_status, allow_quit = TRUE, restrict_to_device_level = FALSE) {
   cat("\nCurrent status: ", current_status, "\n", sep = "")
   cat("\nStatus options:\n")
-  cat("  online           = working, reports to the cloud over a cellular\n")
-  cat("                     connection\n")
-  cat("  local            = working, but out of cellular service - data\n")
-  cat("                     reaches the cloud only when offloaded on site\n")
-  cat("                     (e.g. Bluetooth) and uploaded\n")
-  cat("  manual           = working, no cloud at all - data comes off by\n")
-  cat("                     shuttle or cable and is archived by hand\n")
-  cat("  defunct          = broken but still deployed\n")
-  
-  if (!restrict_to_device_level) {
-    # Show all statuses
-    cat("  replaced         = swapped for new device\n")
-    cat("  relocated        = station moved\n")
-    cat("  decommissioned   = station shut down\n")
-  } else {
+  shown <- if (restrict_to_device_level) ACTIVE_STATUSES else
+    c(ACTIVE_STATUSES, setdiff(TERMINAL_STATUSES, "removed"))
+  for (st in shown) cat("  ", format(st, width = 16), " = ", STATUS_MEANINGS[[st]], "\n", sep = "")
+  if (restrict_to_device_level) {
     cat("\n  Note: For replacement/relocation/decommissioning, use those workflows\n")
   }
   
@@ -394,14 +383,8 @@ ui_prompt_status_change <- function(current_status, allow_quit = TRUE, restrict_
 #' @return Status string, or NULL if canceled
 ui_prompt_device_status <- function(allow_quit = TRUE) {
 
-  statuses <- c("manual", "online", "local", "defunct")
-
-  meanings <- c(
-    manual        = "no cloud at all - data comes off by shuttle or cable",
-    online        = "reports to the cloud over a cellular connection",
-    local         = "out of cellular service - reaches the cloud when offloaded on site",
-    defunct       = "broken or lost, but still deployed"
-  )
+  statuses <- ACTIVE_STATUSES
+  meanings <- STATUS_MEANINGS
 
   repeat {
     cat("\nSelect device status:\n")
@@ -519,7 +502,7 @@ ui_prompt_metadata_approval <- function(station_id, apply = TRUE) {
   # not make it correct for the other. Depths and roles differ.
   companions <- tryCatch({
     meta <- load_zentra_metadata()
-    terminal <- c("removed", "replaced", "relocated", "decommissioned")
+    terminal <- TERMINAL_STATUSES
 
     sn <- meta$device_serial[meta$station_id == station_id &
                              !tolower(meta$status) %in% terminal]

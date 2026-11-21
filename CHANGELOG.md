@@ -88,6 +88,16 @@ All notable changes to the VI-FLO Engine project are documented here.
   message. Neither ever holds anything back
 
 ### Changed
+- **The statuses are written once.** `ACTIVE_STATUSES`, `TERMINAL_STATUSES`
+  and what each status means, `STATUS_MEANINGS`, live together in the data
+  layer; the 21 copies of the terminal list spelled out across six files are
+  gone, and the status menus print the meanings from the same place. A test
+  now fails if a status list is written out anywhere else
+- **A relocation no longer moves a station's retired loggers.** It treated
+  every row that was not decommissioned or relocated as current - so a
+  removed or replaced logger at the station would have been given a new row
+  at the new position too. One of the hand-written status lists, and the
+  reason the rest are gone
 - **The metadata manager acts on the row chosen, not on a row found again by
   serial.** Removing a device removed "the first active row" of its serial -
   on a ZL6 serving two stations, whichever came first. A removal is the box

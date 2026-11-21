@@ -285,3 +285,20 @@ test_that("a pending offload names its deployment, and is found again by logger"
   expect_error(add_pending_ingest("srl1_pond", "90000002", "2026-11-20", "DAH",
                                   "awaiting_offload"), "has no row at")
 })
+
+test_that("the statuses are written once, in the data layer", {
+  # A status list spelled out anywhere else is a copy that will drift - the
+  # relocation that treated removed loggers as current read one such copy
+  engine <- Sys.getenv("VI_FLO_ENGINE_ROOT")
+  files <- list.files(file.path(engine, "code", "functions"), pattern = "\\.R$", full.names = TRUE)
+  code <- do.call(rbind, lapply(files, function(f) {
+    x <- readLines(f, warn = FALSE)
+    data.frame(file = basename(f), line = seq_along(x), text = sub("#.*$", "", x),
+               stringsAsFactors = FALSE)
+  }))
+  # Two or more status words quoted in one c(...) is a list of them
+  st <- paste(c(ACTIVE_STATUSES, TERMINAL_STATUSES), collapse = "|")
+  re <- paste0("c\\([^)]*\"(", st, ")\"[^)]*,[^)]*\"(", st, ")\"")
+  hits <- code[grepl(re, code$text) & code$file != "table_functions.R", ]
+  expect_equal(nrow(hits), 0, info = paste(paste0(hits$file, ":", hits$line), collapse = ", "))
+})

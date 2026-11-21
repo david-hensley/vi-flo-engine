@@ -166,14 +166,21 @@ MAINTENANCE_ACTIONS_BY_WORKFLOW <- c(
 )
 MAINTENANCE_ACTIONS <- c(MAINTENANCE_ACTIONS_BY_HAND, MAINTENANCE_ACTIONS_BY_WORKFLOW)
 
-# A deployment's status. Active statuses say how a working device's data
-# reaches the archive; terminal ones how its deployment ended. TERMINAL_STATUSES
-# itself is defined in attribution_functions.R, which loads first
-ACTIVE_STATUSES <- c(
-  "online",                  # reports to the cloud over cellular
-  "local",                   # offloaded on site, then uploaded
-  "manual",                  # no cloud pathway; archived by hand
-  "defunct"                  # broken or assumed lost, still deployed
+# A deployment's status, and what each means - the one list every check,
+# workflow and menu reads. Active statuses say how a working device's data
+# reaches the archive, in the order a menu offers them; terminal ones how its
+# deployment ended, each set by its own workflow and each with an end
+ACTIVE_STATUSES <- c("manual", "online", "local", "defunct")
+TERMINAL_STATUSES <- c("removed", "replaced", "relocated", "decommissioned")
+STATUS_MEANINGS <- c(
+  manual         = "no cloud at all - data comes off by shuttle or cable",
+  online         = "reports to the cloud over a cellular connection",
+  local          = "out of cellular service - reaches the cloud when offloaded on site",
+  defunct        = "broken or lost, but still deployed",
+  removed        = "the logger taken out; the station continues",
+  replaced       = "swapped for another logger at this station",
+  relocated      = "the station moved - see the newer row",
+  decommissioned = "the station itself was shut down"
 )
 
 # A port row's status. Blank is a working sensor

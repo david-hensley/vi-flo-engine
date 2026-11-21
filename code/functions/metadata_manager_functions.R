@@ -294,8 +294,7 @@ ui_log_maintenance <- function(prefill_station = NULL, prefill_device = NULL,
     meta_now <- load_zentra_metadata()
     d_idx <- which(meta_now$device_serial == device_serial &
                    meta_now$station_id == station_id &
-                   !meta_now$status %in% c("removed", "replaced", "relocated",
-                                           "decommissioned"))
+                   !meta_now$status %in% TERMINAL_STATUSES)
     
     if (length(d_idx) > 0) {
       d_idx <- d_idx[1]
@@ -1213,7 +1212,7 @@ ui_survey_gut_pair <- function() {
 
   # ACTIVE loggers only. Counting every HOBO ever installed listed stations by
   # loggers long since removed - Dorothea showed four.
-  terminal <- c("removed", "replaced", "relocated", "decommissioned")
+  terminal <- TERMINAL_STATUSES
   metadata <- load_zentra_metadata()
   active <- metadata[is_hobo_device(metadata$mfger) &
                        !tolower(metadata$status) %in% terminal, ]
@@ -2197,7 +2196,7 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL,
     
     if (nrow(existing) > 0) {
       # Device exists - check if it's in a terminal status
-      terminal_statuses <- c("removed", "decommissioned", "replaced", "relocated")
+      terminal_statuses <- TERMINAL_STATUSES
       
       if (all(existing$status %in% terminal_statuses)) {
         # All entries are terminal - allow reuse
@@ -2950,7 +2949,7 @@ ui_relocate_station <- function() {
   companions <- character(0)
   {
     all_meta <- load_zentra_metadata()
-    terminal <- c("removed", "replaced", "relocated", "decommissioned")
+    terminal <- TERMINAL_STATUSES
     same_box <- all_meta$device_serial == current_device$device_serial &
                 !tolower(all_meta$status) %in% terminal &
                 all_meta$station_id != station_id
@@ -3930,7 +3929,7 @@ ui_update_ports <- function(preset_device_serial = NULL) {
     #
     # Terminal rows are excluded: a device out of service has no ports to
     # reconfigure.
-    terminal_statuses <- c("removed", "replaced", "relocated", "decommissioned")
+    terminal_statuses <- TERMINAL_STATUSES
     zentra_devices <- metadata[grepl("^z", metadata$device_serial, ignore.case = TRUE) &
                                !tolower(metadata$status) %in% terminal_statuses, ]
     
@@ -5272,7 +5271,7 @@ ui_correct_device_details <- function() {
     return(invisible(NULL))
   }
 
-  terminal_statuses <- c("removed", "replaced", "relocated", "decommissioned")
+  terminal_statuses <- TERMINAL_STATUSES
 
   device_options <- vapply(seq_len(nrow(devices)), function(i) {
     label <- device_label(devices[i, ], with_role = TRUE)
@@ -5377,10 +5376,10 @@ ui_correct_device_details <- function() {
       cat("\nThis device is recorded as '", current, "'.\n", sep = "")
       cat("Correct it only if the wrong terminal status was recorded, e.g. a\n")
       cat("device swap logged as 'decommissioned' when it was 'replaced'.\n\n")
-      cat("  removed         device taken out, station continues\n")
-      cat("  replaced        swapped for another device at this station\n")
-      cat("  relocated       the station moved - see the newer row\n")
-      cat("  decommissioned  the station itself was shut down\n\n")
+      for (st in TERMINAL_STATUSES) {
+        cat("  ", format(st, width = 15), " ", STATUS_MEANINGS[[st]], "\n", sep = "")
+      }
+      cat("\n")
       cat("To bring a device back into service, use 'Reactivate\n")
       cat("decommissioned station' instead - that is an event, not a\n")
       cat("correction.\n\n")
