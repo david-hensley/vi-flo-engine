@@ -69,7 +69,43 @@ All notable changes to the VI-FLO Engine project are documented here.
   checking every value is in `surveys.csv`, and gives each secondary its
   primary's elevation in place of the primary's-plus-a-fall
 
+- **Every save is checked before it is made.** A save to a table a person
+  writes - the device table, ports, surveys, the maintenance log, pending
+  tasks - runs `validate_metadata()` on the table as it would be, and is
+  refused if it would ADD a problem, naming the check and the rows, with
+  nothing written. A problem already there does not stop a save, or one bad
+  row would lock every workflow, the one that would fix it included. The
+  checks that look at the disk are left out of this; they are about the
+  archive, not the table being written
+- `with_metadata_change()`: several saves made as one checked change.
+  Retiring a logger, relocating a station, changing a station's status and
+  deleting a row each pass through a state that is not valid halfway - a row
+  ended with its ports still open - so their saves are checked once, at the
+  end, and if the change would add a problem every table is put back as it was
+- **Validation at session start and in the job.** `start.R` and the metadata
+  manager launcher print one line - "Metadata valid (40/40 checks)" or the
+  problems by name. The download job writes the same to the run log's
+  message. Neither ever holds anything back
+
 ### Changed
+- `sandbox_changes()` shows the device table's changes too, field by field,
+  as well as the survey rows and log entries
+- "Do something else?" on leaving a metadata manager task takes 'q' for no,
+  as every other prompt does
+- `start.R` no longer lists every function file as it loads - one line says
+  how many loaded. `load_all_functions(each = TRUE)` lists them
+- **Retiring a row sets its terminal status and its end in the same save.**
+  They used to be two, and between them the row was ended but current, or the
+  reverse. `retire_row()` takes the status; the replacement and removal
+  workflows use it. `update_device_status()` given a terminal status now ends
+  the deployment too
+- **Deleting a row takes its ports and surveys with it, and logs the deletion
+  in the same change.** The question about the ports is gone: left behind,
+  they would point at nothing. Log entries about a deleted row stay - the log
+  is never rewritten - and the checks accept them, since the deletion entry
+  says the row is gone
+- **Correcting an elevation in *Correct device details* corrects the whole
+  pair** at a paired gauge, which carries one elevation
 - **Every survey workflow writes `surveys.csv`, recording what was actually
   measured.** The paired-gauge survey records each logger's rebar top above
   its sensor and the upstream rebar top above the downstream one, from the

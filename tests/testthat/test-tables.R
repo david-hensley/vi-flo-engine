@@ -143,10 +143,11 @@ test_that("save_device_metadata writes through the layer, from POSIXct or text a
   x <- load_zentra_metadata()
   x$deploy_datetime <- format_datetime_safe(x$deploy_datetime)    # as some callers do
   x$last_visit <- as.character(x$last_visit)
-  x$elev[1] <- "41.96"                                           # a number typed as text
+  w <- which(x$unique_id == "t-0004")                            # not part of a pair
+  x$elev[w] <- "41.96"                                           # a number typed as text
   expect_true(save_device_metadata(x))
   y <- load_zentra_metadata()
-  expect_equal(y$elev[1], 41.96)
+  expect_equal(y$elev[w], 41.96)
   expect_s3_class(y$deploy_datetime, "POSIXct")
   expect_true(table_round_trip("device_metadata")$bytes_identical)
 
@@ -242,7 +243,7 @@ test_that("deleting a row deletes its own ports, and only those", {
   # z6-13368 serves two stations in the fixture: its ATMOS port is zzu_weather's
   # (t-0009), its TEROS ports zzu_vwc1's (t-0010). Deleting the vwc row takes
   # the vwc ports with it and leaves the weather station's
-  run <- with_inputs(c("t-0010", "Y", "Y"), ui_delete_metadata_row())
+  run <- with_inputs(c("t-0010", "Y"), ui_delete_metadata_row())
   expect_false("t-0010" %in% load_zentra_metadata()$unique_id)
   p <- load_zentra_ports_data()
   expect_false("t-0010" %in% p$unique_id)
@@ -252,7 +253,7 @@ test_that("deleting a row deletes its own ports, and only those", {
 test_that("deleting a logger's only row deletes its ports from the real port table", {
   local_test_root()
   # z6-38175 is on one row only, t-0011
-  run <- with_inputs(c("t-0011", "Y", "Y"), ui_delete_metadata_row())
+  run <- with_inputs(c("t-0011", "Y"), ui_delete_metadata_row())
   expect_false("z6-38175" %in% load_zentra_ports_data()$sn)
   expect_true("z6-13368" %in% load_zentra_ports_data()$sn)
   expect_false(file.exists(file.path(getwd(), "zentra_ports.csv")))

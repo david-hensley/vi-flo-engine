@@ -200,6 +200,13 @@ SURVEY_METHODS <- c(
   "nominal"                  # a standard value, not measured
 )
 
+# The tables a person writes, through the metadata manager. A save to one of
+# these is checked first, and refused if it would add a problem
+# validate_metadata() finds - see validation_blocks_write(). The machine-written
+# logs are not: the job's record of what it archived is never held back
+VALIDATED_TABLES <- c("device_metadata", "zentra_ports", "maintenance_log",
+                      "surveys", "pending_ingest")
+
 #' One table's schema, or an error naming the tables there are
 table_schema <- function(name) {
   s <- TABLE_SCHEMA[[name]]
@@ -239,7 +246,12 @@ table_path <- function(name) {
 #'   does not exist
 read_table <- function(name, path = NULL, remember = TRUE, as_text = NULL) {
   s <- table_schema(name)
-  if (is.null(path)) path <- table_path(name)
+  if (is.null(path)) {
+    # A table as it WOULD be after a save, read in its place while the save
+    # is checked - see validation_blocks_write()
+    over <- getOption("viflo.table_override")[[name]]
+    path <- if (!is.null(over)) over else table_path(name)
+  }
   cols <- s$columns
 
   if (!file.exists(path)) return(table_text_columns(table_empty(name), name, as_text))
@@ -494,6 +506,13 @@ write_table <- function(name, data, path = NULL, guard = TRUE, intent = NULL) {
     }
   }
 
+  # Checked against everything validate_metadata() knows, before anything is
+  # touched. Only with the guard: a migration or a test writing guard = FALSE
+  # is reshaping the table on purpose
+  if (guard && name %in% VALIDATED_TABLES && exists("validation_blocks_write")) {
+    if (validation_blocks_write(name, data = data, intent = intent)) return(invisible(FALSE))
+  }
+
   table_backup(path)
   table_write_lines(lines, path)
   if (exists("remember_file_hash")) remember_file_hash(path)
@@ -507,7 +526,7 @@ write_table <- function(name, data, path = NULL, guard = TRUE, intent = NULL) {
 #' easy to mistake for nothing to do.
 write_table_or_stop <- function(name, data, intent = NULL) {
   if (!isTRUE(write_table(name, data, intent = intent))) {
-    stop(table_schema(name)$file, " was not saved: it changed since it was read",
+    stop(table_schema(name)$file, " was not saved - the reason is above",
          call. = FALSE)
   }
   invisible(TRUE)
@@ -533,6 +552,19 @@ append_rows <- function(name, rows, path = NULL) {
   }
   for (col in setdiff(cols, names(rows))) rows[[col]] <- rep(NA, nrow(rows))
   rows <- rows[, cols, drop = FALSE]
+
+  # A log a person writes is checked like a whole-table save: the table as it
+  # would be with these rows, against everything validate_metadata() knows
+  if (is.null(path) && name %in% VALIDATED_TABLES && exists("validation_blocks_write") &&
+      file.exists(table_path(name))) {
+    tmp <- tempfile(fileext = ".csv")
+    on.exit(unlink(tmp), add = TRUE)
+    current <- readLines(table_path(name), warn = FALSE, encoding = "UTF-8")
+    writeLines(c(current, table_lines(name, rows, header = FALSE)), tmp, useBytes = TRUE)
+    if (validation_blocks_write(name, path = tmp, intent = "adding rows")) {
+      stop(table_schema(name)$file, ": nothing added - the reason is above", call. = FALSE)
+    }
+  }
   if (is.null(path)) path <- table_path(name)
 
   # Rows shaped by the schema can only go onto a file shaped by it. Appended

@@ -40,6 +40,7 @@ sandbox_start <- function() {
   tables <- list.files(real_meta, pattern = "\\.csv$", full.names = TRUE)
   file.copy(tables, meta)
   options(viflo.sandbox = list(real = real, root = root,
+                               devices = read_table("device_metadata", remember = FALSE),
                                surveys = read_table("surveys", remember = FALSE),
                                log_rows = nrow(read_table("maintenance_log", remember = FALSE))))
   Sys.setenv(VI_FLO_DATA_ROOT = root)
@@ -66,6 +67,27 @@ sandbox_changes <- function() {
   key <- function(d) do.call(paste, c(lapply(d, as.character), sep = "\r"))
   added <- now[!key(now) %in% key(sb$surveys), , drop = FALSE]
   gone  <- sb$surveys[!key(sb$surveys) %in% key(now), , drop = FALSE]
+
+  # The device table, field by field: what each row was, and is now
+  was <- sb$devices
+  cat("\nDevice rows changed in the sandbox:\n")
+  n_dev <- 0
+  for (uid in union(was$unique_id, meta$unique_id)) {
+    a <- was[was$unique_id == uid, , drop = FALSE]
+    b <- meta[meta$unique_id == uid, , drop = FALSE]
+    label <- paste0(if (nrow(b) > 0) b$device_name else a$device_name, " (",
+                    if (nrow(b) > 0) b$station_id else a$station_id, ")")
+    if (nrow(a) == 0) { cat("  + ", label, " - new row ", uid, "\n", sep = ""); n_dev <- n_dev + 1; next }
+    if (nrow(b) == 0) { cat("  - ", label, " - row ", uid, " deleted\n", sep = ""); n_dev <- n_dev + 1; next }
+    for (col in names(a)) {
+      va <- format(a[[col]]); vb <- format(b[[col]])
+      if (!identical(va, vb)) {
+        cat("  ~ ", label, ": ", col, " ", va, " -> ", vb, "\n", sep = "")
+        n_dev <- n_dev + 1
+      }
+    }
+  }
+  if (n_dev == 0) cat("  (none)\n")
 
   cat("\nSurvey rows added in the sandbox: ", nrow(added), "\n", sep = "")
   for (i in seq_len(nrow(added))) {

@@ -39,7 +39,7 @@ test_that("retire_row ends the deployment at the moment its logger left", {
   local_test_root()
   before <- lv("t-0001")
   when <- as.POSIXct("2026-10-29 12:15:00", tz = "America/Puerto_Rico")
-  expect_true(isTRUE(retire_row("t-0001", when, close_ports = FALSE)))
+  expect_true(isTRUE(retire_row("t-0001", when, close_ports = FALSE, status = "removed")))
   expect_equal(ends_at("t-0001"), "2026-10-29 12:15")
   expect_equal(lv("t-0001"), before)                        # the last visit is what it was
 })
@@ -49,7 +49,7 @@ test_that("retire_row closes the logger's open ports at that moment, not now", {
   uid <- load_zentra_metadata()
   uid <- uid$unique_id[uid$device_serial == "z6-13368"][1]
   when <- as.POSIXct("2026-10-29 12:15:00", tz = "America/Puerto_Rico")
-  expect_true(isTRUE(retire_row(uid, when)))
+  expect_true(isTRUE(retire_row(uid, when, status = "removed")))
   p <- load_zentra_ports_data()
   p <- p[p$sn == "z6-13368" & !is.na(p$sensor) & p$sensor != "none", ]
   expect_true(all(!is.na(p$valid_to)))
@@ -65,7 +65,7 @@ test_that("a port already closed keeps its own date", {
   save_zentra_ports(p)
   uid <- load_zentra_metadata()
   uid <- uid$unique_id[uid$device_serial == "z6-13368"][1]
-  retire_row(uid, as.POSIXct("2026-10-29 12:15:00", tz = "America/Puerto_Rico"))
+  retire_row(uid, as.POSIXct("2026-10-29 12:15:00", tz = "America/Puerto_Rico"), status = "removed")
   p <- load_zentra_ports_data()
   expect_equal(format(p$valid_to[p$sn == "z6-13368" & p$port == 2], "%Y-%m-%d", tz = "America/Puerto_Rico"),
                "2024-02-16")
@@ -157,6 +157,12 @@ test_that("changing one port closes it and opens its successor on the right depl
 test_that("a move carries the logger's open ports to the deployment it created", {
   local_test_root()
   when <- as.POSIXct("2026-11-01 10:00:00", tz = "America/Puerto_Rico")
+  # The deployment the move created
+  m <- read_table("device_metadata")
+  new <- m[m$unique_id == "t-0011", ]
+  new$unique_id <- "t-0099"; new$deploy_datetime <- when
+  m$status[m$unique_id == "t-0011"] <- "relocated"; m$end_datetime[m$unique_id == "t-0011"] <- when
+  write_table("device_metadata", rbind(m, new), guard = FALSE)
   expect_true(carry_ports_over("t-0011", "t-0099", when))
   p <- read_table("zentra_ports")
   expect_true(all(p$valid_to[p$unique_id == "t-0011"] == when))

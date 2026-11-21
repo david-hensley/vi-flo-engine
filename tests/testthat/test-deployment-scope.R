@@ -20,7 +20,7 @@ test_that("the elevation writer changes one row, by unique_id", {
 test_that("surveying bta2b leaves its retired Reef Bay deployment of the same serial alone", {
   local_test_root()
   retired <- meta_row("t-0003")
-  survey_device_elevation("t-0002", elev = 17.7, elev_source = "gnss")
+  survey_device_elevation(c("t-0001", "t-0002"), elev = 17.7, elev_source = "gnss")
   expect_equal(meta_row("t-0002")$elev, 17.7)
   expect_equal(meta_row("t-0003"), retired)
 })

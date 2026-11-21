@@ -31,6 +31,12 @@ if (exists("check_pending")) {
   })
 }
 
+# Whether the metadata holds together: one line, and never a reason not to
+# start - a problem is fixed from inside the session
+if (exists("print_validation_line")) {
+  try(print_validation_line(), silent = TRUE)
+}
+
 # The handful of things a session usually starts with. Not a menu - just the
 # spelling, so none of it has to be remembered or typed from scratch.
 cat("  print_network_status()  every station and how it is doing\n")

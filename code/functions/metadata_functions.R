@@ -812,6 +812,11 @@ update_device_status <- function(device_serial, new_status, station_id = NULL) {
     }
     
     metadata$status[rows] <- new_status
+    # A terminal status ends the deployment, in the same save - now, unless
+    # the caller goes on to date it with retire_row()
+    if (tolower(new_status) %in% TERMINAL_STATUSES) {
+      metadata$end_datetime[rows & is.na(metadata$end_datetime)] <- Sys.time()
+    }
     
     # The approval is NOT cleared on a terminal transition, though it used to
     # be. That made sense when the flag gated downloading - a device out of
@@ -835,7 +840,13 @@ update_device_status <- function(device_serial, new_status, station_id = NULL) {
 #' @param station_id Character. Station to update
 #' @param new_status Character. New status to apply
 #' @return TRUE if successful, error message if failed
-update_station_status <- function(station_id, new_status,
+update_station_status <- function(...) {
+  # One change: statuses, ends and the ports closed with them
+  with_metadata_change("changing a station's status", update_station_status_unchecked(...))
+}
+
+#' The saves of a station status change, unchecked - see update_station_status()
+update_station_status_unchecked <- function(station_id, new_status,
                                  close_port_serials = NULL, when = Sys.time()) {
   tryCatch({
     metadata <- load_zentra_metadata()
@@ -1253,7 +1264,16 @@ add_new_device <- function(device_data) {
 #' @param new_status Character. Status at new location
 #' @param metadata_approved Logical. Approval for download
 #' @return List with success status and new unique_ids
-relocate_station <- function(station_id, new_lat, new_lon, deploy_datetime,
+relocate_station <- function(...) {
+  # One change: the old rows retired, the new ones created, their ports
+  # carried over. Checked once, at the end - halfway, the old rows have ended
+  # with their ports still open
+  res <- with_metadata_change("relocating a station", relocate_station_unchecked(...))
+  if (is.character(res)) list(success = FALSE, error = res) else res
+}
+
+#' The saves of a relocation, unchecked - see relocate_station()
+relocate_station_unchecked <- function(station_id, new_lat, new_lon, deploy_datetime,
                             new_status, metadata_approved,
                             new_device = NULL,
                             new_elev = NA, new_elev_source = NA,
@@ -1398,17 +1418,19 @@ relocate_station <- function(station_id, new_lat, new_lon, deploy_datetime,
 #'   deployment
 #' @param close_ports Logical. Close the logger's open ports at `when`
 #' @return TRUE, or an error message
-retire_row <- function(unique_id, when, close_ports = TRUE) {
-  tryCatch({
+retire_row <- function(unique_id, when, close_ports = TRUE, status = NULL) {
+  with_metadata_change(paste("retiring row", unique_id), tryCatch({
     metadata <- load_zentra_metadata()
     i <- which(metadata$unique_id == unique_id)
     if (length(i) != 1) return(paste0("No single row '", unique_id, "'"))
     # The moment the deployment ended - the logger's removal, or its
     # replacement going in. Set once, here; a later visit to the station never
-    # moves it
+    # moves it. The terminal status goes with it, in the same save: a row that
+    # has ended but still reads as current, or the reverse, is a contradiction
     metadata$end_datetime[i] <- as.POSIXct(when, tz = PROJECT_TZ)
+    if (!is.null(status)) metadata$status[i] <- status
     if (!isTRUE(save_device_metadata(metadata, intent = paste("retiring row", unique_id)))) {
-      stop("the device table changed since it was read")
+      stop("the device table was not saved")
     }
 
     sn <- metadata$device_serial[i]
@@ -1417,7 +1439,7 @@ retire_row <- function(unique_id, when, close_ports = TRUE) {
       close_device_ports(sn, when)
     }
     TRUE
-  }, error = function(e) paste0("Failed to retire row: ", e$message))
+  }, error = function(e) paste0("Failed to retire row: ", e$message)))
 }
 
 #' Remove a device from service
@@ -1438,9 +1460,8 @@ remove_device <- function(device_serial, removal_datetime) {
     }
     device_row <- candidates[1, ]
     
-    # 1. Update status to removed
-    result <- update_device_status(device_serial, "removed",
-                                   station_id = device_row$station_id)
+    # 1. The row ends at the removal: status, end and ports in one change
+    result <- retire_row(device_row$unique_id, removal_datetime, status = "removed")
     if (!isTRUE(result)) return(result)
     
     # 2. Disable downloads
@@ -1449,11 +1470,7 @@ remove_device <- function(device_serial, removal_datetime) {
       # Non-fatal - continue
     }
     
-    # 3. Date the removed row, and close its ports, at the removal
-    result <- retire_row(device_row$unique_id, removal_datetime)
-    if (!isTRUE(result)) return(result)
-    
-    # 4. The station's other deployments were visited too - a co-located
+    # 3. The station's other deployments were visited too - a co-located
     # logger, a pair's partner. update_last_visit() leaves the removed row
     # alone; retire_row() dated it
     result <- update_last_visit(device_row$station_id, as.Date(removal_datetime))

@@ -309,6 +309,12 @@ zentra_download <- function(devices = NULL, end = NULL, max_active = 4L,
     cat(n_errored, " device(s) errored - see run_log.csv\n\n", sep = "")
   }
 
+  # Whether the metadata holds together, recorded with the run. It never
+  # holds anything back - the archive is raw data, kept whatever the record
+  # says - but a problem that appears between sessions shows up here first
+  checked <- if (exists("validation_summary_line")) validation_summary_line() else ""
+  if (nzchar(checked)) cat(checked, "\n\n", sep = "")
+
   zentra_log_run(run_id, run_started, Sys.time(),
                  seen = nrow(plan),
                  fetched = sum(res$rows > 0),
@@ -316,7 +322,7 @@ zentra_download <- function(devices = NULL, end = NULL, max_active = 4L,
                  errored = n_errored,
                  rows = sum(res$rows),
                  status = status,
-                 message = paste(head(res$error[!is.na(res$error)], 2),
+                 message = paste(c(checked, head(res$error[!is.na(res$error)], 2)),
                                  collapse = "; "))
 
   invisible(res)

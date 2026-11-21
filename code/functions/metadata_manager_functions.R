@@ -2813,8 +2813,6 @@ ui_replace_device <- function() {
   #### MARK OLD DEVICE AS REPLACED (only after new device successfully added) ####
   ################################################################################
   
-  result <- update_device_status(old_device_serial, "replaced",
-                                 station_id = station_id)
   
   # The old logger came out when the new one went in. That moment - not the
   # moment this was typed in - is where its deployment ends: last_visit is set
@@ -2824,13 +2822,12 @@ ui_replace_device <- function() {
   # Sys.time(), days after the swap.
   when <- add_result$deploy_datetime
   n_open <- nrow(get_active_ports(old_device_serial))
-  retired <- retire_row(old_device_row$unique_id, when)
+  retired <- retire_row(old_device_row$unique_id, when, status = "replaced")
+  result <- retired
   if (isTRUE(retired)) {
     cat("\u2713 ", old_device_serial, " retired at ", format(when, "%Y-%m-%d %H:%M"),
         if (n_open > 0) paste0(", its ", n_open, " port configuration(s) closed") else "",
         "\n", sep = "")
-  } else {
-    cat("\u26a0\ufe0f  Could not date the old row: ", retired, "\n", sep = "")
   }
   if (!isTRUE(result)) {
     cat("⚠️  Warning: New device added but could not mark old device as replaced\n")
@@ -5221,68 +5218,59 @@ ui_delete_metadata_row <- function() {
   }
   
   ################################################################################
-  #### DELETE FROM METADATA ####
+  #### DELETE: the row, everything that belongs to it, and the log entry ####
   ################################################################################
-  
-  # Remove row
-  metadata <- metadata[metadata$unique_id != unique_id, ]
-  if (!isTRUE(save_device_metadata(metadata, intent = paste("deleting row", unique_id)))) {
-    cat("❌ Row NOT deleted - see the refusal above\n")
+
+  # The row's own ports and surveys go with it - each names its deployment,
+  # so another row of the same logger keeps its own - and the log records the
+  # deletion. One change: checked once at the end, and put back whole if it
+  # would leave anything pointing at nothing
+  ports <- load_zentra_ports_data()
+  surveys <- load_surveys()
+  n_ports <- sum(ports$unique_id == unique_id)
+  n_surveys <- sum(surveys$unique_id == unique_id | surveys$relative_to_id %in% unique_id |
+                     surveys$carried_from %in% unique_id)
+  if (n_ports + n_surveys > 0) {
+    cat("\nGoing with it: ",
+        paste(c(if (n_ports > 0) paste0(n_ports, " port row(s)"),
+                if (n_surveys > 0) paste0(n_surveys, " survey row(s)")), collapse = " and "),
+        " that belong to this row\n", sep = "")
+  }
+
+  result <- with_metadata_change(paste("deleting row", unique_id), tryCatch({
+    metadata <- metadata[metadata$unique_id != unique_id, ]
+    if (!isTRUE(save_device_metadata(metadata, intent = paste("deleting row", unique_id)))) {
+      stop("device_metadata.csv was not saved")
+    }
+    if (n_ports > 0) {
+      save_zentra_ports(ports[ports$unique_id != unique_id, ], intent = "deleting a row's ports")
+    }
+    if (n_surveys > 0) {
+      keep <- !(surveys$unique_id == unique_id | surveys$relative_to_id %in% unique_id |
+                  surveys$carried_from %in% unique_id)
+      write_table_or_stop("surveys", surveys[keep, , drop = FALSE],
+                          intent = "deleting a row's surveys")
+    }
+    log_result <- create_maintenance_entry(
+      field_visit_date = Sys.Date(),
+      station_id = row_to_delete$station_id,
+      unique_id = unique_id,          # the row just deleted - nothing left to look it up by
+      action_type = "metadata_deletion",
+      details = paste0("METADATA DELETION - unique_id: ", unique_id,
+                       ", device_serial: ", row_to_delete$device_serial,
+                       ", station: ", row_to_delete$station_id,
+                       " (", row_to_delete$site_full, ")"),
+      logged_by = "ADMIN")
+    if (!isTRUE(log_result)) stop("the deletion could not be logged")
+    TRUE
+  }, error = function(e) paste0("Deletion failed: ", conditionMessage(e))))
+
+  if (!isTRUE(result)) {
+    cat("\u274c Row NOT deleted - ", result, "\n", sep = "")
     return(invisible(FALSE))
   }
-  
-  cat("✓ Row deleted from device_metadata.csv\n")
-  
-  ################################################################################
-  #### DELETE FROM ZENTRA PORTS (if applicable) ####
-  ################################################################################
-  
-  # The row's own ports - each port row names its deployment, so another row
-  # of the same logger keeps its ports
-  ports <- load_zentra_ports_data()
-  device_ports <- ports[ports$unique_id == unique_id, ]
+  cat("\u2713 Row deleted, with its ports and surveys, and the deletion logged\n")
 
-  if (nrow(device_ports) > 0) {
-    cat("\n⚠️  Found ", nrow(device_ports), " port configuration rows for this row\n", sep = "")
-    delete_ports <- ui_yes_no("Delete these port rows too?", allow_quit = FALSE)
-    
-    if (delete_ports == "Y" || delete_ports == "1") {
-      ports <- ports[ports$unique_id != unique_id, ]
-      if (isTRUE(tryCatch(save_zentra_ports(ports, intent = "deleting a row's ports"),
-                          error = function(e) { cat("❌ ", conditionMessage(e), "\n"); FALSE }))) {
-        cat("✓ ", nrow(device_ports), " port rows deleted from zentra_ports.csv\n", sep = "")
-      } else {
-        cat("❌ Port rows NOT deleted\n")
-      }
-    } else {
-      cat("⚠️  Port rows NOT deleted - you may want to clean these up manually\n")
-    }
-  }
-  
-  ################################################################################
-  #### LOG DELETION ####
-  ################################################################################
-  
-  log_details <- paste0("METADATA DELETION - unique_id: ", unique_id, 
-                        ", device_serial: ", row_to_delete$device_serial,
-                        ", station: ", row_to_delete$station_id,
-                        " (", row_to_delete$site_full, ")")
-  
-  log_result <- create_maintenance_entry(
-    field_visit_date = Sys.Date(),
-    station_id = row_to_delete$station_id,
-    unique_id = unique_id,          # the row just deleted - nothing left to look it up by
-    action_type = "metadata_deletion",
-    details = log_details,
-    logged_by = "ADMIN"
-  )
-  
-  if (isTRUE(log_result)) {
-    cat("✓ Deletion logged to maintenance_log.csv\n")
-  } else {
-    cat("⚠️  Warning: Could not log deletion to maintenance log\n")
-  }
-  
   cat("\n✓ Metadata row deletion complete\n")
   cat("  Deleted: ", unique_id, " (", row_to_delete$device_serial, ")\n", sep = "")
   
@@ -5566,27 +5554,39 @@ ui_correct_device_details <- function() {
     # correcting one and leaving the other is how metadata ends up
     # contradicting itself.
     #
-    # deploy_datetime, device_role, lat, lon and elev stay on the single row.
-    # A co-located station can begin years after its logger arrives, roles
-    # differ by station, and a paired gauge's elevation is derived from its
-    # partner's.
+    # deploy_datetime, device_role, lat and lon stay on the single row. A
+    # co-located station can begin years after its logger arrives, and roles
+    # differ by station.
+    #
+    # elev goes the other way: a paired gauge carries one elevation, the
+    # primary's, on every logger, so correcting it on one corrects it on all
     per_device <- c("model", "device_name", "interval_min")
 
     rows <- idx
+    shares <- "share this logger"
     if (field %in% per_device) {
       companions <- which(metadata$device_serial == device_serial &
                           !tolower(metadata$status) %in% terminal_statuses)
       rows <- union(idx, companions)
     }
+    if (field == "elev") {
+      rows <- union(idx, which(metadata$unique_id %in%
+                                 elevation_shared_with(metadata$unique_id[idx], metadata)))
+      metadata$elev_source[rows] <- metadata$elev_source[idx]
+      shares <- "are one paired gauge, which carries one elevation"
+    }
 
     metadata[[field]][rows] <- new_value
-    save_device_metadata(metadata)
+    if (!isTRUE(save_device_metadata(metadata))) {
+      cat("\u274c Not saved\n")
+      next
+    }
 
     if (length(rows) > 1) {
       others <- setdiff(metadata$station_id[rows], station_id)
-      cat("Updated ", field, " on ", length(rows), " rows - ", station_id,
-          " and ", paste(others, collapse = ", "),
-          " share this logger\n", sep = "")
+      cat("Updated ", field, " on ", length(rows), " rows - ",
+          if (length(others) > 0) paste0(station_id, " and ", paste(others, collapse = ", "))
+          else paste0("all at ", station_id), " ", shares, "\n", sep = "")
     } else {
       cat("Updated ", field, "\n", sep = "")
     }
@@ -6448,9 +6448,10 @@ metadata_manager <- function() {
     }
     
     # After completing any branch, ask if user wants to do more
+    # 'q' here means what it means everywhere else: done
     continue_response <- ui_yes_no("\nDo something else? This would return you to main menu.",
-                                   allow_quit = FALSE)
-    if (continue_response != "Y" && continue_response != "1") {
+                                   allow_quit = TRUE)
+    if (continue_response != "Y") {
       return(ui_exit_metadata_manager(entries_at_start))
     }
     

@@ -49,7 +49,35 @@
 #' result <- validate_metadata()
 #' if (!result$valid) print(result$summary)
 #' 
-validate_metadata <- function(verbose = TRUE, stop_on_error = FALSE) {
+#' @param tables Named list. Tables to check as they would be - each a data
+#'   frame, or the path of a file holding it - read in place of the real ones
+#' @param check_files Logical. Include the checks that look at the disk - every
+#'   logged file exists, every raw file is logged. Left out when a save is
+#'   checked: those are about the archive, not the table being written
+validate_metadata <- function(verbose = TRUE, stop_on_error = FALSE, tables = NULL,
+                              check_files = TRUE) {
+
+  # Tables as they WOULD be: each written to a temporary file and read in the
+  # real one's place for the length of this check, through the same loaders
+  # as always. A path is taken as it is
+  if (length(tables) > 0) {
+    over <- list()
+    for (n in names(tables)) {
+      if (is.character(tables[[n]])) {
+        over[[n]] <- tables[[n]]
+      } else {
+        tmp <- tempfile(fileext = ".csv")
+        table_write_lines(table_lines(n, table_conform(n, tables[[n]])), tmp)
+        over[[n]] <- tmp
+      }
+    }
+    old_over <- getOption("viflo.table_override")
+    options(viflo.table_override = over)
+    on.exit({
+      options(viflo.table_override = old_over)
+      unlink(unlist(over[!vapply(tables, is.character, logical(1))]))
+    }, add = TRUE)
+  }
   
   # Initialize results
   violations <- list()
@@ -567,13 +595,15 @@ validate_metadata <- function(verbose = TRUE, stop_on_error = FALSE) {
   if (!is.null(maint) && nrow(maint) > 0) {
     if (verbose) cat("\nChecking maintenance log...\n")
     
-    # CHECK 10: station_id should exist in metadata
-    maint_stations <- unique(maint$station_id[!is.na(maint$station_id)])
+    # CHECK 10: station_id should exist in metadata - except in entries about
+    # a row since deleted, whose station may have gone with it
+    gone <- maint$unique_id %in% maint$unique_id[maint$action_type %in% "metadata_deletion"]
+    maint_stations <- unique(maint$station_id[!is.na(maint$station_id) & !gone])
     meta_stations <- unique(metadata$station_id)
     orphan_stations <- setdiff(maint_stations, meta_stations)
     
     if (length(orphan_stations) > 0) {
-      problem_rows <- maint[maint$station_id %in% orphan_stations, 
+      problem_rows <- maint[maint$station_id %in% orphan_stations & !gone, 
                             c("field_visit_date", "station_id", "unique_id", "action_type")]
       record_violation(
         "ORPHAN_MAINT_STATION",
@@ -618,9 +648,12 @@ validate_metadata <- function(verbose = TRUE, stop_on_error = FALSE) {
     }
     
     # CHECK: every entry names a deployment that exists, at its own station.
-    # A metadata deletion is the exception: it names the row it deleted
+    # A deleted row is the exception: the log is never rewritten, so entries
+    # about a row stay after it is deleted - and the deletion entry itself
+    # names it. The log says it is gone, which is all a reader needs
     if ("unique_id" %in% names(maint)) {
-      live <- maint$action_type != "metadata_deletion" | is.na(maint$action_type)
+      deleted <- maint$unique_id[maint$action_type %in% "metadata_deletion"]
+      live <- !maint$unique_id %in% deleted
       at <- match(maint$unique_id, metadata$unique_id)
       lost <- live & !is.na(maint$unique_id) & is.na(at)
       elsewhere <- live & !is.na(at) & metadata$station_id[at] != maint$station_id
@@ -665,7 +698,7 @@ validate_metadata <- function(verbose = TRUE, stop_on_error = FALSE) {
     # someone tries to use the data.
     data_root <- Sys.getenv("VI_FLO_DATA_ROOT")
     
-    if (nzchar(data_root) && "filepath" %in% names(dlog)) {
+    if (check_files && nzchar(data_root) && "filepath" %in% names(dlog)) {
       full_paths <- file.path(data_root, dlog$filepath)
       missing <- !file.exists(full_paths)
       
@@ -707,7 +740,7 @@ validate_metadata <- function(verbose = TRUE, stop_on_error = FALSE) {
     # They arise from renames: rclone copy never deletes, so Box holds every
     # path that has ever existed, and a pull restores the old name beside the
     # new one with no row to its name.
-    if (exists("find_orphan_raw_files")) {
+    if (check_files && exists("find_orphan_raw_files")) {
       orphans <- tryCatch(find_orphan_raw_files(verify_duplicates = FALSE),
                           error = function(e) NULL)
 
@@ -1038,4 +1071,191 @@ print_violations <- function(result, violation_name = NULL) {
 is_metadata_valid <- function() {
   result <- validate_metadata(verbose = FALSE)
   return(result$valid)
+}
+
+
+
+#### Checking a save ####
+
+#' The problems in one validation result that another does not have
+#'
+#' A problem is the check's name together with an affected row; a check with
+#' no rows to show is compared by its description. So a save that leaves a
+#' known problem as it was adds nothing, and one that adds a second row to a
+#' known check adds that row.
+#'
+#' @param before,after Results of validate_metadata()
+#' @return List of list(name, description, rows), empty if nothing is new
+validation_new_problems <- function(before, after) {
+  key <- function(v) {
+    if (is.null(v$data) || !is.data.frame(v$data) || nrow(v$data) == 0) return(v$description)
+    d <- v$data
+    d[] <- lapply(d, as.character)
+    do.call(paste, c(d, sep = "\r"))
+  }
+  out <- list()
+  for (n in names(after$violations)) {
+    a <- after$violations[[n]]
+    ka <- key(a)
+    kb <- if (n %in% names(before$violations)) key(before$violations[[n]]) else character(0)
+    new <- !ka %in% kb
+    if (!any(new)) next
+    rows <- if (is.data.frame(a$data) && nrow(a$data) > 0) a$data[new, , drop = FALSE] else NULL
+    out[[length(out) + 1]] <- list(name = n, description = a$description, rows = rows)
+  }
+  out
+}
+
+
+#' Checks a save before it is made, and refuses one that adds a problem
+#'
+#' Every check validate_metadata() knows, except the ones that look at the
+#' disk, run on the tables as they are and as they would be after the save.
+#' Only a problem the save would ADD stops it. One already there does not:
+#' otherwise a single bad row would lock every workflow, the one that would
+#' fix it included.
+#'
+#' @param name Character. The table being written
+#' @param data Data frame. The whole table as it would be written
+#' @param path Character. Or a file holding it
+#' @param intent Character. What the caller was doing, for the report
+#' @return TRUE if the save must not be made - after saying why - FALSE if it
+#'   may
+validation_blocks_write <- function(name, data = NULL, path = NULL, intent = NULL) {
+  # Validating reads tables, and reading one can create it - which is a save,
+  # which would be checked, inside the check. And inside a change of several
+  # saves, the whole change is checked once at its end instead
+  if (isTRUE(getOption("viflo.validating")) || isTRUE(getOption("viflo.in_change"))) {
+    return(FALSE)
+  }
+  old <- options(viflo.validating = TRUE)
+  on.exit(options(old), add = TRUE)
+
+  before <- validate_metadata(verbose = FALSE, check_files = FALSE)
+  proposed <- if (!is.null(path)) path else data
+  after <- validate_metadata(verbose = FALSE, check_files = FALSE,
+                             tables = setNames(list(proposed), name))
+  new <- validation_new_problems(before, after)
+  if (length(new) == 0) return(FALSE)
+
+  cat("\n============================================\n")
+  cat("  SAVE REFUSED - it would add a problem\n")
+  cat("============================================\n\n")
+  if (!is.null(intent) && nzchar(intent)) cat("You were doing: ", intent, "\n\n", sep = "")
+  cat("Saving ", table_schema(name)$file, " would introduce:\n\n", sep = "")
+  report_new_problems(new)
+  cat("Nothing was written. Problems that were already there do not stop a\n")
+  cat("save - only new ones do.\n\n")
+  TRUE
+}
+
+
+#' Prints the problems a save or a change would add
+report_new_problems <- function(new) {
+  for (p in new) {
+    cat("  ", p$name, " - ", p$description, "\n", sep = "")
+    if (!is.null(p$rows)) {
+      shown <- utils::capture.output(print(utils::head(p$rows, 8), row.names = FALSE))
+      cat(paste0("      ", shown, collapse = "\n"), "\n", sep = "")
+      if (nrow(p$rows) > 8) cat("      ... and ", nrow(p$rows) - 8, " more\n", sep = "")
+    }
+    cat("\n")
+  }
+  invisible(TRUE)
+}
+
+
+#' Makes several saves as one checked change
+#'
+#' Some operations need more than one save, and pass through a state that is
+#' not valid on the way: retiring a logger sets its end and closes its ports,
+#' relocating a station retires rows and carries their ports to the new ones.
+#' Checked save by save, the first would be refused - a retired row with open
+#' ports - although the finished change is sound.
+#'
+#' So the saves inside are not checked one by one. The person-written tables
+#' are copied first; the change runs; then the whole of it is checked once,
+#' against the state before it began. If it would add a problem, every table
+#' is put back as it was and the change is refused.
+#'
+#' A change inside a change is part of the outer one.
+#'
+#' @param intent Character. What the change does, for the report
+#' @param expr The saves
+#' @return Whatever expr returns, or a message saying the change was refused
+with_metadata_change <- function(intent, expr) {
+  if (isTRUE(getOption("viflo.in_change"))) return(expr)
+
+  before <- tryCatch(validate_metadata(verbose = FALSE, check_files = FALSE),
+                     error = function(e) NULL)
+  paths <- vapply(VALIDATED_TABLES, table_path, character(1))
+  had <- file.exists(paths)
+  keep <- file.path(tempfile("viflo-change-"), basename(paths))
+  dir.create(dirname(keep[1]), recursive = TRUE)
+  file.copy(paths[had], keep[had])
+  on.exit(unlink(dirname(keep[1]), recursive = TRUE), add = TRUE)
+
+  old <- options(viflo.in_change = TRUE)
+  result <- tryCatch(force(expr), error = function(e) e, finally = options(old))
+
+  after <- tryCatch(validate_metadata(verbose = FALSE, check_files = FALSE),
+                    error = function(e) NULL)
+  new <- if (is.null(before) || is.null(after)) list() else validation_new_problems(before, after)
+  if (length(new) == 0) {
+    if (inherits(result, "error")) stop(result)
+    return(result)
+  }
+
+  # Put every table back as it was
+  for (i in seq_along(paths)) {
+    if (had[i]) file.copy(keep[i], paths[i], overwrite = TRUE) else unlink(paths[i])
+    if (had[i] && exists("remember_file_hash")) remember_file_hash(paths[i])
+  }
+  cat("\n============================================\n")
+  cat("  CHANGE REFUSED - it would add a problem\n")
+  cat("============================================\n\n")
+  if (!is.null(intent) && nzchar(intent)) cat("You were doing: ", intent, "\n\n", sep = "")
+  report_new_problems(new)
+  cat("Nothing was kept - every table is as it was before. Problems that were\n")
+  cat("already there do not stop a change - only new ones do.\n\n")
+  paste0("Refused - ", intent, " would add a problem: ",
+         paste(vapply(new, `[[`, character(1), "name"), collapse = ", "))
+}
+
+
+#' One line on the state of the metadata, for the start of a session
+#'
+#' Says nothing more than it must: all well, or how many problems and their
+#' names, and where to look. Never stops anything.
+#'
+#' @return Invisibly, the validation result
+print_validation_line <- function() {
+  res <- tryCatch(validate_metadata(verbose = FALSE), error = function(e) NULL)
+  if (is.null(res)) {
+    cat("  ! Metadata could not be checked - run validate_metadata() to see why\n\n")
+    return(invisible(NULL))
+  }
+  total <- res$checks_passed + res$checks_failed
+  if (isTRUE(res$valid)) {
+    cat("  \u2713 Metadata valid (", res$checks_passed, "/", total, " checks)\n\n", sep = "")
+  } else {
+    cat("  ! Metadata: ", res$checks_failed, " problem", if (res$checks_failed != 1) "s",
+        " - ", paste(names(res$violations), collapse = ", "), "\n",
+        "    validate_metadata() for the details\n\n", sep = "")
+  }
+  invisible(res)
+}
+
+
+#' The validation result in a few words, for the run log
+#'
+#' @return Character, e.g. "validation 40/40" or "validation: 2 problems
+#'   (ORPHANED_RAW_FILES, DEPLOYMENT_END)"
+validation_summary_line <- function() {
+  res <- tryCatch(validate_metadata(verbose = FALSE), error = function(e) NULL)
+  if (is.null(res)) return("validation could not run")
+  total <- res$checks_passed + res$checks_failed
+  if (isTRUE(res$valid)) return(paste0("validation ", res$checks_passed, "/", total))
+  paste0("validation: ", res$checks_failed, " problem", if (res$checks_failed != 1) "s",
+         " (", paste(names(res$violations), collapse = ", "), ")")
 }

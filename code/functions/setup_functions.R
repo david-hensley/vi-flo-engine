@@ -21,9 +21,10 @@ load_functions <- function(func_name) {
 #'
 #' setup_functions.R is skipped - if you are calling this, it is already loaded.
 #'
-#' @param quiet Logical. Suppress the per-file confirmations (default FALSE)
+#' @param quiet Logical. Say nothing at all, not even the count (default FALSE)
+#' @param each Logical. List every file as it loads (default FALSE)
 #' @return Invisible character vector of the prefixes loaded
-load_all_functions <- function(quiet = FALSE) {
+load_all_functions <- function(quiet = FALSE, each = FALSE) {
 
   func_dir <- file.path(Sys.getenv("VI_FLO_ENGINE_ROOT"), "code", "functions")
 
@@ -36,8 +37,11 @@ load_all_functions <- function(quiet = FALSE) {
   prefixes <- sub("_functions\\.R$", "", files)
   prefixes <- setdiff(prefixes, "setup")
 
+  # One line for the lot, not one per file: twenty lines of ticks bury what
+  # start.R goes on to say. A file that fails to load still stops with its
+  # error. `each = TRUE` lists them, for when that is what is wanted
   for (p in prefixes) {
-    if (quiet) {
+    if (quiet || !each) {
       suppressMessages(load_functions(p))
     } else {
       load_functions(p)

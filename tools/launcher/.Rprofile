@@ -26,6 +26,7 @@ setHook("rstudio.sessionInit", function(newSession) {
   load_all_functions(quiet = TRUE)
 
   cat("\n")
+  if (exists("print_validation_line")) try(print_validation_line(), silent = TRUE)
   metadata_manager()
 
 }, action = "append")
