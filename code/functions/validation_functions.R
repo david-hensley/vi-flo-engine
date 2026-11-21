@@ -423,42 +423,25 @@ validate_metadata <- function(verbose = TRUE, stop_on_error = FALSE, tables = NU
       record_pass("every read port has a start")
     }
     
-    # CHECK 12: Terminal devices should not have active port configs
+    # CHECK: no open port configuration on a deployment that has ended
     #
-    # Ports are keyed by SERIAL, while device rows are keyed by unique_id - so
-    # one serial can have several rows. A relocated device keeps its serial and
-    # its sensors: the old row goes terminal, a new row opens, and the port
-    # configuration is still correct throughout. Flagging on "any row terminal"
-    # would report that as a violation.
-    #
-    # A serial is only genuinely out of service when EVERY row for it is
-    # terminal.
-    terminal_statuses <- c("removed", "replaced", "relocated", "decommissioned")
-    
-    serial_status <- split(metadata$status, metadata$device_serial)
-    terminal_serials <- names(serial_status)[
-      vapply(serial_status, function(s) all(s %in% terminal_statuses), logical(1))
-    ]
-    
-    # Check for active configs on terminal devices
-    active_ports <- ports[is.na(ports$valid_to) &
-                          !is.na(ports$sensor) & ports$sensor != "none", ]
-    terminal_with_active <- active_ports[active_ports$sn %in% terminal_serials, ]
-    
-    if (nrow(terminal_with_active) > 0) {
-      # Get the status for context
-      terminal_with_active$device_status <- sapply(terminal_with_active$sn, function(s) {
-        paste(unique(metadata$status[metadata$device_serial == s & 
-                                      metadata$status %in% terminal_statuses]), collapse = ",")
-      })
-      problem_rows <- terminal_with_active[, c("sn", "port", "sensor", "device_status")]
+    # Each port row names its deployment. A deployment that has ended - removed,
+    # replaced, relocated, decommissioned - has no sensors live on it, so an
+    # open row there is a sensor recorded as running on a logger in a drawer.
+    # Per deployment, not per logger: a relocated logger's old deployment must
+    # have closed its ports even while the logger runs on at the new one, and
+    # a ZL6's second station keeps its own
+    ended <- metadata$unique_id[tolower(metadata$status) %in% TERMINAL_STATUSES]
+    open_on_ended <- ports[is.na(ports$valid_to) & ports$unique_id %in% ended, , drop = FALSE]
+    if (nrow(open_on_ended) > 0) {
+      open_on_ended$device_status <- metadata$status[match(open_on_ended$unique_id, metadata$unique_id)]
       record_violation(
         "TERMINAL_DEVICE_ACTIVE_PORTS",
-        paste(nrow(terminal_with_active), "active port config(s) on terminal-status devices"),
-        problem_rows
+        paste(nrow(open_on_ended), "open port config(s) on deployments that have ended"),
+        open_on_ended[, c("unique_id", "sn", "port", "sensor", "device_status")]
       )
     } else {
-      record_pass("no active port configs on terminal devices")
+      record_pass("no open port configs on ended deployments")
     }
   }
   

@@ -411,46 +411,6 @@ hobo_to_long <- function(data, device_serial = NULL) {
 ################################################################################
 
 
-#' The logging interval for a device over a period
-#'
-#' Metadata declares it and the timestamps show it, and they can disagree -
-#' a logger reconfigured in the field and not logged, most obviously. The
-#' declared value is used, and a disagreement is reported rather than silently
-#' resolved: a mismatch means the metadata is wrong or the logger is, and
-#' either is worth knowing.
-#'
-#' @param device_serial Character
-#' @param when POSIXct vector of the readings actually present
-#' @param metadata Data frame, or NULL to load
-#' @return List with declared, observed, agree
-logging_interval <- function(device_serial, when, metadata = NULL) {
-
-  if (is.null(metadata)) metadata <- load_zentra_metadata()
-
-  declared <- metadata$interval_min[metadata$device_serial == device_serial]
-  declared <- unique(declared[!is.na(declared)])
-  declared <- if (length(declared) == 1) declared else NA_real_
-
-  observed <- NA_real_
-  u <- sort(unique(when))
-  if (length(u) > 2) {
-    d <- as.numeric(diff(u), units = "mins")
-    d <- d[d > 0]
-    # The mode rather than the mean or median: a run of readings at the real
-    # interval, however many gaps surround them, is what the logger was set to.
-    if (length(d) > 0) {
-      tab <- table(round(d, 3))
-      observed <- as.numeric(names(tab)[which.max(tab)])
-    }
-  }
-
-  list(declared = declared,
-       observed = observed,
-       agree    = !is.na(declared) && !is.na(observed) &&
-                  abs(declared - observed) < 0.001)
-}
-
-
 #' One row per expected moment, over a period
 #'
 #' Duplicates dropped, missing moments inserted. The grid runs from the first

@@ -846,8 +846,7 @@ update_station_status <- function(...) {
 }
 
 #' The saves of a station status change, unchecked - see update_station_status()
-update_station_status_unchecked <- function(station_id, new_status,
-                                 close_port_serials = NULL, when = Sys.time()) {
+update_station_status_unchecked <- function(station_id, new_status, when = Sys.time()) {
   tryCatch({
     metadata <- load_zentra_metadata()
     
@@ -866,23 +865,10 @@ update_station_status_unchecked <- function(station_id, new_status,
         metadata$status[ending] <- new_status
         metadata$end_datetime[ending] <- as.POSIXct(when, tz = PROJECT_TZ)
         
-        # A decommissioned station's sensors are no longer deployed, so their
-        # port configurations stop being true and must be closed.
-        #
-        # close_port_serials is what the caller established actually came out
-        # of the field. A ZL6 still running another station keeps its ports,
-        # because they are keyed by serial and still describe reality. Given
-        # no list, fall back to closing every serial with nothing active left.
-        decom_serials <- if (!is.null(close_port_serials)) {
-          close_port_serials
-        } else {
-          s_all <- unique(active_devices$device_serial)
-          s_all[!vapply(s_all, function(s) {
-            any(metadata$device_serial == s & metadata$status %in% active_statuses)
-          }, logical(1))]
-        }
-        
-        for (s in decom_serials) close_device_ports(s, when)
+        # A decommissioned station's sensors are no longer deployed, so its
+        # deployments' port rows stop being true and close. Only its own: a
+        # ZL6 running another station as well keeps that station's ports
+        close_deployment_ports(metadata$unique_id[ending], when)
       } else {
         # No active devices - check for removed devices
         removed_devices <- station_devices[station_devices$status == "removed", ]
@@ -1385,11 +1371,7 @@ relocate_station_unchecked <- function(station_id, new_lat, new_lon, deploy_date
     # configuration, and the check for active ports on a terminal device would
     # rightly complain.
     if (!is.null(new_device)) {
-      for (sn in unique(active_devices$device_serial)) {
-        if (!identical(sn, new_device$device_serial)) {
-          close_device_ports(sn, deploy_datetime)
-        }
-      }
+      close_deployment_ports(active_devices$unique_id, deploy_datetime)
     } else {
       # The same logger moved, and its sensors with it. A port row belongs to
       # one deployment, so each open one closes at the move and opens again,
@@ -1433,11 +1415,9 @@ retire_row <- function(unique_id, when, close_ports = TRUE, status = NULL) {
       stop("the device table was not saved")
     }
 
-    sn <- metadata$device_serial[i]
-    if (close_ports && grepl("^z", sn, ignore.case = TRUE)) {
-      # Only ports still open: a port already closed keeps its own date
-      close_device_ports(sn, when)
-    }
+    # Its own ports, still open, close at its end. A port already closed
+    # keeps its own date; a ZL6's other station keeps its ports
+    if (close_ports) close_deployment_ports(unique_id, when)
     TRUE
   }, error = function(e) paste0("Failed to retire row: ", e$message)))
 }
@@ -1596,73 +1576,33 @@ get_active_ports <- function(device_serial, station_type = NULL) {
   active
 }
 
-#' Closes a device's active port configurations
+#' Closes a deployment's open port configurations
 #'
-#' A port configuration says "this sensor is on this port from this time".
-#' When a device leaves service that statement stops being true, so valid_to
-#' has to be set - otherwise the record claims sensors are live on a device
-#' that is in a drawer.
+#' A port configuration says "this sensor is on this port, for this
+#' deployment, from this time". When the deployment ends that statement stops
+#' being true, so valid_to has to be set - otherwise the record claims
+#' sensors are live on a device that is in a drawer.
+#'
+#' By deployment, never by logger. One ZL6 can serve a weather station and a
+#' vwc station at once, each with its own ports; ending one leaves the other's
+#' alone. A port already closed keeps its own date.
 #'
 #' On a relocation the logger's sensors move with it: relocate_station()
 #' carries its open ports over to the new deployment rather than closing them.
 #'
-#' @param device_serial Character. Device leaving service
-#' @param close_datetime POSIXct or Date. When it stopped being true
+#' @param unique_ids Character. The deployments ending
+#' @param close_datetime POSIXct or Date. When they stopped being true
 #' @return Number of port rows closed, or an error message string
-close_device_ports <- function(device_serial, close_datetime) {
+close_deployment_ports <- function(unique_ids, close_datetime) {
   tryCatch({
-    if (is_hobo_device_serial(device_serial)) return(0)
-
     ports <- load_zentra_ports_data()
-
-    open_rows <- which(ports$sn %in% device_serial & is.na(ports$valid_to))
-
+    open_rows <- which(ports$unique_id %in% unique_ids & is.na(ports$valid_to))
     if (length(open_rows) == 0) return(0)
-
-    ports$valid_to[open_rows] <- as.POSIXct(close_datetime)
-
+    ports$valid_to[open_rows] <- as.POSIXct(close_datetime, tz = PROJECT_TZ)
     save_zentra_ports(ports, intent = "closing port windows")
-
-    return(length(open_rows))
+    length(open_rows)
   }, error = function(e) {
-    return(paste0("Failed to close ports: ", e$message))
-  })
-}
-
-#' Closes specific port configurations
-#'
-#' Where close_device_ports() retires everything on a device, this retires
-#' named ports - the case where a shared logger stays on site but the
-#' sensors belonging to a retired station come off it.
-#'
-#' @param port_keys Character vector of "serial|port" entries
-#' @param close_datetime POSIXct. When they stopped being deployed
-#' @return Number of rows closed, or an error message string
-close_specific_ports <- function(port_keys, close_datetime) {
-  tryCatch({
-    ports <- load_zentra_ports_data()
-    n <- 0
-
-    for (key in port_keys) {
-      parts <- strsplit(key, "|", fixed = TRUE)[[1]]
-      if (length(parts) != 2) next
-
-      rows <- which(ports$sn %in% parts[1] &
-                    as.character(ports$port) == parts[2] &
-                    is.na(ports$valid_to))
-      if (length(rows) == 0) next
-
-      ports$valid_to[rows] <- as.POSIXct(close_datetime)
-      n <- n + length(rows)
-    }
-
-    if (n == 0) return(0)
-
-    save_zentra_ports(ports, intent = "closing port windows")
-
-    return(n)
-  }, error = function(e) {
-    return(paste0("Failed to close ports: ", e$message))
+    paste0("Failed to close ports: ", e$message)
   })
 }
 

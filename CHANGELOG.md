@@ -88,6 +88,29 @@ All notable changes to the VI-FLO Engine project are documented here.
   message. Neither ever holds anything back
 
 ### Changed
+- **A deployment's ports close by deployment, not by logger.** Retiring a row,
+  relocating a station with a new logger, and decommissioning a station each
+  close the ports of the deployments that ended - never every port on the
+  logger, which on a shared ZL6 closed the other station's too. The
+  decommission workflow no longer asks which loggers came out of the field
+  or which sensors came off: a port row belongs to one deployment, so the
+  answer follows. `close_deployment_ports()` replaces `close_device_ports()`
+  and `close_specific_ports()`
+- **The check for open ports on a retired device is per deployment.** It
+  looked at loggers whose every row had ended, so a relocated logger's old
+  deployment could keep open ports unnoticed while the logger ran on at the
+  new one
+- **Product 2's change detection is scoped by deployment.** A station-year's
+  fingerprint covers its own deployments and their ports, plus another
+  station's only where the same logger serves both at the same time. A
+  logger's deployments elsewhere, before or after, no longer count - every
+  ended deployment carries its own end - so a change at sgm2 no longer flags
+  Reef Bay, where its logger once was. The first build after this rebuilds
+  every station once, to identical files
+- The HOBO ingest takes the device name and the logging interval from the
+  deployment serving at the station on the day, not from the logger's first
+  row
+- `logging_interval()` is gone: nothing called it
 - `sandbox_changes()` shows the device table's changes too, field by field,
   as well as the survey rows and log entries
 - "Do something else?" on leaving a metadata manager task takes 'q' for no,

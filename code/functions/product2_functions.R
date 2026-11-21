@@ -990,10 +990,13 @@ station_year_devices <- function(station, year, windows) {
 
 #' Fingerprints of everything a station-year was attributed from
 #'
-#' Scoped to the station-year: every metadata row and every port of the
-#' loggers deployed there that year. A logger's other rows count too, since
-#' where its next deployment begins decides where this one ends. Correcting
-#' a Fish Bay date changes Fish Bay's fingerprints and no one else's.
+#' Scoped by deployment, not by logger: the station's own deployments that
+#' touch the year, and their ports - plus any other deployment of the same
+#' loggers that overlaps one of them in time, since a logger serving two
+#' stations at once (a ZL6's weather and vwc) is split between them by its
+#' ports. A deployment the logger served elsewhere, before or after, changes
+#' nothing here: every ended deployment carries its own end. So correcting
+#' sgm2 no longer flags Reef Bay, where its logger once was.
 #'
 #' @param station Character
 #' @param year Integer
@@ -1002,12 +1005,26 @@ station_year_devices <- function(station, year, windows) {
 #' @param windows Data frame from deployment_windows()
 #' @return List: metadata, ports - each an MD5 fingerprint
 p2_fingerprints <- function(station, year, metadata, ports, windows) {
-  devices <- station_year_devices(station, year, windows)
-  m <- metadata[metadata$device_serial %in% devices,
+  tz <- "America/Puerto_Rico"
+  y0 <- as.POSIXct(paste0(year, "-01-01 00:00:00"), tz = tz)
+  y1 <- as.POSIXct(paste0(year + 1, "-01-01 00:00:00"), tz = tz)
+  ends <- function(w) ifelse(is.na(w$ends), Inf, as.numeric(w$ends))
+
+  own <- windows[windows$station_id == station, , drop = FALSE]
+  own <- own[as.numeric(own$starts) < as.numeric(y1) & ends(own) >= as.numeric(y0), , drop = FALSE]
+  others <- windows[windows$device_serial %in% own$device_serial &
+                      !windows$unique_id %in% own$unique_id, , drop = FALSE]
+  overlaps <- vapply(seq_len(nrow(others)), function(i) {
+    o <- own[own$device_serial == others$device_serial[i], , drop = FALSE]
+    any(as.numeric(others$starts[i]) < ends(o) & ends(others[i, ]) > as.numeric(o$starts))
+  }, logical(1))
+  ids <- unique(c(own$unique_id, others$unique_id[overlaps]))
+
+  m <- metadata[metadata$unique_id %in% ids,
                 intersect(P2_METADATA_COLUMNS, names(metadata)), drop = FALSE]
   m <- m[order(m$unique_id), , drop = FALSE]
-  p <- ports[ports$sn %in% devices, , drop = FALSE]
-  p <- p[order(p$sn, p$port, as.numeric(p$valid_from)), , drop = FALSE]
+  p <- ports[ports$unique_id %in% ids, , drop = FALSE]
+  p <- p[order(p$unique_id, p$port, as.numeric(p$valid_from)), , drop = FALSE]
   list(metadata = fingerprint(m), ports = fingerprint(p))
 }
 

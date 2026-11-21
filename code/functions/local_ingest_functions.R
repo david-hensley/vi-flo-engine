@@ -502,8 +502,12 @@ ui_ingest_local_data <- function(station_id, device_serial, station_type,
 
     # The HOBOware name recorded for this device is the filename to look for.
     # Naming it removes the guesswork from a folder of cryptically-named files.
+    # The name of the deployment offloaded - the logger at this station on
+    # the visit's day. A logger that served elsewhere before carried another
+    # name there
     meta_row <- load_zentra_metadata()
-    device_name <- meta_row$device_name[meta_row$device_serial == device_serial][1]
+    uid <- resolve_deployment(device_serial, station_id, field_visit_date, meta_row)
+    device_name <- meta_row$device_name[match(uid, meta_row$unique_id)]
     
     device_file <- if (!is.na(device_name) && nzchar(trimws(device_name))) {
       paste0(device_name, ".hobo")
@@ -659,9 +663,12 @@ ui_ingest_local_data <- function(station_id, device_serial, station_type,
     }
 
     #### Does the logger's actual interval match what metadata records? ####
+    # The deployment the readings belong to: the one serving at this station
+    # when the file ends. Its interval, not the first row's - a logger
+    # deployed here twice may have been set differently each time
     meta_now <- load_zentra_metadata()
-    dev_row <- meta_now[meta_now$device_serial == device_serial &
-                        meta_now$station_id == station_id, ]
+    uid <- resolve_deployment(device_serial, station_id, parsed$end, meta_now)
+    dev_row <- meta_now[meta_now$unique_id %in% uid, ]
     recorded_interval <- if (nrow(dev_row) > 0) dev_row$interval_min[1] else NA
 
     if (!is.na(parsed$observed_interval) && !is.na(recorded_interval) &&

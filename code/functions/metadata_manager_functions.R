@@ -3387,110 +3387,26 @@ ui_decommission_station <- function() {
   }
   
   ################################################################################
-  #### WHICH DEVICES ACTUALLY CAME OUT? ####
-  ################################################################################
-  # Decommissioning a station retires its devices - but one ZL6 can serve two
-  # stations, an ATMOS for weather and TEROS sensors for soil moisture. Ending
-  # one of those stations does not necessarily mean the logger left the site.
-  #
-  # Ports are keyed by SERIAL, so closing them for a device still running the
-  # other station would be wrong. Where that is possible, ask rather than
-  # decide.
-  all_meta <- load_zentra_metadata()
-  active_statuses_chk <- ACTIVE_STATUSES
-  
-  shared_serials <- character(0)
-  for (s in unique(decommissionable$device_serial)) {
-    elsewhere <- all_meta[all_meta$device_serial == s &
-                          all_meta$station_id != station_id &
-                          all_meta$status %in% active_statuses_chk, ]
-    if (nrow(elsewhere) > 0) shared_serials <- c(shared_serials, s)
-  }
-  
-  removed_serials <- setdiff(unique(decommissionable$device_serial), shared_serials)
-  
-  if (length(shared_serials) > 0) {
-    cat("\n--- SHARED DEVICES ---\n\n")
-    cat("Some devices at this station also serve another station:\n\n")
-    
-    for (s in shared_serials) {
-      others <- all_meta[all_meta$device_serial == s &
-                         all_meta$station_id != station_id &
-                         all_meta$status %in% active_statuses_chk, ]
-      cat("  ", s, " - also ", paste(unique(others$station_id), collapse = ", "),
-          "\n", sep = "")
-    }
-    
-    cat("\nIf the logger stays on site running the other station, its port\n")
-    cat("configuration stays open.\n\n")
-    
-    for (s in shared_serials) {
-      if (ui_yes_no(paste0("Did ", s, " physically come out of the field?"),
-                    allow_quit = FALSE) == "Y") {
-        removed_serials <- c(removed_serials, s)
-      }
-    }
-  }
-  
-  ################################################################################
-  #### SENSORS BELONGING TO THE RETIRED STATION ####
-  ################################################################################
-  # A shared ZL6 that stays on site still leaves a question the
-  # device-level one does not answer: the ATMOS on port 1 exists FOR the
-  # weather station. Retire that station and the sensor usually comes off,
-  # even though the box remains.
-  #
-  # So ask about the ports whose type matches the station being retired.
-  # Usually they came out; occasionally they did not, and saying so is
-  # allowed.
-  station_type_now <- decommissionable$station_type[1]
-  ports_to_close <- character(0)
-  
-  for (s in setdiff(unique(decommissionable$device_serial), removed_serials)) {
-    dev_ports <- get_active_ports(s)
-    if (nrow(dev_ports) == 0) next
-    
-    matching <- dev_ports[tolower(dev_ports$type) == tolower(station_type_now), ,
-                          drop = FALSE]
-    if (nrow(matching) == 0) next
-    
-    cat("\n--- SENSORS FOR THIS STATION ---\n\n")
-    cat("These sensors on ", s, " belong to ", station_id, ":\n\n", sep = "")
-    for (i in order(matching$port)) {
-      cat("  Port ", matching$port[i], ": ", matching$sensor[i], "\n", sep = "")
-    }
-    cat("\nThe logger stays on site for its other station, but a sensor that\n")
-    cat("exists for a retired station usually comes off with it.\n\n")
-    
-    if (ui_yes_no("Were these sensors removed?", allow_quit = FALSE) == "Y") {
-      ports_to_close <- c(ports_to_close,
-                          paste(s, matching$port[order(matching$port)], sep = "|"))
-    } else {
-      cat("\u2713 Left in place - their port configuration stays open\n")
-    }
-  }
-  
-  ################################################################################
   #### CALL LOGIC FUNCTION ####
   ################################################################################
-  
-  result <- update_station_status(station_id, "decommissioned",
-                                  close_port_serials = removed_serials)
-  
+
+  # The station's deployments end, and their own ports close with them. A
+  # port row belongs to one deployment, so a ZL6 that stays on site running
+  # another station keeps that station's ports - nothing needs asking
+  ports_now <- load_zentra_ports_data()
+  ending <- decommissionable$unique_id[tolower(decommissionable$status) %in% ACTIVE_STATUSES]
+  n_closing <- sum(ports_now$unique_id %in% ending & is.na(ports_now$valid_to))
+
+  result <- update_station_status(station_id, "decommissioned")
+
   if (!isTRUE(result)) {
     cat("❌ Error:", result, "\n")
     return(NULL)
   }
-  
-  #### Close the sensors that came off ####
-  if (length(ports_to_close) > 0) {
-    closed <- close_specific_ports(ports_to_close, Sys.time())
-    if (is.numeric(closed) && closed > 0) {
-      cat("\u2713 Closed ", closed, " port configuration(s) for the retired station\n",
-          sep = "")
-    }
+  if (n_closing > 0) {
+    cat("\u2713 Closed ", n_closing, " port configuration(s) of the retired station\n", sep = "")
   }
-  
+
   cat("\n✓ Station decommissioned successfully\n")
   cat("  Station:", station_id, "\n")
   cat("  Status: → 'decommissioned'\n")

@@ -44,17 +44,35 @@ test_that("retire_row ends the deployment at the moment its logger left", {
   expect_equal(lv("t-0001"), before)                        # the last visit is what it was
 })
 
-test_that("retire_row closes the logger's open ports at that moment, not now", {
+test_that("retire_row closes its own deployment's open ports at that moment, not now", {
   local_test_root()
-  uid <- load_zentra_metadata()
-  uid <- uid$unique_id[uid$device_serial == "z6-13368"][1]
+  # z6-13368 serves zzu_weather (t-0009, its ATMOS) and zzu_vwc1 (t-0010,
+  # its TEROS). Retiring the vwc station closes the TEROS ports only
   when <- as.POSIXct("2026-10-29 12:15:00", tz = "America/Puerto_Rico")
-  expect_true(isTRUE(retire_row(uid, when, status = "removed")))
+  expect_true(isTRUE(retire_row("t-0010", when, status = "removed")))
   p <- load_zentra_ports_data()
-  p <- p[p$sn == "z6-13368" & !is.na(p$sensor) & p$sensor != "none", ]
-  expect_true(all(!is.na(p$valid_to)))
-  expect_true(all(format(p$valid_to, "%Y-%m-%d %H:%M", tz = "America/Puerto_Rico") ==
+  mine <- p[p$unique_id == "t-0010", ]
+  expect_true(nrow(mine) > 0)
+  expect_true(all(format(mine$valid_to, "%Y-%m-%d %H:%M", tz = "America/Puerto_Rico") ==
                   "2026-10-29 12:15"))
+  # The weather station on the same logger keeps its ATMOS open
+  expect_true(all(is.na(p$valid_to[p$unique_id == "t-0009"])))
+  expect_equal(validate_metadata(verbose = FALSE)$violations$TERMINAL_DEVICE_ACTIVE_PORTS, NULL)
+})
+
+test_that("an ended deployment's open port is flagged even while its logger runs on elsewhere", {
+  local_test_root()
+  # As a relocation that forgot its ports would leave it: the old row ended,
+  # the logger at work under a new one, the old row's ports still open
+  m <- read_table("device_metadata")
+  new <- m[m$unique_id == "t-0011", ]
+  new$unique_id <- "t-0098"
+  m$status[m$unique_id == "t-0011"] <- "relocated"
+  m$end_datetime[m$unique_id == "t-0011"] <- as.POSIXct("2026-11-01 10:00:00", tz = PROJECT_TZ)
+  write_table("device_metadata", rbind(m, new), guard = FALSE)
+  v <- validate_metadata(verbose = FALSE)$violations$TERMINAL_DEVICE_ACTIVE_PORTS
+  expect_false(is.null(v))
+  expect_true(all(v$data$unique_id == "t-0011"))
 })
 
 test_that("a port already closed keeps its own date", {

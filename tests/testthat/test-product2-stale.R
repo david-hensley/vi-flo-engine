@@ -123,3 +123,30 @@ test_that("a run over several stations prints one report, at the end", {
   expect_true(is.finite(last_progress))
   expect_true(grep("^Unattributed", printed) > last_progress)   # after every station
 })
+
+test_that("a station's fingerprint ignores the logger's deployments elsewhere at other times", {
+  local_test_root()
+  # 90000002 is bta2b now (t-0002) and was at Reef Bay before (t-0003). A
+  # change to the Reef Bay row does not touch bta2's fingerprint
+  m <- load_zentra_metadata()
+  p <- load_zentra_ports_data()
+  fp1 <- p2_fingerprints("bta2_hydro", 2026L, m, p, deployment_windows(m))
+  m$status[m$unique_id == "t-0003"] <- "replaced"
+  fp2 <- p2_fingerprints("bta2_hydro", 2026L, m, p, deployment_windows(m))
+  expect_identical(fp1, fp2)
+  # A change to bta2's own row does
+  m$deploy_datetime[m$unique_id == "t-0002"] <- m$deploy_datetime[m$unique_id == "t-0002"] + 3600
+  fp3 <- p2_fingerprints("bta2_hydro", 2026L, m, p, deployment_windows(m))
+  expect_false(identical(fp1$metadata, fp3$metadata))
+})
+
+test_that("a shared logger's other station counts, where it serves at the same time", {
+  local_test_root()
+  # z6-13368 serves zzu_weather and zzu_vwc1 at once
+  m <- load_zentra_metadata()
+  p <- load_zentra_ports_data()
+  fp1 <- p2_fingerprints("zzu_weather", 2026L, m, p, deployment_windows(m))
+  p$depth_cm[p$unique_id == "t-0010"][1] <- 99
+  fp2 <- p2_fingerprints("zzu_weather", 2026L, m, p, deployment_windows(m))
+  expect_false(identical(fp1$ports, fp2$ports))
+})
