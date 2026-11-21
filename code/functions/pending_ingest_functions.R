@@ -42,8 +42,10 @@ PENDING_STAGE_LABELS <- c(
   awaiting_cloud_upload = "not yet uploaded to ZentraCloud"
 )
 
+# The table's columns, as TABLE_SCHEMA has them - written out here because
+# this file loads before table_functions.R
 PENDING_COLUMNS <- c(
-  "created", "updated", "station_id", "device_serial",
+  "created_utc", "updated_utc", "station_id", "unique_id",
   "field_visit_date", "logged_by", "stage", "notes"
 )
 
@@ -113,14 +115,21 @@ add_pending_ingest <- function(station_id, device_serial, field_visit_date,
          paste(PENDING_STAGES, collapse = ", "), call. = FALSE)
   }
 
+  # The deployment the data came off - the logger's row at the station on the
+  # day of the visit
+  unique_id <- resolve_deployment(device_serial, station_id, field_visit_date)
+  if (is.na(unique_id)) {
+    stop("Logger ", device_serial, " has no row at ", station_id, call. = FALSE)
+  }
+
   pending <- load_pending_ingest()
-  now <- format(Sys.time(), "%Y-%m-%d %H:%M:%S")
+  now <- format(Sys.time(), "%Y-%m-%d %H:%M:%S", tz = "UTC")
 
   new_row <- data.frame(
-    created          = now,
-    updated          = now,
+    created_utc      = now,
+    updated_utc      = now,
     station_id       = as.character(station_id),
-    device_serial    = as.character(device_serial),
+    unique_id        = unique_id,
     field_visit_date = format(as.Date(field_visit_date), "%Y-%m-%d"),
     logged_by        = as.character(logged_by),
     stage            = stage,
@@ -128,12 +137,11 @@ add_pending_ingest <- function(station_id, device_serial, field_visit_date,
     stringsAsFactors = FALSE
   )
 
-  # One in-flight offload per station+device
-  existing <- which(pending$station_id == station_id &
-                    pending$device_serial == device_serial)
+  # One in-flight offload per station+deployment
+  existing <- which(pending$station_id == station_id & pending$unique_id == unique_id)
 
   if (length(existing) > 0) {
-    new_row$created <- pending$created[existing[1]]   # keep original start
+    new_row$created_utc <- pending$created_utc[existing[1]]   # keep original start
     pending <- pending[-existing, , drop = FALSE]
   }
 
@@ -141,6 +149,18 @@ add_pending_ingest <- function(station_id, device_serial, field_visit_date,
   write_pending_ingest(pending)
 
   invisible(TRUE)
+}
+
+
+#' The pending rows for a logger at a station
+#'
+#' Rows name deployments; a logger's are those of any of its rows at the
+#' station.
+pending_rows_for <- function(pending, station_id, device_serial) {
+  meta <- read_table("device_metadata", remember = FALSE)
+  its <- meta$unique_id[!is.na(meta$device_serial) & meta$device_serial == device_serial &
+                          meta$station_id == station_id]
+  which(pending$station_id == station_id & pending$unique_id %in% its)
 }
 
 
@@ -159,13 +179,12 @@ update_pending_stage <- function(station_id, device_serial, stage, notes = NULL)
   }
 
   pending <- load_pending_ingest()
-  idx <- which(pending$station_id == station_id &
-               pending$device_serial == device_serial)
+  idx <- pending_rows_for(pending, station_id, device_serial)
 
   if (length(idx) == 0) return(invisible(FALSE))
 
-  pending$stage[idx]   <- stage
-  pending$updated[idx] <- format(Sys.time(), "%Y-%m-%d %H:%M:%S")
+  pending$stage[idx]       <- stage
+  pending$updated_utc[idx] <- format(Sys.time(), "%Y-%m-%d %H:%M:%S", tz = "UTC")
   if (!is.null(notes)) pending$notes[idx] <- notes
 
   write_pending_ingest(pending)
@@ -181,8 +200,7 @@ update_pending_stage <- function(station_id, device_serial, stage, notes = NULL)
 clear_pending_ingest <- function(station_id, device_serial) {
 
   pending <- load_pending_ingest()
-  idx <- which(pending$station_id == station_id &
-               pending$device_serial == device_serial)
+  idx <- pending_rows_for(pending, station_id, device_serial)
 
   if (length(idx) == 0) return(invisible(FALSE))
 

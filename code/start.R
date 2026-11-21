@@ -21,8 +21,15 @@ if (exists("get_session_status")) {
   try(print_session_status(get_session_status()), silent = TRUE)
 }
 
-# Unfinished business is raised on sight, not on request
-if (exists("check_pending")) check_pending()
+# Unfinished business is raised on sight, not on request. A table that cannot
+# be read is reported, not allowed to stop the session from starting - the
+# tools to repair it are loaded, and are needed most exactly then
+if (exists("check_pending")) {
+  tryCatch(check_pending(), error = function(e) {
+    cat("\n  ! Could not list unfinished offloads:\n    ",
+        gsub("\n", "\n    ", conditionMessage(e)), "\n\n", sep = "")
+  })
+}
 
 # The handful of things a session usually starts with. Not a menu - just the
 # spelling, so none of it has to be remembered or typed from scratch.

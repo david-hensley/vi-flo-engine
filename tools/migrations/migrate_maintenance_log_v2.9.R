@@ -1,7 +1,7 @@
 ################################################################################
 # migrate_maintenance_log_v2.9.R
 #
-# APPLIED: not yet
+# APPLIED: 2026-11-21
 #
 # Brings maintenance_log.csv to its v2.9 shape - step 4.1, the first table to
 # move. Product 2 never reads this log, so nothing built changes.

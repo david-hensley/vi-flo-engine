@@ -25,8 +25,14 @@ Every script here follows the same shape, and new ones should too:
 - **Back up first.** Before touching anything, so a failure is recoverable.
 - **Detect prior application** and exit cleanly. Safe to run twice.
 - **Read with `read.csv()`**, not `load_zentra_metadata()`. Reading raw keeps
-  every column a character string, so untouched values are written back
-  byte-identical and no datetime is silently reformatted.
+  every column a character string, so a migration sees the table exactly as
+  it stands - including the shape it is changing, which the engine's schema
+  may already have moved past.
+- **Write through the data layer** - `write_table()` in `table_functions.R` -
+  from v2.9 on. It writes the table in its one format, refuses a value that
+  is not its column's type, and backs the table up first. A migration that
+  writes the file itself is a second way into the metadata, which is what the
+  layer exists to end.
 
   The October 2026 migrations did not follow this and read through
   `load_zentra_metadata()` instead. Nothing was lost - `validate_metadata()`
@@ -42,6 +48,18 @@ Every script here follows the same shape, and new ones should too:
 
 Where a migration is risky enough to want a preview, give it a `dry_run`
 argument defaulting to `TRUE`, as `migrate_fb1_to_fb2.R` does.
+
+## In progress: v2.9
+
+v2.9 moves the tables to their new shape one at a time, each by its own
+script below, alongside a check that the data layer changed nothing. They
+stay until the v2.9 tag, then join the table under *Applied*.
+
+| Script | Applied | What it does |
+|---|---|---|
+| `check_layer_v2.9.R` | 2026-11-20 (before), 2026-11-20 (after: pass) | Not a migration: a record of every table and Product 2 file taken before the data layer, and the comparison that showed the layer changed nothing |
+| `migrate_maintenance_log_v2.9.R` | 2026-11-21 | Step 4.1: entries name their deployment; `logged_utc`; `station_type` and `ports_updated` dropped; `elevation_survey` becomes `survey` |
+| `migrate_logs_v2.9.R` | 2026-11-21 | Step 4.2: the download log drops `station` and gains `battery`; pending tasks name their deployment, with UTC stamps |
 
 ## Applied
 

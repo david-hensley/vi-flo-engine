@@ -831,7 +831,6 @@ archive_local_data <- function(station_id, device_serial, csv_path, parsed,
     # carries and what a person reading the log expects.
     timestamp_utc = format(Sys.time(), "%Y-%m-%d %H:%M:%S", tz = "UTC"),
     run_id        = NA_character_,          # a manual ingest is no run
-    station       = station_id,
     device_serial = device_serial,
     start_date    = format_datetime_safe(parsed$start),
     end_date      = format_datetime_safe(parsed$end),

@@ -658,28 +658,22 @@ validate_metadata <- function(verbose = TRUE, stop_on_error = FALSE) {
       }
     }
     
-    # CHECK: every station NAMED in the download log exists in metadata
+    # CHECK: every logger the download log names exists in metadata
     #
-    # A blank station is not an error. Product 1 downloads are keyed by device
-    # and deliberately carry no station - attribution happens at Product 2,
-    # where it can be corrected without touching the archive. Only a row that
-    # names a station has one to verify.
-    blank_station <- is.na(dlog$station) | trimws(as.character(dlog$station)) == ""
-    
-    if (!is.null(metadata) && "station" %in% names(dlog)) {
-      named <- which(!blank_station)
-      unknown <- named[!dlog$station[named] %in% metadata$station_id]
-      
+    # The log is kept by logger: a Product 1 file is what a physical logger
+    # recorded, and which station a reading belongs to is decided at Product 2.
+    # A logger the metadata has never heard of has readings nothing can claim
+    if (!is.null(metadata)) {
+      unknown <- which(!is.na(dlog$device_serial) & !dlog$device_serial %in% metadata$device_serial)
       if (length(unknown) > 0) {
-        problem_rows <- dlog[unknown, c("timestamp_utc", "device_serial", "filepath")]
         record_violation(
-          "UNKNOWN_DOWNLOAD_STATION",
-          paste("Download log references station(s) not in metadata:",
-                paste(unique(dlog$station[unknown]), collapse = ", ")),
-          problem_rows
+          "UNKNOWN_DOWNLOAD_LOGGER",
+          paste("Download log names logger(s) not in metadata:",
+                paste(unique(dlog$device_serial[unknown]), collapse = ", ")),
+          dlog[unknown, c("timestamp_utc", "device_serial", "filepath")]
         )
       } else {
-        record_pass("download log station_ids exist")
+        record_pass("download log loggers exist in metadata")
       }
     }
     
@@ -712,25 +706,21 @@ validate_metadata <- function(verbose = TRUE, stop_on_error = FALSE) {
       }
     }
 
-    # CHECK: a row with no station must at least name a device
+    # CHECK: every row names a logger
     #
-    # Product 1 rows identify their data by serial. One with neither a station
-    # nor a serial names nothing at all, and the file it points at could never
-    # be attributed.
+    # Product 1 rows identify their data by serial. One without names nothing
+    # at all, and the file it points at could never be attributed.
     if ("device_serial" %in% names(dlog)) {
-      blank_serial <- is.na(dlog$device_serial) |
-                      trimws(as.character(dlog$device_serial)) == ""
-      orphan <- which(blank_station & blank_serial)
-      
+      orphan <- which(is.na(dlog$device_serial) |
+                        trimws(as.character(dlog$device_serial)) == "")
       if (length(orphan) > 0) {
         record_violation(
           "DOWNLOAD_ROW_UNIDENTIFIED",
-          paste(length(orphan),
-                "download row(s) name neither a station nor a device"),
+          paste(length(orphan), "download row(s) name no logger"),
           dlog[orphan, c("timestamp_utc", "filepath")]
         )
       } else {
-        record_pass("download rows identify a station or a device")
+        record_pass("download rows each name a logger")
       }
     }
 
@@ -893,7 +883,7 @@ validate_metadata <- function(verbose = TRUE, stop_on_error = FALSE) {
           "PENDING_UNKNOWN_STATION",
           paste("Pending task(s) reference station(s) not in metadata:",
                 paste(unique(pending$station_id[unknown_station]), collapse = ", ")),
-          pending[unknown_station, c("station_id", "device_serial",
+          pending[unknown_station, c("station_id", "unique_id",
                                      "field_visit_date", "stage")]
         )
       } else {
@@ -916,7 +906,7 @@ validate_metadata <- function(verbose = TRUE, stop_on_error = FALSE) {
           "PENDING_UNKNOWN_STAGE",
           paste("Unknown stage(s):",
                 paste(unique(pending$stage[bad_stage]), collapse = ", ")),
-          pending[bad_stage, c("station_id", "device_serial", "stage")]
+          pending[bad_stage, c("station_id", "unique_id", "stage")]
         )
       } else {
         record_pass("pending task stages known")

@@ -103,7 +103,26 @@ All notable changes to the VI-FLO Engine project are documented here.
   that list rather than its own copy, and now checks that every entry names a
   deployment that exists, at the entry's own station
 
+- **The download log and pending-ingest table move to their v2.9 shape.**
+  The download log drops `station`, named on 26 rows of hundreds - a Product 1
+  file is what a logger recorded, and which station a reading belongs to is
+  Product 2's to decide - and gains `battery`, the logger's battery at the end
+  of each file, which the job now records with each download. Rows before it
+  are blank: the reading was never kept with the download, and is not
+  guessed. A pending offload names its deployment by `unique_id`, and its
+  `created` and `updated` become `created_utc` and `updated_utc`. The pending
+  functions still take a station and a serial, and find the deployment as a
+  maintenance entry does. `tools/migrations/migrate_logs_v2.9.R` converts
+  both. The download log viewer finds a station's downloads through the
+  loggers that served it, and the validator checks each logger the log names
+  is in the metadata, where it checked a station column
+
 ### Fixed
+- `start.R` stopped at its last step when a table could not be read - as
+  `pending_ingest.csv` could not between installing v2.9's code and running
+  its migration - and skipped the rest of the session's start. Listing
+  unfinished offloads now reports the problem and lets the session finish
+  starting, with the tools to repair it loaded
 - `validate_metadata()` stopped with an error whenever it found a logged file
   missing, an unknown one, or an orphan. Listing them selected a `timestamp`
   column the download log has not had since it became `timestamp_utc` - it

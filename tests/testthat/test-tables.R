@@ -263,3 +263,21 @@ test_that("validate_metadata runs to the end when logged files are missing", {
   out <- capture.output(v <- validate_metadata(verbose = TRUE))
   expect_type(v, "list")
 })
+
+test_that("a pending offload names its deployment, and is found again by logger", {
+  local_test_root()
+  add_pending_ingest("bta2_hydro", "90000002", "2026-11-20", "DAH", "awaiting_offload", "note")
+  p <- load_pending_ingest()
+  expect_equal(p$unique_id, "t-0002")
+  expect_match(p$created_utc, "^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9:]{8}$")
+
+  expect_true(update_pending_stage("bta2_hydro", "90000002", "awaiting_rename"))
+  expect_equal(load_pending_ingest()$stage, "awaiting_rename")
+  # The same logger at another station is another task
+  expect_false(update_pending_stage("rb2_hydro", "90000002", "awaiting_rename"))
+
+  expect_true(clear_pending_ingest("bta2_hydro", "90000002"))
+  expect_equal(nrow(load_pending_ingest()), 0)
+  expect_error(add_pending_ingest("srl1_pond", "90000002", "2026-11-20", "DAH",
+                                  "awaiting_offload"), "has no row at")
+})

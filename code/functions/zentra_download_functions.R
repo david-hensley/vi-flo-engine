@@ -269,21 +269,21 @@ zentra_download <- function(devices = NULL, end = NULL, max_active = 4L,
 
     saveRDS(data, file.path(out_dir, fname))
 
-    zentra_log_download(sn, first, last, nrow(data), fname, fetched_at, run_id)
-
-    cat("  + ", format(sn, width = 10),
-        format(nrow(data), width = 8, big.mark = ","), " rows   ",
-        format(first, "%Y-%m-%d"), " to ", format(last, "%Y-%m-%d"), "\n",
-        sep = "")
-
     # Battery and the newest reading, from what was just fetched. Port 7 is the
-    # logger's own battery; a device whose fetch carried none leaves the stored
-    # value alone rather than blanking it.
+    # logger's own battery; a fetch that carried none records none
     batt <- NA_real_
     if (all(c("port_num", "measurement") %in% names(data))) {
       b <- data[data$port_num %in% 7 & data$measurement == "Battery Percent", ]
       if (nrow(b) > 0) batt <- b$value[which.max(b$datetime)][1]
     }
+
+    zentra_log_download(sn, first, last, nrow(data), fname, fetched_at, run_id,
+                        battery = batt)
+
+    cat("  + ", format(sn, width = 10),
+        format(nrow(data), width = 8, big.mark = ","), " rows   ",
+        format(first, "%Y-%m-%d"), " to ", format(last, "%Y-%m-%d"), "\n",
+        sep = "")
 
     results[[length(results) + 1]] <- data.frame(
       device_sn = sn, rows = nrow(data), file = fname,
@@ -339,7 +339,7 @@ zentra_download <- function(devices = NULL, end = NULL, max_active = 4L,
 #' @param device_sn,first,last,n,fname,fetched_at Download details
 #' @return Invisible TRUE
 zentra_log_download <- function(device_sn, first, last, n, fname, fetched_at,
-                                run_id = NA_character_) {
+                                run_id = NA_character_, battery = NA_real_) {
 
   rel <- sub(paste0("^", gsub("\\\\", "/", Sys.getenv("VI_FLO_DATA_ROOT")), "/?"),
              "", gsub("\\\\", "/", file.path(wds("device_zentra"), fname)))
@@ -353,13 +353,13 @@ zentra_log_download <- function(device_sn, first, last, n, fname, fetched_at,
   entry <- data.frame(
     timestamp_utc = format(fetched_at, "%Y-%m-%d %H:%M:%S", tz = "UTC"),
     run_id        = run_id,
-    station       = NA_character_,
     device_serial = device_sn,
     start_date    = format(first, "%Y-%m-%d %H:%M:%S", tz = project_tz),
     end_date      = format(last,  "%Y-%m-%d %H:%M:%S", tz = project_tz),
     n_records     = n,
     filepath      = rel,
     download_type = "automatic",
+    battery       = battery,
     stringsAsFactors = FALSE
   )
 

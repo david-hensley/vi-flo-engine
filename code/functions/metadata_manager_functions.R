@@ -4727,14 +4727,18 @@ ui_view_download_log <- function() {
     
   } else if (view_choice == "2") {
     # Filter by station
-    stations <- label_station_options(sort(unique(download_log$station)))
+    # The log is kept by logger, not station: a station's downloads are those
+    # of the loggers that have served it
+    meta_dl <- read_table("device_metadata", remember = FALSE)
+    stations <- label_station_options(sort(unique(meta_dl$station_id)))
     selected_station <- ui_select_from_menu("Select station:", stations)
     if (is.null(selected_station)) {
       return(NULL)
     }
     selected_station <- sub(" \\(.*$", "", selected_station)
     
-    filtered_log <- download_log[download_log$station == selected_station, ]
+    its_loggers <- unique(meta_dl$device_serial[meta_dl$station_id == selected_station])
+    filtered_log <- download_log[download_log$device_serial %in% its_loggers, ]
     filter_description <- paste0("Station: ", selected_station)
     
   } else if (view_choice == "3") {
@@ -5651,13 +5655,12 @@ ui_resume_pending_ingest <- function() {
 
   #### Fill in what the pending row does not carry ####
   metadata <- load_zentra_metadata()
-  dev <- metadata[metadata$device_serial == row$device_serial &
-                  metadata$station_id == row$station_id, ]
+  dev <- metadata[metadata$unique_id == row$unique_id, ]
 
   if (nrow(dev) == 0) {
-    cat("\n❌ Device ", row$device_serial, " is no longer in metadata for ",
+    cat("\n❌ Deployment ", row$unique_id, " is no longer in metadata for ",
         row$station_id, ".\n", sep = "")
-    cat("   The device may have been removed since this task was recorded.\n")
+    cat("   Its row may have been deleted since this task was recorded.\n")
     return(invisible(NULL))
   }
   dev <- dev[1, ]
@@ -5673,7 +5676,7 @@ ui_resume_pending_ingest <- function() {
       # Only clears the pending task. The metadata review is a separate
       # question - whether the metadata is current - and is not implied by
       # data having reached the cloud.
-      clear_pending_ingest(row$station_id, row$device_serial)
+      clear_pending_ingest(row$station_id, dev$device_serial)
       cat("✓ Task cleared\n\n")
       return(invisible(TRUE))
     }
@@ -5685,7 +5688,7 @@ ui_resume_pending_ingest <- function() {
   #### Otherwise hand back to the ingest workflow at the recorded stage ####
   ui_ingest_local_data(
     station_id       = row$station_id,
-    device_serial    = row$device_serial,
+    device_serial    = dev$device_serial,
     station_type     = dev$station_type,
     mfger            = dev$mfger,
     field_visit_date = as.Date(row$field_visit_date),

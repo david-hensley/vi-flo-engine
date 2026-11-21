@@ -68,7 +68,7 @@ TABLE_SCHEMA <- list(
       elev = "number", elev_source = "text", sensor_height_cm = "number",
       reach_length_m = "number", interval_min = "integer", timezone = "text",
       deploy_datetime = "datetime_local", status = "text",
-      last_update = "datetime_local", battery = "integer", last_visit = "date",
+      last_update = "datetime_local", battery = "number", last_visit = "date",
       expiry_date = "date", last_download_date = "datetime_local",
       last_record_date = "datetime_local", metadata_approved = "logical",
       last_reviewed_utc = "datetime_utc"
@@ -96,10 +96,10 @@ TABLE_SCHEMA <- list(
   download_log = list(
     file = "download_log.csv", key = "filepath", writer = "machine",
     columns = c(
-      timestamp_utc = "datetime_utc", run_id = "text", station = "text",
+      timestamp_utc = "datetime_utc", run_id = "text",
       device_serial = "text", start_date = "datetime_local",
       end_date = "datetime_local", n_records = "integer", filepath = "text",
-      download_type = "text"
+      download_type = "text", battery = "number"
     )
   ),
 
@@ -130,8 +130,8 @@ TABLE_SCHEMA <- list(
   pending_ingest = list(
     file = "pending_ingest.csv", key = NULL, writer = "person",
     columns = c(
-      created = "datetime_local", updated = "datetime_local",
-      station_id = "text", device_serial = "text", field_visit_date = "date",
+      created_utc = "datetime_utc", updated_utc = "datetime_utc",
+      station_id = "text", unique_id = "text", field_visit_date = "date",
       logged_by = "text", stage = "text", notes = "text"
     )
   )
