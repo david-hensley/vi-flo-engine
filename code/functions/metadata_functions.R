@@ -157,7 +157,7 @@ backup_metadata <- function() {
   }
   
   # Create timestamp for this backup batch
-  timestamp <- format(Sys.time(), "%Y%m%d_%H%M%S", tz = "America/Puerto_Rico")
+  timestamp <- format(Sys.time(), "%Y%m%d_%H%M%S", tz = PROJECT_TZ)
   
   # Backup each CSV file
   files_backed_up <- 0
@@ -647,19 +647,6 @@ determine_sensor_type <- function(sensor) {
   # Default to vwc for unknown sensors
   # (can be manually corrected if needed)
   return("vwc")
-}
-
-#' Get unique action types from maintenance log
-#' @return Character vector of action types
-get_unique_action_types <- function() {
-  maint_log <- load_maintenance_log()
-  
-  if (is.null(maint_log) || nrow(maint_log) == 0) {
-    return(character())
-  }
-  
-  action_types <- unique(maint_log$action_type)
-  return(sort(action_types))
 }
 
 ################################################################################
@@ -1956,7 +1943,7 @@ load_record_confirmed <- function() {
     write_table("record_confirmed", seed)
   }
 
-  # confirmed_from as text: set_record_confirmed() binds a text row onto it
+  # confirmed_from as text: a date entered by hand, read as written
   read_table("record_confirmed", as_text = "confirmed_from")
 }
 
@@ -1974,26 +1961,4 @@ record_confirmed_from <- function(station_id) {
   as.Date(if (length(d) == 1) d else RECORD_CONFIRMED_DEFAULT)
 }
 
-
-#' Records a judgement about one station
-#'
-#' @param station_id,confirmed_from,reason The judgement
-#' @return Invisible TRUE
-set_record_confirmed <- function(station_id, confirmed_from, reason) {
-
-  rc <- load_record_confirmed()
-
-  row <- data.frame(station_id = station_id,
-                    confirmed_from = as.character(confirmed_from),
-                    reason = reason, stringsAsFactors = FALSE)
-
-  rc <- rc[rc$station_id != station_id, , drop = FALSE]
-  rc <- rbind(rc, row)
-
-  # The default first, then stations alphabetically
-  rc <- rc[order(rc$station_id != "(default)", rc$station_id), , drop = FALSE]
-
-  write_table_or_stop("record_confirmed", rc, intent = "recording a station's confirmed date")
-  invisible(TRUE)
-}
 

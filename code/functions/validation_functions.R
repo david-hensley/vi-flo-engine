@@ -556,7 +556,7 @@ validate_metadata <- function(verbose = TRUE, stop_on_error = FALSE, tables = NU
             value         = v[bad],
             reads_as      = format(as.POSIXct(as.numeric(v[bad]),
                                               origin = "1970-01-01",
-                                              tz = "America/Puerto_Rico"),
+                                              tz = PROJECT_TZ),
                                    "%Y-%m-%d %H:%M:%S"),
             stringsAsFactors = FALSE))
         }
@@ -817,7 +817,7 @@ validate_metadata <- function(verbose = TRUE, stop_on_error = FALSE, tables = NU
       # check turns a local 21:58 into the following day and then agrees with
       # a filename that made exactly that mistake - the check would pass on
       # the bug it exists to catch.
-      local_tz <- "America/Puerto_Rico"
+      local_tz <- PROJECT_TZ
 
       for (i in seq_len(nrow(dlog))) {
         fn <- basename(as.character(dlog$filepath[i]))
@@ -1070,55 +1070,6 @@ validate_metadata <- function(verbose = TRUE, stop_on_error = FALSE, tables = NU
     violations = violations
   ))
 }
-
-
-#' Print violation details from validation result
-#' 
-#' @param result Result from validate_metadata()
-#' @param violation_name Optional. Name of specific violation to print.
-#'        If NULL, prints all violations.
-#' 
-print_violations <- function(result, violation_name = NULL) {
-  if (result$valid) {
-    cat("No violations to display - validation passed!\n")
-    return(invisible(NULL))
-  }
-  
-  violations <- result$violations
-  
-  if (!is.null(violation_name)) {
-    if (violation_name %in% names(violations)) {
-      violations <- violations[violation_name]
-    } else {
-      cat("Violation '", violation_name, "' not found.\n", sep = "")
-      cat("Available violations:", paste(names(result$violations), collapse = ", "), "\n")
-      return(invisible(NULL))
-    }
-  }
-  
-  for (name in names(violations)) {
-    v <- violations[[name]]
-    cat("\n===", name, "===\n")
-    cat(v$description, "\n")
-    if (!is.null(v$data) && nrow(v$data) > 0) {
-      cat("\nAffected rows:\n")
-      print(v$data, row.names = FALSE)
-    }
-  }
-  
-  return(invisible(NULL))
-}
-
-
-#' Quick validation check - returns TRUE/FALSE only
-#' 
-#' @return Logical. TRUE if all checks pass, FALSE otherwise.
-#' 
-is_metadata_valid <- function() {
-  result <- validate_metadata(verbose = FALSE)
-  return(result$valid)
-}
-
 
 
 #### Checking a save ####

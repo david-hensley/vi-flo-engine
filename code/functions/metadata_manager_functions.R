@@ -2645,7 +2645,7 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL,
     tz_input <- trimws(readline())
     
     if (tz_input == "") {
-      timezone <- "America/Puerto_Rico"
+      timezone <- PROJECT_TZ
       cat("✓ Timezone: America/Puerto_Rico (default)\n")
     } else if (tz_input == "q") {
       cat("❌ Canceled\n")

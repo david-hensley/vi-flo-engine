@@ -248,7 +248,7 @@ read_p1_long <- function(path, device_serial = NULL) {
       # carries - not assumed
       when <- data$datetime
       if (!inherits(when, "POSIXct")) {
-        when <- as.POSIXct(when, tz = "America/Puerto_Rico")
+        when <- as.POSIXct(when, tz = PROJECT_TZ)
       }
       cols <- setdiff(names(data), "datetime")
       do.call(rbind, lapply(cols, function(col) {
@@ -903,7 +903,7 @@ p2_series <- function(readings) {
 #' @param tz Character. The project timezone
 #' @return Named list, "<station>|<variable>|<year>" -> list(series, methods,
 #'   problems)
-assemble_p2 <- function(readings, tz = "America/Puerto_Rico") {
+assemble_p2 <- function(readings, tz = PROJECT_TZ) {
   out <- list()
   for (key in unique(paste(readings$station_id, readings$variable, sep = "|"))) {
     r <- readings[paste(readings$station_id, readings$variable, sep = "|") == key, , drop = FALSE]
@@ -953,12 +953,12 @@ engine_commit <- function() {
 
 #### Fingerprints: has anything a station-year depends on changed? ####
 
-# The device_metadata columns that decide Product 2: which logger was where,
-# from when to when. Battery, download dates, elevation, roles and names do
-# not change what is built, so changing them changes no fingerprint.
 # The manifest's variable for a station-year built and found empty
 P2_NOTHING <- "(nothing)"
 
+# The device_metadata columns that decide Product 2: which logger was where,
+# from when to when. Battery, download dates, elevation, roles and names do
+# not change what is built, so changing them changes no fingerprint.
 P2_METADATA_COLUMNS <- c("unique_id", "station_id", "station_type", "device_serial",
                          "deploy_datetime", "end_datetime", "status", "timezone")
 
@@ -967,7 +967,7 @@ P2_METADATA_COLUMNS <- c("unique_id", "station_id", "station_type", "device_seri
 #' @return Character
 fingerprint <- function(df) {
   df[] <- lapply(df, function(x) {
-    if (inherits(x, "POSIXct")) format(x, "%Y-%m-%d %H:%M:%S", tz = "America/Puerto_Rico")
+    if (inherits(x, "POSIXct")) format(x, "%Y-%m-%d %H:%M:%S", tz = PROJECT_TZ)
     else as.character(x)
   })
   f <- tempfile(fileext = ".csv")
@@ -983,7 +983,7 @@ fingerprint <- function(df) {
 #' @param windows Data frame from deployment_windows()
 #' @return Character serials
 station_year_devices <- function(station, year, windows) {
-  tz <- "America/Puerto_Rico"
+  tz <- PROJECT_TZ
   y0 <- as.POSIXct(paste0(year, "-01-01 00:00:00"), tz = tz)
   y1 <- as.POSIXct(paste0(year + 1, "-01-01 00:00:00"), tz = tz)
   w <- windows[windows$station_id == station, , drop = FALSE]
@@ -1008,7 +1008,7 @@ station_year_devices <- function(station, year, windows) {
 #' @param windows Data frame from deployment_windows()
 #' @return List: metadata, ports - each an MD5 fingerprint
 p2_fingerprints <- function(station, year, metadata, ports, windows) {
-  tz <- "America/Puerto_Rico"
+  tz <- PROJECT_TZ
   y0 <- as.POSIXct(paste0(year, "-01-01 00:00:00"), tz = tz)
   y1 <- as.POSIXct(paste0(year + 1, "-01-01 00:00:00"), tz = tz)
   ends <- function(w) ifelse(is.na(w$ends), Inf, as.numeric(w$ends))
@@ -1042,7 +1042,7 @@ p2_fingerprints <- function(station, year, metadata, ports, windows) {
 #' @param path Character, from product_path()
 #' @param tz Character. The project timezone
 #' @return TRUE
-write_p2_file <- function(series, path, tz = "America/Puerto_Rico") {
+write_p2_file <- function(series, path, tz = PROJECT_TZ) {
   out <- series[, P2_COLUMNS]
   out$datetime <- format(out$datetime, "%Y-%m-%d %H:%M:%S", tz = tz)
   dir.create(dirname(path), recursive = TRUE, showWarnings = FALSE)
@@ -1060,7 +1060,7 @@ write_p2_file <- function(series, path, tz = "America/Puerto_Rico") {
 #' @param path Character
 #' @param tz Character. The project timezone
 #' @return Data frame, datetime as POSIXct in the project timezone
-read_p2_file <- function(path, tz = "America/Puerto_Rico") {
+read_p2_file <- function(path, tz = PROJECT_TZ) {
   x <- read.csv(path, stringsAsFactors = FALSE, na.strings = "",
                 colClasses = c(datetime = "character", value = "numeric",
                                flag = "character", device_serial = "character",
@@ -1151,7 +1151,7 @@ write_manifest <- function(manifest, product) {
 #' @return Character paths, with attribute "unlogged"
 p1_files_for <- function(station, year, windows, logged = NULL) {
   if (is.null(logged)) logged <- basename(load_download_log()$filepath)
-  tz <- "America/Puerto_Rico"
+  tz <- PROJECT_TZ
   y0 <- as.POSIXct(paste0(year, "-01-01 00:00:00"), tz = tz)
   y1 <- as.POSIXct(paste0(year + 1, "-01-01 00:00:00"), tz = tz)
   devices <- station_year_devices(station, year, windows)
@@ -1181,7 +1181,7 @@ p1_files_for <- function(station, year, windows, logged = NULL) {
 p2_years_for <- function(station, windows) {
   w <- windows[windows$station_id == station, , drop = FALSE]
   devices <- unique(w$device_serial)
-  tz <- "America/Puerto_Rico"
+  tz <- PROJECT_TZ
   first <- as.integer(format(min(w$starts), "%Y", tz = tz))
   last  <- if (any(is.na(w$ends))) 9999L else as.integer(format(max(w$ends), "%Y", tz = tz))
   files <- c(list.files(wds("device_zentra"), pattern = "_raw\\.rds$"),
@@ -1226,7 +1226,8 @@ interval_check <- function(readings) {
 #' @param quiet Logical. No progress lines and no report
 #' @param print_report Logical. Print the end-of-build report; build_p2_stale()
 #'   turns it off and prints one report for its whole run instead
-#' @return Invisibly, a data frame of what was written and anything reported
+#' @return Invisibly, a data frame of what was written - empty if nothing was -
+#'   carrying anything reported as attributes
 build_p2 <- function(stations = NULL, years = NULL, quiet = FALSE, print_report = TRUE) {
   product <- 2
   metadata <- load_zentra_metadata()
@@ -1280,7 +1281,7 @@ build_p2 <- function(stations = NULL, years = NULL, quiet = FALSE, print_report 
         # Only this year's: a file spanning several years is read for each,
         # and would otherwise be counted in full every time
         u <- attr(a, "unattributed_readings")
-        u <- u[as.integer(format(u$datetime, "%Y", tz = "America/Puerto_Rico")) == yr, , drop = FALSE]
+        u <- u[as.integer(format(u$datetime, "%Y", tz = PROJECT_TZ)) == yr, , drop = FALSE]
         if (nrow(u) > 0) lost[[length(lost) + 1]] <- u
         a <- a[a$station_id == st, , drop = FALSE]
         if (nrow(attr(r, "unmapped")) > 0) {
@@ -1309,9 +1310,9 @@ build_p2 <- function(stations = NULL, years = NULL, quiet = FALSE, print_report 
             repeats      = sum(ra$repeats, na.rm = TRUE),
             repeat_dropped = if (any(ra$kind %in% "accumulated"))
                                round(sum(ra$repeat_dropped, na.rm = TRUE), 4) else NA,
-            first        = format(min(s$datetime), "%Y-%m-%d %H:%M", tz = "America/Puerto_Rico"),
-            last         = format(max(s$datetime), "%Y-%m-%d %H:%M", tz = "America/Puerto_Rico"),
-            timezone     = "America/Puerto_Rico",
+            first        = format(min(s$datetime), "%Y-%m-%d %H:%M", tz = PROJECT_TZ),
+            last         = format(max(s$datetime), "%Y-%m-%d %H:%M", tz = PROJECT_TZ),
+            timezone     = PROJECT_TZ,
             unit         = registry$unit[match(sub("_[0-9]+cm$", "", sub("_[a-z]-[0-9]+$", "", variable)),
                                                 registry$variable)],
             devices      = paste(unique(s$device_serial[!is.na(s$device_serial)]), collapse = "; "),
@@ -1352,10 +1353,16 @@ build_p2 <- function(stations = NULL, years = NULL, quiet = FALSE, print_report 
         # registry would otherwise leave its folder behind, and the push
         # carries empty folders to Box
         for (d in unique(dirname(stale))) remove_empty_up_to(d, wds("products"))
-        if (!is.null(manifest)) {
-          rel <- sub(paste0("^", wds("products"), "/?"), "", stale)
-          manifest <- manifest[!manifest$file %in% rel, , drop = FALSE]
-        }
+      }
+      # The manifest holds exactly what this build made for the station-year.
+      # Pruned by what was written, not by what was found on disk: a row whose
+      # file had already gone would otherwise outlive it, and keep the
+      # station-year stale forever
+      if (!is.null(manifest)) {
+        made <- sub(paste0("^", wds("products"), "/?"), "", written)
+        manifest <- manifest[!(manifest$station_id == st & manifest$year == as.character(yr) &
+                                 manifest$variable != P2_NOTHING & !manifest$file %in% made),
+                             , drop = FALSE]
       }
 
       #### A build that found nothing records that it looked ####
@@ -1390,7 +1397,13 @@ build_p2 <- function(stations = NULL, years = NULL, quiet = FALSE, print_report 
   }
 
   if (!is.null(manifest)) write_manifest(manifest, product)
-  out <- if (length(report) > 0) do.call(rbind, report) else NULL
+  # Always a table, empty when nothing was written: a build that made no file
+  # still has unattributed readings and skipped files to report
+  out <- if (length(report) > 0) do.call(rbind, report) else
+    data.frame(station_id = character(0), variable = character(0), year = character(0),
+               rows = character(0), observed = character(0), missing = character(0),
+               conflicts = character(0), repeats = character(0), intervals = character(0),
+               problems = character(0), stringsAsFactors = FALSE)
 
   unattributed <- NULL
   episodes <- NULL
@@ -1409,13 +1422,11 @@ build_p2 <- function(stations = NULL, years = NULL, quiet = FALSE, print_report 
                                        unattributed$variable), , drop = FALSE]
     rownames(unattributed) <- NULL
   }
-  if (!is.null(out)) {
-    attr(out, "unattributed") <- unattributed
-    attr(out, "unattributed_episodes") <- episodes
-    attr(out, "unattributed_readings") <- if (length(lost) > 0) u else NULL
-    attr(out, "unlogged") <- sort(unique(unlogged))
-    attr(out, "reads") <- cache$.reads
-  }
+  attr(out, "unattributed") <- unattributed
+  attr(out, "unattributed_episodes") <- episodes
+  attr(out, "unattributed_readings") <- if (length(lost) > 0) u else NULL
+  attr(out, "unlogged") <- sort(unique(unlogged))
+  attr(out, "reads") <- cache$.reads
   if (!quiet && print_report) {
     print_p2_report(out, if (length(lost) > 0) u else NULL, unlogged, metadata, windows)
   }

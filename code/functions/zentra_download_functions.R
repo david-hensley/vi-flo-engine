@@ -294,8 +294,8 @@ zentra_download <- function(devices = NULL, end = NULL, max_active = 4L,
     # rule in DATA_DICTIONARY.md. Without tz the span would follow whatever
     # zone the API returned, which need not be either.
     fname <- paste0(sn, "_",
-                    format(first, "%Y%m%d", tz = "America/Puerto_Rico"), "_",
-                    format(last,  "%Y%m%d", tz = "America/Puerto_Rico"), "_",
+                    format(first, "%Y%m%d", tz = PROJECT_TZ), "_",
+                    format(last,  "%Y%m%d", tz = PROJECT_TZ), "_",
                     stamp, "_raw.rds")
 
     saveRDS(data, file.path(out_dir, fname))

@@ -20,17 +20,14 @@
 #' an Excel serial number.
 #'
 #' @param x POSIXct, Date, character, or numeric (Excel serial)
-#' @param tz Character. Timezone. Defaults to the timezone in device_metadata.
+#' @param tz Character. Timezone, or NULL for the project's
 #' @return POSIXct
 coerce_datetime_flexible <- function(x, tz = NULL) {
 
   if (inherits(x, "POSIXct")) return(x)
   if (inherits(x, "Date"))    return(as.POSIXct(format(x), tz = ifelse(is.null(tz), "", tz)))
 
-  if (is.null(tz)) {
-    metadata <- load_zentra_metadata()
-    tz <- metadata$timezone[1]
-  }
+  if (is.null(tz)) tz <- PROJECT_TZ
 
   # Excel serial: days since 1899-12-30. Anything in a plausible range is
   # almost certainly a mangled date rather than a genuine number.
@@ -108,10 +105,10 @@ coerce_datetime_flexible <- function(x, tz = NULL) {
 }
 
 
-#' Build a raw data filename from a station and a date range
+#' Build a raw data filename from a device and a date range
 #'
 #' The dates are a plain truncation of the actual first and last records in the
-#' file. Consecutive files for the same station WILL share a boundary date -
+#' file. Consecutive files for the same device WILL share a boundary date -
 #' a logger keeps recording after an offload, so the next file starts on the
 #' day the last one ended. That is expected, and it is why overlap is checked
 #' against the exact timestamps in download_log rather than these truncated
@@ -119,29 +116,25 @@ coerce_datetime_flexible <- function(x, tz = NULL) {
 #' duplicate records are resolved at processing by deduplicating on timestamp,
 #' not by distorting the filename.
 #'
-#' A device_serial may be supplied, and must be for anything manually ingested.
-#' A paired stream gauge has two loggers at ONE station, so a station-level name
-#' cannot distinguish their files - the second would silently overwrite the
-#' first. The SERIAL is used rather than the device name because names change:
-#' put a mutable thing in a filename and historic files stop matching the
-#' moment someone relabels a logger.
+#' Product 1 is keyed by DEVICE: a paired stream gauge has two loggers at one
+#' station, and a station-level name could not tell their files apart. The
+#' SERIAL is used rather than the device name because names change: put a
+#' mutable thing in a filename and historic files stop matching the moment
+#' someone relabels a logger. A station, where given, leads - the shape a
+#' product file would take.
 #'
-#' API downloads pass no serial and keep station-level names, correctly - a
-#' Zentra station has one active device and the API collates across
-#' replacements.
-#'
-#' @param station Character. Station ID e.g. "sr1_hydro"
 #' @param start POSIXct, Date, character or Excel serial. First record
 #' @param end POSIXct, Date, character or Excel serial. Last record
 #' @param ext Character. File extension without the dot (default "rds")
-#' @param tz Character. Timezone for parsing text dates (default: from metadata)
-#' @param device_serial Character. Included in the name when supplied
+#' @param tz Character. Timezone for parsing text dates, or NULL for the project's
+#' @param device_serial Character. The device, for Product 1
+#' @param station Character. A station id, which leads the name when given
 #' @return Character. The filename
 #' @examples
 #' \dontrun{
 #' build_raw_filename(as.POSIXct("2026-01-01"), as.POSIXct("2026-04-01"),
 #'                    device_serial = "21352826")
-#' # "sr1_hydro_20260101_20260401_raw.rds"
+#' # "21352826_20260101_20260401_raw.rds"
 #' }
 build_raw_filename <- function(start, end, ext = "rds", tz = NULL,
                                device_serial = NULL, station = NULL) {
@@ -186,7 +179,7 @@ build_raw_filename <- function(start, end, ext = "rds", tz = NULL,
   # Without tz, format() uses whatever zone the input carries. A reading at
   # 21:58 local held as UTC then names the file for the following day, which
   # is how five files came to be dated a day off their own data.
-  tz_local <- "America/Puerto_Rico"
+  tz_local <- PROJECT_TZ
 
   paste0(stem, "_",
          format(start, "%Y%m%d", tz = tz_local), "_",
@@ -269,38 +262,21 @@ parse_raw_filename <- function(filename) {
 }
 
 
-#' List existing raw files for a station, newest coverage last
+#' List a device's Product 1 files, newest coverage last
 #'
 #' Scans the directory for files matching the naming convention. The files on
 #' disk are the ground truth for what has been archived - the download log
 #' records intent and provenance, but a file that is not there is not archived.
 #'
-#' @param station Character. Station ID
-#' @param dir Character. Directory to scan. Defaults to the station's raw
-#'   directory, resolved from station_type in device_metadata.
-#' @return Data frame with filename, start, end - zero rows if none found
-list_raw_files <- function(station = NULL, dir = NULL, device_serial = NULL) {
-
-  if (is.null(station) && is.null(device_serial)) {
-    stop("supply station (Product 2) or device_serial (Product 1)", call. = FALSE)
-  }
+#' @param dir Character. Directory to scan, or NULL for the device's own -
+#'   device-data/zentra for a ZL6, device-data/hobo otherwise
+#' @param device_serial Character
+#' @return Data frame with filename, device_serial, start, end - zero rows if
+#'   none found
+list_raw_files <- function(dir = NULL, device_serial) {
 
   if (is.null(dir)) {
-    if (!is.null(device_serial)) {
-      # Product 1 - keyed by device, so the folder follows the instrument
-      dir <- if (grepl("^z6-", device_serial)) wds("device_zentra") else
-                                               wds("device_hobo")
-    } else {
-      # Product 2 - resolve station_type from metadata, NOT by string-munging
-      # the station ID. Stripping the last underscore segment gives "hydro" for
-      # "sr1_hydro" but "vwc2" for "uvi_vwc2", which is wrong.
-      # Product 2 and above live under products/, keyed by variable rather
-      # than by the station type that used to name a folder. A caller wanting
-      # one should use product_path(); this path is here for the older
-      # station-keyed callers that have not moved yet.
-      stop("Station-keyed raw directories are retired. Use product_path() ",
-           "for Product 2 and above, or pass dir explicitly.", call. = FALSE)
-    }
+    dir <- if (grepl("^z6-", device_serial)) wds("device_zentra") else wds("device_hobo")
   }
 
   empty <- data.frame(filename = character(0),
@@ -317,11 +293,7 @@ list_raw_files <- function(station = NULL, dir = NULL, device_serial = NULL) {
   rows <- lapply(files, function(f) {
     p <- parse_raw_filename(f)
     if (is.null(p)) return(NULL)
-    if (!is.null(device_serial)) {
-      if (is.na(p$device_serial) || p$device_serial != device_serial) return(NULL)
-    } else {
-      if (is.na(p$station) || p$station != station) return(NULL)
-    }
+    if (is.na(p$device_serial) || p$device_serial != device_serial) return(NULL)
     data.frame(filename = f, device_serial = p$device_serial,
                start = p$start, end = p$end,
                stringsAsFactors = FALSE)
@@ -335,48 +307,28 @@ list_raw_files <- function(station = NULL, dir = NULL, device_serial = NULL) {
 }
 
 
-#' Warn if a proposed date range overlaps existing raw files for a station
+#' Warn if a proposed date range overlaps a device's archived files
 #'
 #' This is deliberately a WARNING, not an error. Boundary-day overlap is
 #' normal: a logger downloaded and redeployed the same day produces files that
 #' touch. What matters is that the user is told, so that a genuinely wrong date
 #' range - a re-download of a period already archived - is visible rather than
-#' silent.
+#' silent. Checked against the device's own files, which is the question that
+#' matters: whether this logger's readings have already been archived. A
+#' paired gauge's other logger covers the same period by design.
 #'
-#' @param station Character. Station ID
 #' @param start POSIXct or Date. Proposed start
 #' @param end POSIXct or Date. Proposed end
-#' @param dir Character. Directory to scan (default: derived from station_type)
+#' @param dir Character. Directory to scan, or NULL for the device's own
 #' @param verbose Logical. Print messages (default TRUE)
-#' @param device_serial Character. Restrict the comparison to this device's own
-#'   files, so a paired gauge's two loggers do not appear to overlap each other
+#' @param device_serial Character
 #' @return List with overlap (logical) and files
 #'   (data frame of overlapping files)
-check_raw_overlap <- function(station = NULL, start, end, dir = NULL,
-                              verbose = TRUE, device_serial = NULL) {
+check_raw_overlap <- function(start, end, dir = NULL, verbose = TRUE, device_serial) {
 
   start_dt <- coerce_datetime_flexible(start)
   end_dt   <- coerce_datetime_flexible(end)
-
-  # Product 1 files carry no station, so overlap is checked against the
-  # DEVICE's own record - which is the more correct question anyway: whether
-  # this logger's readings have already been archived.
-  by_device <- is.null(station) && !is.null(device_serial)
-  existing <- if (by_device) {
-    list_raw_files(dir = dir, device_serial = device_serial)
-  } else {
-    list_raw_files(station = station, dir = dir)
-  }
-
-  # At a paired gauge both loggers cover the same period by design, so files
-  # from the OTHER logger are not an overlap - they are the point. Compare
-  # only against this device's own archive. Files with no serial in the name
-  # predate that convention and could be from either, so they still count.
-  if (!is.null(device_serial) && nrow(existing) > 0) {
-    existing <- existing[is.na(existing$device_serial) |
-                         existing$device_serial == device_serial, ,
-                         drop = FALSE]
-  }
+  existing <- list_raw_files(dir = dir, device_serial = device_serial)
 
   result <- list(overlap = FALSE, files = existing[0, , drop = FALSE])
 
@@ -421,8 +373,7 @@ check_raw_overlap <- function(station = NULL, start, end, dir = NULL,
   if (verbose) {
     cat("\n")
     cat("WARNING: This date range overlaps data already archived for\n")
-    cat("         ", if (by_device) device_serial else station,
-        ":\n", sep = "")
+    cat("         ", device_label(device_serial), ":\n", sep = "")
     for (i in seq_len(nrow(hits))) {
       cat("         - ", hits$filename[i], "\n", sep = "")
     }

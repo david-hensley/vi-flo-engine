@@ -123,26 +123,6 @@ rows_changed_on_disk <- function(path) {
 }
 
 
-#' Forgets a recorded hash
-#'
-#' Used after a deliberate overwrite - a migration, a restore - where the file
-#' on disk is meant to differ from what was read.
-#'
-#' @param path Character, or NULL for all
-#' @return Invisible TRUE
-forget_file_hash <- function(path = NULL) {
-  if (is.null(path)) {
-    rm(list = ls(envir = .vi_flo_read_hashes), envir = .vi_flo_read_hashes)
-  } else {
-    key <- normalizePath(path, winslash = "/", mustWork = FALSE)
-    if (exists(key, envir = .vi_flo_read_hashes, inherits = FALSE)) {
-      rm(list = key, envir = .vi_flo_read_hashes)
-    }
-  }
-  invisible(TRUE)
-}
-
-
 #' Refuses a write and explains what happened
 #'
 #' @param path Character. The file

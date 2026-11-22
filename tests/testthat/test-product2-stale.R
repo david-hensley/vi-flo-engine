@@ -187,3 +187,39 @@ test_that("a shared logger's other station counts, where it serves at the same t
   fp2 <- p2_fingerprints("zzu_weather", 2026L, m, p, deployment_windows(m))
   expect_false(identical(fp1$ports, fp2$ports))
 })
+
+test_that("a build that writes nothing still reports what it found", {
+  local_test_root(); place_p1(U20)
+  # Every reading falls before the deployment: no file, but unattributed readings
+  set_meta(function(m) { m$deploy_datetime[m$unique_id == "t-0007"] <- "2026-12-30 12:00:00"; m })
+  b <- build_p2("zzb_hydro", 2026, quiet = TRUE)
+  expect_true(is.data.frame(b))
+  expect_equal(nrow(b), 0)
+  expect_true(nrow(attr(b, "unattributed_readings")) > 0)
+  s <- build_p2_stale(quiet = TRUE)
+  set_meta(function(m) { m$deploy_datetime[m$unique_id == "t-0007"] <- "2026-12-29 12:00:00"; m })
+  s <- build_p2_stale(quiet = TRUE)
+  expect_true(nrow(attr(s, "unattributed_readings")) > 0)
+})
+
+test_that("a manifest row whose file has gone is cleared by the rebuild", {
+  local_test_root(); place_p1(U20)
+  build_p2("zzb_hydro", 2026, quiet = TRUE)
+  # The station-year stops being made, and one of its files is already missing
+  f <- list_product_files(2, station = "zzb_hydro")
+  file.remove(f[1])
+  set_meta(function(m) { m$deploy_datetime[m$unique_id == "t-0007"] <- "2027-01-01 12:00:00"; m })
+  build_p2_stale(quiet = TRUE)
+  expect_false("zzb_hydro" %in% read_manifest(2)$station_id)
+  expect_equal(nrow(p2_stale()), 0)
+
+  # And a row naming a file no longer made, in a year still built, goes too
+  set_meta(function(m) { m$deploy_datetime[m$unique_id == "t-0007"] <- "2026-08-01 12:00:00"; m })
+  build_p2("zzb_hydro", 2026, quiet = TRUE)
+  m <- read_manifest(2)
+  ghost <- m[m$station_id == "zzb_hydro", ][1, ]
+  ghost$variable <- "renamed_away"; ghost$file <- "p2/hydro/zzb_hydro/renamed_away/x_p2_2026.csv.gz"
+  write.csv(rbind(m, ghost), manifest_path(2), row.names = FALSE)
+  build_p2("zzb_hydro", 2026, quiet = TRUE)
+  expect_false("renamed_away" %in% read_manifest(2)$variable)
+})

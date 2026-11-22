@@ -50,7 +50,7 @@ device_names_for <- function(device_serial, metadata = NULL) {
 #'   attribute "file"
 view_device <- function(device_serial, from = NULL, to = NULL, variables = NULL,
                         file = NULL, max_panels = 8, open = interactive()) {
-  tz <- "America/Puerto_Rico"
+  tz <- PROJECT_TZ
   metadata <- load_zentra_metadata()
   windows  <- deployment_windows(metadata)
   pwindows <- port_windows()
@@ -243,6 +243,15 @@ compact_ports <- function(p) {
         collapse = ", ")
 }
 
+#' Ports from a compact list: "1-4, 6, 8" -> 1, 2, 3, 4, 6, 8
+expand_ports <- function(x) {
+  if (is.na(x) || !nzchar(trimws(x))) return(integer(0))
+  unlist(lapply(strsplit(x, ",\\s*")[[1]], function(r) {
+    b <- as.integer(strsplit(r, "-", fixed = TRUE)[[1]])
+    if (length(b) == 2) seq(b[1], b[2]) else b
+  }))
+}
+
 #' Unattributed readings as episodes: one line per logger, port and episode
 #'
 #' @param u Data frame from classify_unattributed()
@@ -276,7 +285,7 @@ unattributed_episodes <- function(u) {
 #' @param now POSIXct. "The last 12 months" is counted back from here
 print_unattributed <- function(ep, metadata, known, now = Sys.time()) {
   if (is.null(ep) || nrow(ep) == 0) return(invisible(NULL))
-  tz <- "America/Puerto_Rico"
+  tz <- PROJECT_TZ
   d <- function(x) format(x, "%Y-%m-%d", tz = tz)
   recent <- as.numeric(ep$last) >= as.numeric(now) - 365 * 86400
   who <- function(i) device_label(ep$device_serial[i], meta = metadata)
@@ -378,9 +387,15 @@ load_unexplained <- function() {
   e <- tryCatch(read_table("unexplained", remember = FALSE), error = function(e) NULL)
   if (is.null(e) || nrow(e) == 0) return(table_empty("unexplained"))
   known <- load_known_unattributed()
+  # Covered when every port of the episode is covered for its whole span - a
+  # known row on one port explains nothing on the others
   covered <- vapply(seq_len(nrow(e)), function(i) {
     k <- known[known$device_serial == e$device_serial[i], , drop = FALSE]
-    any((is.na(k$from) | k$from <= e$first[i]) & (is.na(k$to) | k$to >= e$last[i]))
+    k <- k[(is.na(k$from) | k$from <= e$first[i]) & (is.na(k$to) | k$to >= e$last[i]), , drop = FALSE]
+    if (nrow(k) == 0) return(FALSE)
+    if (any(is.na(k$port))) return(TRUE)
+    ports <- expand_ports(e$ports[i])
+    length(ports) > 0 && all(ports %in% k$port)
   }, logical(1))
   e[!covered, , drop = FALSE]
 }

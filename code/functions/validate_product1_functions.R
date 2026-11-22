@@ -22,7 +22,7 @@
 validate_product1 <- function(verbose = TRUE, detail = FALSE,
                               device_type = "all") {
 
-  TZ <- "America/Puerto_Rico"
+  TZ <- PROJECT_TZ
   violations <- list(); passes <- character(0)
 
   record_violation <- function(code, description, data = NULL) {
@@ -198,9 +198,9 @@ validate_product1 <- function(verbose = TRUE, detail = FALSE,
 
   #### 4. The file holds what the log says it holds ####
   #
-  # Counted on DISTINCT timestamps, which is what the log records. A file
-  # whose count has drifted from its row means one of the two was written
-  # from something other than the other.
+  # Counted on rows, which is what the log's n_records holds. A file whose
+  # count has drifted from its row means one of the two was written from
+  # something other than the other.
   miscount <- seen[!is.na(seen$logged_n) & !is.na(seen$actual_n) &
                    seen$logged_n != seen$actual_n, ]
   if (nrow(miscount) > 0) {
@@ -275,7 +275,7 @@ validate_product1 <- function(verbose = TRUE, detail = FALSE,
 #' @return Invisible data frame of coverage
 product1_coverage <- function(device_serial = NULL) {
 
-  TZ <- "America/Puerto_Rico"
+  TZ <- PROJECT_TZ
   dlog <- load_download_log()
   dlog <- dlog[grepl("\\.rds$", dlog$filepath), ]
   if (!is.null(device_serial))

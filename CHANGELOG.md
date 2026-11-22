@@ -140,6 +140,16 @@ All notable changes to the VI-FLO Engine project are documented here.
   what remains before the tag. The contributor guide, a generic git tutorial,
   is rewritten around how work here happens - VI-FLO Tools, `start.R`, the
   sandbox, the tests, migrations - and the rules the code depends on
+- **The project timezone is written once.** `"America/Puerto_Rico"` was typed
+  out 31 times across 12 files beside `PROJECT_TZ`; every one now uses the
+  constant, and a test fails if the literal appears again in live code
+- **Dead code removed**: `regularise()` and `find_gaps()` (superseded by
+  Product 2's grid), `forget_file_hash()`, `get_unique_action_types()`,
+  `set_record_confirmed()`, `set_named_path()`, `is_metadata_valid()`,
+  `print_violations()`, and the retired station-keyed branches of
+  `list_raw_files()` and `check_raw_overlap()` - nothing called any of them.
+  Comments that described the old behavior - deployment ends derived from
+  the next row, station-named Product 1 files - now describe the current one
 - **Tests can no longer reach ZentraCloud.** Every call the engine makes to
   the API now goes through one function, `zc_call()`, and the test suite
   closes it for its whole run (`options(viflo.offline = TRUE)`), whatever
@@ -453,6 +463,19 @@ All notable changes to the VI-FLO Engine project are documented here.
   `TERMINAL_STATUSES`
 
 ### Fixed
+- **A Product 2 build that wrote nothing lost its report.** A station-year
+  with nothing attributed - a retired station whose logger sat in a shed -
+  returned no result at all, so `build_p2_stale()`'s end-of-run report
+  silently left out its unattributed readings and skipped files. A build now
+  always returns a table, empty when nothing was written, carrying both
+- **A manifest row whose file had gone never cleared.** A rebuild pruned the
+  manifest by the files it found on disk, so a row for a file already missing
+  outlived it: listing a file that was not there, or - for a station-year no
+  longer made - leaving it stale on every run. The manifest now holds exactly
+  what each rebuild of a station-year made
+- *Explain unattributed readings* hid an episode on several ports when a
+  known period covered only one of them. A known row now explains only the
+  ports it names
 - **Decommissioning asks when the station was shut down.** It used the
   moment it was entered: its deployments ended then, its ports closed then,
   and its log entry was dated that day, however long before monitoring had

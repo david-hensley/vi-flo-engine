@@ -136,107 +136,6 @@ wds <- function(name){
   return(result)
 }
 
-#' Takes a name for a specific path (i.e. a wd) and the local path.
-#' Writes this into both default_datamap.csv (template) and datamap_engine.csv (actual)
-#' Use this to add a new named path or overwrite an existing one
-#' @param name Character. Identical to what will appear in $named_path in the CSV
-#' @param path Character. Full absolute path (must be within VI_FLO_DATA_ROOT)
-set_named_path <- function(name, path){
-  # Do not permit "root" or "engine" as names, as these serve as the shorthand for data root and engine root
-  if (name == "engine" | name == "data"){
-    stop("Path must not be named 'engine' or 'data', these are fixed to root paths!")
-  }
-  # Check if path starts with data root prefix
-  data_root <- Sys.getenv("VI_FLO_DATA_ROOT")
-  if (!grepl(paste0("^", data_root), path)) {
-    stop("Path must be within VI_FLO_DATA_ROOT (", data_root, ")\n",
-         "Provided path: ", path, call. = FALSE)
-  }
-  # Strip prefix to get relative path
-  prefix_with_slash <- paste0(data_root, "/")
-  relative_path <- sub(paste0("^", prefix_with_slash), "", path)
-  
-  # ========== UPDATE DEFAULT DATAMAP (TEMPLATE) ==========
-  # Full paths throughout. This function used to leave the working directory
-  # wherever it last wrote, which surprises whatever runs next.
-  default_path <- file.path(Sys.getenv("VI_FLO_ENGINE_ROOT"), "data",
-                            "default_datamap.csv")
-  default_datamap <- read.csv(default_path, stringsAsFactors = FALSE)
-  if (name %in% default_datamap$named_path){
-    # Record the existing path
-    existing_path <- default_datamap$path[default_datamap$named_path == name][1]
-    existing_path_full <- paste0(data_root, "/", existing_path)
-    # Print warning with cat, then prompt on new line with readline
-    cat("⚠️  WARNING: This will overwrite an existing named path:\n")
-    cat("  Name:", name, "\n")
-    cat("  Current path:", existing_path_full, "\n")
-    # Looped rather than fatal on a typo. Aborting the whole operation because
-    # someone mistyped a single letter is a poor trade when re-asking costs
-    # nothing. ui_yes_no lives in ui_prompt_functions.R, which may not be
-    # loaded this early, so the same acceptance is done here.
-    repeat {
-      response <- toupper(trimws(readline("Do you want to continue? (Y/N): ")))
-      if (response %in% c("1", "YES", "YE")) response <- "Y"
-      if (response %in% c("2", "NO", "NOPE")) response <- "N"
-      if (response %in% c("Y", "N")) break
-      cat("\u26a0\ufe0f  Please enter Y, N, yes, no, 1 or 2\n")
-    }
-
-    if (response == "Y") {
-      message("Overwriting...")
-      default_datamap$path[default_datamap$named_path == name] <- relative_path
-    } else {
-      stop("Operation canceled by user", call. = FALSE)
-    }
-  } else {
-    # No existing path - add a new one to the default datamap
-    message(paste0("Adding new named path: ", name))
-    new_row <- data.frame(named_path = name, path = relative_path, stringsAsFactors = FALSE)
-    default_datamap <- rbind(default_datamap, new_row)
-  }
-  # Write updated default datamap back to CSV
-  default_datamap <- default_datamap[order(default_datamap$named_path), ]
-  write.csv(default_datamap, default_path, row.names = FALSE)
-  message("✓ Updated default_datamap.csv (template)")
-  
-  # ========== UPDATE ACTUAL DATAMAP (WORKING) ==========
-  datamap_file <- file.path(data_root, "datamap_engine.csv")
-  if (file.exists(datamap_file)) {
-    actual_datamap <- read.csv(datamap_file, stringsAsFactors = FALSE)
-  } else {
-    actual_datamap <- data.frame(
-      named_path = character(),
-      absolute_path = character(),
-      date_set = character(),
-      stringsAsFactors = FALSE
-    )
-  }
-  
-  # Update or add the path in actual datamap
-  if (name %in% actual_datamap$named_path) {
-    # Update existing
-    actual_datamap$absolute_path[actual_datamap$named_path == name] <- path
-    actual_datamap$date_set[actual_datamap$named_path == name] <- format(Sys.time(), "%Y-%m-%dT%H:%M:%OS6")
-  } else {
-    # Add new
-    new_actual_row <- data.frame(
-      named_path = name,
-      absolute_path = path,
-      date_set = format(Sys.time(), "%Y-%m-%dT%H:%M:%OS6"),
-      stringsAsFactors = FALSE
-    )
-    actual_datamap <- rbind(actual_datamap, new_actual_row)
-  }
-  
-  # Write updated actual datamap
-  actual_datamap <- actual_datamap[order(actual_datamap$named_path), ]
-  write.csv(actual_datamap, datamap_file, row.names = FALSE)
-  message("✓ Updated datamap_engine.csv (actual)")
-  message(paste0("✓ Path '", name, "' is now available for use with wds()"))
-  invisible(TRUE)
-}
-
-
 ######################       GENERAL HELPER FUNCTIONS     ######################
 
 #' Helper function to safely format datetime columns with NAs
@@ -244,7 +143,7 @@ set_named_path <- function(name, path){
 #' Also handles NAs within the column gracefully - use this to write to CSVs
 #' @param dt_col POSIXct vector that can include NAs
 #' @return Character vector representing YYYY-MM-DD HH:MM:SS
-format_datetime_safe <- function(dt_col, tz = "America/Puerto_Rico") {
+format_datetime_safe <- function(dt_col, tz = PROJECT_TZ) {
   result <- rep(NA_character_, length(dt_col))
   not_na <- !is.na(dt_col)
 

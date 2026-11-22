@@ -303,6 +303,23 @@ test_that("the statuses are written once, in the data layer", {
   expect_equal(nrow(hits), 0, info = paste(paste0(hits$file, ":", hits$line), collapse = ", "))
 })
 
+test_that("the project timezone is written once, in the data layer", {
+  # Typed out in a dozen files it is a dozen chances to mistype it, and a
+  # dozen places to change if the project ever spans another zone. Live code
+  # only: spent migrations and the backfill parser are records, left as run
+  engine <- Sys.getenv("VI_FLO_ENGINE_ROOT")
+  files <- c(list.files(file.path(engine, "code"), pattern = "\\.R$",
+                        full.names = TRUE, recursive = TRUE),
+             list.files(file.path(engine, "tools"), pattern = "\\.R$", full.names = TRUE))
+  hits <- unlist(lapply(files, function(f) {
+    x <- sub("#.*$", "", readLines(f, warn = FALSE))
+    w <- grep("\"America/Puerto_Rico\"", x, fixed = TRUE)
+    w <- w[!grepl("^PROJECT_TZ <-", x[w])]
+    if (length(w)) paste0(basename(f), ":", w)
+  }))
+  expect_length(hits, 0)
+})
+
 test_that("every ZentraCloud call goes through zc_call, and tests cannot reach it", {
   # zc_call() is the one door the test suite closes. A call around it would
   # reach the real account from any machine that holds a key - as the first

@@ -283,7 +283,7 @@ ui_prompt_date <- function(prompt, allow_today = TRUE, allow_quit = TRUE) {
 #' @param timezone Character. Timezone to use (default "America/Puerto_Rico")
 #' @return POSIXct datetime or NULL if quit
 ui_prompt_datetime <- function(prompt, allow_now = TRUE, allow_quit = TRUE, 
-                               timezone = "America/Puerto_Rico") {
+                               timezone = PROJECT_TZ) {
   repeat {
     if (allow_now) {
       cat(prompt, " (YYYY-MM-DD HH:MM:SS)\n")

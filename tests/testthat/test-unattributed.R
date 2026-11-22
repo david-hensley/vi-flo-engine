@@ -254,3 +254,22 @@ test_that("validation catches a known row with no reason, or an archive choice o
   v <- validate_metadata(verbose = FALSE)$violations$KNOWN_UNATTRIBUTED_MALFORMED
   expect_equal(nrow(v$data), 2)
 })
+
+test_that("a known period on one port does not explain an episode on others", {
+  local_test_root()
+  write_table("unexplained", data.frame(
+    device_serial = "z6-13368", ports = "1-4",
+    first = as.POSIXct("2025-01-05", tz = PROJECT_TZ), last = as.POSIXct("2025-01-20", tz = PROJECT_TZ),
+    moments = 100L, variables = "vwc", found_utc = Sys.time(), stringsAsFactors = FALSE), guard = FALSE)
+  k <- table_empty("known_unattributed")
+  row <- data.frame(device_serial = "z6-13368", device_name = "real ZL6", port = 2L,
+                    from = as.POSIXct("2025-01-01", tz = PROJECT_TZ), to = as.POSIXct("2025-02-01", tz = PROJECT_TZ),
+                    reason = "rain gauge being tested", archive = NA, stringsAsFactors = FALSE)
+  write_table("known_unattributed", rbind(k, row[, names(k)]), guard = FALSE)
+  expect_equal(nrow(load_unexplained()), 1)
+  # Explained on every port, it is gone
+  row$port <- NA_integer_
+  write_table("known_unattributed", rbind(k, row[, names(k)]), guard = FALSE)
+  expect_equal(nrow(load_unexplained()), 0)
+  expect_equal(expand_ports("1-4, 6, 8"), c(1L, 2L, 3L, 4L, 6L, 8L))
+})
