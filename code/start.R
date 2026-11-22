@@ -40,6 +40,6 @@ if (exists("print_validation_line")) {
 # The handful of things a session usually starts with. Not a menu - just the
 # spelling, so none of it has to be remembered or typed from scratch.
 cat("  print_network_status()  every station and how it is doing\n")
-cat("  print_network_todo()    what needs attention, by kind of work\n")
+cat("  print_network_todo()    the to-do list - field work, then desk work\n")
 cat("  save_metadata_state()   savepoint before editing\n")
 cat("  revert_metadata_state() undo back to the last savepoint\n\n")

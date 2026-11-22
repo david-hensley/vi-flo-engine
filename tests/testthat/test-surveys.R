@@ -101,17 +101,21 @@ test_that("a secondary with no chain or reach to its primary is listed for both"
                     n$need[n$unique_id == "t-0002"]))
 })
 
-test_that("the network to-do lists a pair that cannot give a slope, and nothing else", {
+test_that("the to-do lists every survey outstanding, a pair's slope included", {
   local_test_root()
-  todo <- get_network_todo()
-  expect_false(any(todo$type == "survey"))
+  todo <- get_network_todo(devices = data.frame(device_id = character(0), name = character(0),
+                                                last_measurement = as.POSIXct(character(0))))
+  sv <- todo[todo$type == "survey", ]
+  # The fixture's sensor heights: bta2a, bta2b, the single gauge, the weather station
+  expect_true(all(c("90000001", "90000002", "21652379", "z6-13368") %in% sv$device))
+  expect_false(any(grepl("no reach|cannot be chained", sv$issue)))
 
   s <- load_surveys()
   write_table("surveys", s[s$quantity != "reach_m", ], guard = FALSE)
-  todo <- get_network_todo()
+  todo <- get_network_todo(devices = data.frame(device_id = character(0), name = character(0),
+                                                last_measurement = as.POSIXct(character(0))))
   sv <- todo[todo$type == "survey", ]
-  expect_equal(nrow(sv), 1)
-  expect_match(sv$issue, "no reach to testa")
+  expect_true(any(sv$issue == "no reach to testa"))
 })
 
 test_that("validation passes the fixture's surveys and catches malformed rows", {

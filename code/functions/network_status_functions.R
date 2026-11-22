@@ -124,17 +124,12 @@ get_network_todo <- function(devices = NULL) {
       if (is.na(last)) next
 
       hours <- as.numeric(difftime(now, last, units = "hours"))
+      # Current deployments only. A retired logger going quiet is what a
+      # retired logger should do, and one VI-FLO has no row for is listed
+      # under NOT IN METADATA
       row <- active[active$device_serial == sn, , drop = FALSE]
-      station <- if (nrow(row) > 0 && !is.na(row$station_id[1])) {
-        row$station_id[1]
-      } else {
-        # A retired logger still reporting - out of service, in a shed, waiting
-        # to be collected - is named by the last station it served
-        past <- meta[meta$device_serial == sn, , drop = FALSE]
-        if (nrow(past) > 0) {
-          paste0(past$station_id[which.max(as.numeric(past$deploy_datetime))], " (retired)")
-        } else "(not in metadata)"
-      }
+      if (nrow(row) == 0 || is.na(row$station_id[1])) next
+      station <- row$station_id[1]
 
       if (hours > 24 * 7) {
         add(station, sn, "high",
@@ -145,11 +140,36 @@ get_network_todo <- function(devices = NULL) {
       }
     }
 
-    #### 2. Reporting, but VI-FLO does not know about it ####
-    unknown <- setdiff(devices$device_id, meta$device_serial)
-    for (sn in unknown) {
-      add("(none)", sn, "medium", "reporting to ZentraCloud but not in metadata",
-          "not established")
+    #### 2. On the ZentraCloud account, but VI-FLO has no row for it ####
+    # Named as ZentraCloud names it - the serial alone means nothing to
+    # anyone - with the serial after, which is what adding it would need
+    known <- known_unattributed_loggers()
+    unknown <- which(!devices$device_id %in% c(meta$device_serial, known))
+    for (i in unknown) {
+      last <- devices$last_measurement[i]
+      when <- if (is.na(last)) "no readings" else {
+        h <- as.numeric(difftime(now, last, units = "hours"))
+        paste0("last reading ", if (h < 48) paste0(round(h), " hours") else
+          paste0(round(h / 24), " days"), " ago")
+      }
+      shown <- zc_display_name(devices, devices$device_id[i])
+      add("(none)", shown, "medium",
+          paste0(if (shown != devices$device_id[i]) paste0(devices$device_id[i], " - ") else "",
+                 "on ZentraCloud, ", when), "not in metadata")
+    }
+  }
+
+  #### 2b. In the archive, but VI-FLO has no row for it ####
+  # Downloaded once - a full-history export, a logger since gone from the
+  # account - and attributed to nothing
+  dl <- tryCatch(load_download_log(), error = function(e) NULL)
+  if (!is.null(dl)) {
+    archived <- setdiff(unique(dl$device_serial[!is.na(dl$device_serial)]),
+                        c(meta$device_serial, if (!is.null(devices)) devices$device_id,
+                          known_unattributed_loggers()))
+    for (sn in sort(archived)) {
+      add("(none)", sn, "low", "in the archive only, no longer on ZentraCloud",
+          "not in metadata")
     }
   }
 
@@ -261,10 +281,14 @@ get_network_todo <- function(devices = NULL) {
 
     # The thing that caused two losses already: a logger running faster than
     # metadata says
+    # The date is worked from what the last file ran at - the cautious
+    # reading - but nothing says the logger still runs at it: it may have
+    # been relaunched at the recorded interval since. So the note says which
+    # the date assumes, and where that came from, and claims no more
     if (basis == "observed" && !is.na(hobo$interval_min[i]) &&
         abs(interval - hobo$interval_min[i]) > 0.001) {
-      note <- paste0(note, ", logging at ", interval, " min not ",
-                     hobo$interval_min[i])
+      note <- paste0(note, ", if still at ", interval, " min as in its last file (",
+                     hobo$interval_min[i], " recorded)")
     } else if (from_deploy) {
       note <- paste0(note, ", never offloaded",
                      if (basis == "declared") " and interval unverified" else "")
@@ -333,27 +357,70 @@ get_network_todo <- function(devices = NULL) {
     }
   }
 
-  #### 8. Paired gauges with no survey ####
-  # Without a fall and a reach, no slope, and without slope no discharge - so
-  # the pair is recording water level that cannot yet be used for the thing it
-  # was installed to measure. Worked out from surveys.csv by survey_needs();
-  # the other things it finds missing - a sensor height at a single gauge -
-  # stop nothing working, and belong in the doctor report rather than here.
-  # Asked of every current row, so a primary marked defunct - still in its
-  # housing, still surveyed - is still found to survey against
+  #### 8. Surveys outstanding ####
+  # Everything each station type needs and its current deployment lacks -
+  # the sensor heights as well as a pair's fall and reach - worked out from
+  # surveys.csv by survey_needs(). Asked of every current row, so a primary
+  # marked defunct, still in its housing, is still found to survey against
   needs <- tryCatch(survey_needs(meta), error = function(e) {
     add("(all)", NA, "error", paste("surveys.csv could not be read:", conditionMessage(e)),
         "survey")
     NULL
   })
   if (!is.null(needs)) {
-    needs <- needs[needs$need %in% c("fall to primary", "reach to primary", "no primary") &
-                     needs$unique_id %in% active$unique_id, , drop = FALSE]
-    for (uid in unique(needs$unique_id)) {
-      n <- needs[needs$unique_id == uid, , drop = FALSE]
-      add(n$station_id[1], active$device_serial[match(uid, active$unique_id)], "low",
-          paste0("no survey - ", paste(n$detail, collapse = "; ")), "survey")
+    needs <- needs[needs$unique_id %in% active$unique_id, , drop = FALSE]
+    for (k in seq_len(nrow(needs))) {
+      add(needs$station_id[k], active$device_serial[match(needs$unique_id[k], active$unique_id)],
+          "low", needs$detail[k], "survey")
     }
+  }
+
+  #### 9. Validation ####
+  # Every problem validate_metadata() finds, each with the rows it is about
+  checked <- tryCatch(validate_metadata(verbose = FALSE), error = function(e) NULL)
+  if (is.null(checked)) {
+    add("(all)", NA, "error", "the metadata could not be validated", "validation")
+  } else {
+    for (nm in names(checked$violations)) {
+      v <- checked$violations[[nm]]
+      detail <- paste0(nm, " - ", v$description)
+      if (is.data.frame(v$data) && nrow(v$data) > 0) {
+        shown <- local({
+          op <- options(width = 400); on.exit(options(op))
+          utils::capture.output(print(utils::head(v$data, 5), row.names = FALSE))
+        })
+        detail <- paste0(detail, "\n", paste0("        ", shown, collapse = "\n"))
+        if (nrow(v$data) > 5) detail <- paste0(detail, "\n        ... and ", nrow(v$data) - 5, " more")
+      }
+      add("", NA, "medium", detail, "validation")
+    }
+  }
+
+  #### 10. Product 2 ####
+  # Station-years that would rebuild, and files on disk the manifest does not
+  # list - left behind by an earlier build, and otherwise seen only when the
+  # next build of that station sweeps them away
+  # A change to the Product 2 code makes every station-year stale at once - a
+  # rebuild, not a hundred separate things to look at - so those are counted
+  # in one line, and only the others listed
+  stale <- tryCatch(p2_stale(), error = function(e) NULL)
+  if (!is.null(stale)) {
+    code <- grepl("code changed", stale$reason)
+    for (k in which(!code)) {
+      add(stale$station_id[k], as.character(stale$year[k]), "low",
+          paste0("stale - ", stale$reason[k]), "product 2")
+    }
+    if (any(code)) {
+      add("(all)", "", "low",
+          paste0(sum(code), " station-year(s) to rebuild because the Product 2 code changed",
+                 " - build_p2_stale()"), "product 2")
+    }
+  }
+  loose <- tryCatch(p2_unlisted_files(), error = function(e) character(0))
+  for (f in loose) {
+    parts <- strsplit(f, "/", fixed = TRUE)[[1]]
+    add(parts[length(parts) - 2], sub("^.*_([0-9]{4})\\.csv\\.gz$", "\\1", f), "low",
+        paste0("file on disk not in the manifest: ", basename(f)), "product 2")
   }
 
   if (length(found) == 0) {
@@ -369,13 +436,44 @@ get_network_todo <- function(devices = NULL) {
   # ordering batteries, planning a field trip to
   # offload a logger - and a single list sorted by urgency buries one kind
   # under another. Severity orders within each group.
-  # Field first, desk after. The first five need somebody to drive somewhere;
-  # the last three are answered from here.
-  out$type <- factor(out$type, levels = c(
-    "reporting", "battery", "memory", "survey", "known broken",
-    "ports", "not established", "metadata review", "error"))
+  # Field first, desk after: the first need somebody to drive somewhere, the
+  # rest are answered from here.
+  out$type <- factor(out$type, levels = c(TODO_FIELD, TODO_DESK, "error"))
 
   out[order(out$type, out$severity, out$station), ]
+}
+
+
+# The to-do's sections, in the order they print: field work, then desk work
+TODO_FIELD <- c("reporting", "battery", "memory", "survey", "known broken")
+TODO_DESK  <- c("ports", "metadata review", "validation", "product 2", "not in metadata")
+
+
+#' Loggers recorded in known_unattributed.csv as wholly unattributed
+#'
+#' A row with no port and no dates covers the whole logger: one VI-FLO knows
+#' about and deliberately attributes to nothing - retired and dropped from
+#' ZentraCloud, or not VI-FLO's at all - so the to-do stops asking about it.
+#'
+#' @return Character serials
+known_unattributed_loggers <- function() {
+  k <- tryCatch(load_known_unattributed(), error = function(e) NULL)
+  if (is.null(k) || nrow(k) == 0) return(character(0))
+  whole <- is.na(k$port) & is.na(k$from) & is.na(k$to)
+  unique(k$device_serial[whole & !is.na(k$device_serial)])
+}
+
+
+#' A ZentraCloud device's name, else its serial
+#'
+#' @param devices Data frame from zc_list_devices(), or NULL
+#' @param serial Character
+#' @return Character
+zc_display_name <- function(devices, serial) {
+  n <- if (!is.null(devices) && "name" %in% names(devices)) {
+    devices$name[match(serial, devices$device_id)]
+  } else NA_character_
+  if (length(n) == 0 || is.na(n) || !nzchar(trimws(n))) serial else trimws(n)
 }
 
 
@@ -393,11 +491,13 @@ print_network_todo <- function(status = NULL, quiet_if_clean = FALSE) {
     "reporting"       = "NOT REPORTING",
     "battery"         = "BATTERY  (as of the last download)",
     "memory"          = "HYDRO LOGGER MEMORY",
-    "survey"          = "SURVEY OUTSTANDING",
+    "survey"          = "SURVEYS OUTSTANDING",
     "known broken"    = "KNOWN BROKEN - NEEDS A VISIT",
     "ports"           = "PORTS NOT CONFIGURED",
-    "not established" = "REPORTING BUT NOT ESTABLISHED",
-    "metadata review" = "METADATA REVIEW")
+    "metadata review" = "METADATA REVIEW",
+    "validation"      = "VALIDATION",
+    "product 2"       = "PRODUCT 2",
+    "not in metadata" = "NOT IN METADATA")
 
   # Every section prints, empty or not. A heading that disappears when there is
   # nothing under it leaves the reader to notice an absence, which nobody does;
@@ -406,51 +506,67 @@ print_network_todo <- function(status = NULL, quiet_if_clean = FALSE) {
     "reporting"       = "all reporting devices have been heard from",
     "battery"         = "no low batteries",
     "memory"          = "no logger fills within 60 days",
-    "survey"          = "every paired gauge is surveyed",
+    "survey"          = "nothing waiting to be surveyed",
     "known broken"    = "nothing known broken in the field",
     "ports"           = "every device has its ports configured",
-    "not established" = "nothing reporting that is not in metadata",
-    "metadata review" = "every record reviewed recently")
+    "metadata review" = "every record reviewed recently",
+    "validation"      = "metadata valid",
+    "product 2"       = "up to date, and every file in the manifest",
+    "not in metadata" = "every logger has a metadata row")
 
   if (nrow(status) == 0 && quiet_if_clean) return(invisible(TRUE))
 
-  n <- nrow(status)
+  errs <- status[status$type == "error", , drop = FALSE]
+  work <- status[status$type != "error", , drop = FALSE]
+  n <- nrow(work)
   cat("\n============================================\n")
   if (n == 0) {
-    cat("  Network - nothing needs attention\n")
+    cat("  To-do - nothing needs attention\n")
   } else {
-    cat("  Network - ", n, " thing(s) worth a look\n", sep = "")
+    cat("  To-do - ", n, " thing(s) worth a look\n", sep = "")
   }
   cat("============================================\n")
 
-  for (ty in names(headings)) {
-    rows <- if (n > 0) status[status$type == ty, , drop = FALSE] else status[0, ]
+  box <- function(title) {
+    cat("\n+------------------------------------------+\n")
+    cat("|  ", format(title, width = 40), "|\n", sep = "")
+    cat("+------------------------------------------+\n")
+  }
 
-    cat("\n", headings[[ty]], "\n", sep = "")
-
-    if (nrow(rows) == 0) {
-      cat("   \u2713 ", clear[[ty]], "\n", sep = "")
-      next
-    }
-
-    for (i in seq_len(nrow(rows))) {
-      mark <- switch(as.character(rows$severity[i]),
-                     high = "!", medium = " ", low = " ", "?")
-      cat(" ", mark, " ", format(rows$station[i], width = 14),
-          format(todo_device_name(rows$station[i], rows$device[i], meta), width = 20),
-          rows$issue[i], "\n", sep = "")
+  for (half in list(list("FIELD", TODO_FIELD), list("DESK", TODO_DESK))) {
+    box(half[[1]])
+    for (ty in half[[2]]) {
+      rows <- work[work$type == ty, , drop = FALSE]
+      cat("\n", headings[[ty]], "\n", sep = "")
+      if (nrow(rows) == 0) {
+        cat("   \u2713 ", clear[[ty]], "\n", sep = "")
+        next
+      }
+      for (i in seq_len(nrow(rows))) {
+        mark <- switch(as.character(rows$severity[i]),
+                       high = "!", medium = " ", low = " ", "?")
+        if (ty == "validation") {
+          # A check by name, its rows beneath
+          cat(" ", mark, " ", rows$issue[i], "\n", sep = "")
+          next
+        }
+        dev <- if (ty %in% c("product 2", "not in metadata")) rows$device[i]
+               else todo_device_name(rows$station[i], rows$device[i], meta)
+        if (nchar(dev) > 19) dev <- paste0(substr(dev, 1, 18), "\u2026")
+        cat(" ", mark, " ", format(rows$station[i], width = 14),
+            format(dev, width = 20), rows$issue[i], "\n", sep = "")
+      }
     }
   }
 
-  if (n > 0) {
-    errs <- status[status$type == "error", , drop = FALSE]
-    if (nrow(errs) > 0) {
-      cat("\nCOULD NOT CHECK\n")
-      for (i in seq_len(nrow(errs))) cat(" ! ", errs$issue[i], "\n", sep = "")
-    }
-    n_high <- sum(status$severity == "high")
-    if (n_high > 0) cat("\n  ! marks the ", n_high, " most urgent\n", sep = "")
+  if (nrow(errs) > 0) {
+    cat("\nCOULD NOT CHECK\n")
+    for (i in seq_len(nrow(errs))) cat(" ! ", errs$issue[i], "\n", sep = "")
   }
+
+  n_high <- sum(work$severity == "high", na.rm = TRUE)
+  if (n_high > 0) cat("\n  ! marks the ", n_high, " most urgent\n", sep = "")
+
   cat("\n  print_network_status() for every station, not only these\n\n")
 
   invisible(TRUE)

@@ -47,9 +47,54 @@ test_that("the to-do list names devices too", {
   todo <- data.frame(station = "bta2_hydro", device = "90000002", severity = "low",
                      issue = "no survey", type = "survey", stringsAsFactors = FALSE)
   todo$severity <- factor(todo$severity, levels = c("high", "medium", "low", "error"))
-  todo$type <- factor(todo$type, levels = c("reporting", "battery", "memory", "survey",
-                                            "known broken", "ports", "not established", "metadata review"))
+  todo$type <- factor(todo$type, levels = c(TODO_FIELD, TODO_DESK, "error"))
   out <- utils::capture.output(print_network_todo(todo))
   expect_true(any(grepl("testb", out)))
   expect_false(any(grepl("90000002", out)))
+})
+
+test_that("the to-do prints field and desk in boxes, every section, names for unknown loggers", {
+  local_test_root()
+  devices <- data.frame(device_id = c("z6-13368", "z6-77001"), name = c("real ZL6", "near southeast"),
+                        last_measurement = as.POSIXct(c("2026-11-20 10:00", "2026-11-21 10:00"), tz = "UTC"),
+                        stringsAsFactors = FALSE)
+  todo <- get_network_todo(devices = devices)
+  out <- utils::capture.output(print_network_todo(todo))
+  expect_true(which(grepl("\\|  FIELD", out)) < which(grepl("\\|  DESK", out)))
+  for (h in c("NOT REPORTING", "SURVEYS OUTSTANDING", "VALIDATION", "PRODUCT 2", "NOT IN METADATA")) {
+    expect_true(any(out == h), info = h)
+  }
+  # A logger VI-FLO has no row for, by its ZentraCloud name and its serial
+  line <- out[grepl("near southeast", out)]
+  expect_length(line, 1)
+  expect_match(line, "z6-77001 - on ZentraCloud")
+})
+
+test_that("a retired logger going quiet is not listed as not reporting", {
+  local_test_root()
+  # 21180078 is t-0008, removed; ZentraCloud still lists it, silent for weeks
+  devices <- data.frame(device_id = "21180078", name = "old", stringsAsFactors = FALSE,
+                        last_measurement = as.POSIXct("2026-01-01 10:00", tz = "UTC"))
+  todo <- get_network_todo(devices = devices)
+  expect_false(any(todo$type == "reporting"))
+})
+
+test_that("a Product 2 file the manifest does not list is found", {
+  local_test_root()
+  dir <- file.path(wds("products"), "p2", "hydro", "zzb_hydro", "water_level")
+  dir.create(dir, recursive = TRUE)
+  writeLines("x", gzfile(file.path(dir, "zzb_hydro_water_level_p2_2024.csv.gz")))
+  expect_true(any(grepl("zzb_hydro_water_level_p2_2024.csv.gz", p2_unlisted_files())))
+})
+
+test_that("a logger recorded as wholly unattributed is not asked about", {
+  local_test_root()
+  write_table("known_unattributed", data.frame(
+    device_serial = "z6-77001", device_name = "near southeast", port = NA_integer_,
+    from = as.POSIXct(NA), to = as.POSIXct(NA), reason = "not VI-FLO's",
+    stringsAsFactors = FALSE), guard = FALSE)
+  devices <- data.frame(device_id = "z6-77001", name = "near southeast", stringsAsFactors = FALSE,
+                        last_measurement = as.POSIXct("2026-11-21 10:00", tz = "UTC"))
+  todo <- get_network_todo(devices = devices)
+  expect_false(any(todo$type == "not in metadata" & grepl("z6-77001", todo$issue)))
 })

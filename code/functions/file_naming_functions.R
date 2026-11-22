@@ -527,6 +527,25 @@ list_product_files <- function(product, station = NULL, variable = NULL,
   files[keep]
 }
 
+#' Product 2 files on disk that the manifest does not list
+#'
+#' Here rather than in product2_functions.R, whose every change makes Product 2
+#' rebuild everything; listing files changes nothing it builds.
+#'
+#' Left behind by an earlier build - a variable since dropped, a station-year
+#' since unmade - and otherwise seen only when the next build of that station
+#' sweeps them away.
+#'
+#' @return Character paths, relative to the products folder
+p2_unlisted_files <- function() {
+  files <- list_product_files(2)
+  if (length(files) == 0) return(character(0))
+  rel <- sub(paste0("^", wds("products"), "/?"), "", files)
+  m <- read_manifest(2)
+  if (is.null(m) || !"file" %in% names(m)) return(rel)
+  rel[!rel %in% m$file]
+}
+
 #' Where a discrete measurement file lives
 #'
 #' Parallel to product_path(), because a gauging measures the same quantity

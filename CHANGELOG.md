@@ -94,6 +94,26 @@ All notable changes to the VI-FLO Engine project are documented here.
   message. Neither ever holds anything back
 
 ### Changed
+- **The to-do list is the one list of what needs attention, field work then
+  desk work**, each half in its own box. Field: not reporting, battery, HOBO
+  memory, surveys outstanding, known broken. Desk: ports not configured,
+  metadata review, and three sections new to it - VALIDATION, every problem
+  `validate_metadata()` finds with the rows it is about; PRODUCT 2,
+  station-years that would rebuild and files on disk the manifest does not
+  list (`p2_unlisted_files()`); and NOT IN METADATA, loggers on the
+  ZentraCloud account or in the archive that VI-FLO has no row for, shown by
+  their ZentraCloud name with the serial after - except any recorded in
+  `known_unattributed.csv` as wholly unattributed. Station-years stale only
+  because the Product 2 code changed are counted in one line rather than
+  listed one by one. SURVEYS OUTSTANDING now lists
+  every survey a current deployment lacks, sensor heights included, not only
+  a pair that cannot give a slope
+- **A retired logger going quiet is no longer listed as not reporting.**
+  Silence is what a retired logger should do
+- **The HOBO memory note says what its fill date assumes.** A logger whose
+  last file ran faster than recorded reads "fills 28 Dec 2026 - 36 days, if
+  still at 10 min as in its last file (15 recorded)": the cautious date,
+  without claiming the logger is still set that way
 - **The network status keeps the cloud's date and the archive's apart.**
   "contact" is now "cloud contact" - the newest reading ZentraCloud holds -
   and "data to" is "archived to" - the newest reading downloaded into the
