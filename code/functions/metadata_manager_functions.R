@@ -5488,7 +5488,7 @@ ui_correct_device_details <- function() {
     for (i in seq_along(editable)) {
       value <- metadata[[editable[i]]][idx]
       display <- show(value)
-      cat("  ", i, ". ", format(editable[i], width = 14), " ", display, "\n", sep = "")
+      cat("  ", i, ". ", format(editable[i], width = max(nchar(editable))), " ", display, "\n", sep = "")
     }
     cat("  q. Done\n\n")
     cat("Which field to correct? ")
@@ -5543,17 +5543,10 @@ ui_correct_device_details <- function() {
       cat("decommissioned station' instead - that is an event, not a\n")
       cat("correction.\n\n")
 
-      new_value <- ui_select_or_specify("Select the correct status:",
-                                        terminal_statuses)
+      # From the list only: a typed status would be one nothing knows
+      new_value <- ui_select_from_menu("Select the correct status:",
+                                       setdiff(terminal_statuses, tolower(current)))
       if (is.null(new_value)) next
-
-      if (!tolower(new_value) %in% terminal_statuses) {
-        cat("\n\u274c '", new_value, "' is not a terminal status. This workflow\n",
-            sep = "")
-        cat("   corrects one terminal value for another; it cannot return a\n")
-        cat("   device to service.\n")
-        next
-      }
 
     } else if (field == "elev") {
       # Offer a lookup rather than only accepting a typed number - the
@@ -5599,8 +5592,12 @@ ui_correct_device_details <- function() {
       cat("\nOnly for correcting a coordinate recorded wrongly.\n")
       cat("If the device MOVED, cancel and use relocation or replacement\n")
       cat("instead, so the move is recorded in the maintenance log.\n\n")
-      cat("Enter new ", field, " (decimal degrees): ", sep = "")
+      cat("Enter new ", field, " (decimal degrees, Enter to leave it): ", sep = "")
       input <- trimws(readline())
+      if (input == "" || tolower(input) == "q") {
+        cat("Not changed\n")
+        next
+      }
       new_value <- suppressWarnings(as.numeric(input))
       if (is.na(new_value)) {
         cat("Invalid - must be a number in decimal degrees\n")
@@ -5669,6 +5666,8 @@ ui_correct_device_details <- function() {
       shares <- "are one paired gauge, which carries one elevation"
     }
     uid <- metadata$unique_id[idx]
+    # Named as it was, before the correction - a rename's entry names the old
+    who <- device_label(metadata[idx, ])
 
     #### Write: the value, the ports that follow it, and the log entry ####
     # One change, so a correction is never half-applied or left unlogged
@@ -5698,7 +5697,8 @@ ui_correct_device_details <- function() {
         station_id       = station_id,
         unique_id        = uid,
         action_type      = if (field == "device_name") "device_renamed" else "metadata_correction",
-        details          = paste0(field, ": ", show(current), " \u2192 ", show(new_value),
+        details          = paste0(field, " of ", who, ": ",
+                                  show(current), " \u2192 ", show(new_value),
                                   if (length(rows) > 1) paste0(" (", length(rows), " rows)"),
                                   if (moved_ports > 0) paste0("; ", moved_ports, " port row",
                                                               if (moved_ports != 1) "s", " moved with it")),
@@ -5727,8 +5727,17 @@ ui_correct_device_details <- function() {
     }
     cat("Logged to maintenance\n")
 
-    # Coordinates changed means the elevation describes somewhere else
-    if (field %in% c("lat", "lon")) {
+    # Coordinates changed means the elevation describes somewhere else - but
+    # a paired gauge carries its primary's elevation on every logger, so a
+    # secondary's corrected position changes nothing about it
+    metadata <- load_zentra_metadata()
+    paired_secondary <- length(elevation_shared_with(metadata$unique_id[idx], metadata)) > 1 &&
+      !identical(tolower(metadata$device_role[idx]), "primary")
+    if (field %in% c("lat", "lon") && paired_secondary) {
+      cat("\nThis is a paired gauge, which carries its primary's elevation -\n")
+      cat("correct the primary's position to look it up again.\n")
+    }
+    if (field %in% c("lat", "lon") && !paired_secondary) {
       cat("\nThe elevation on record was looked up for the old coordinates.\n")
       cat("If you still have the other coordinate to correct, say no and do\n")
       cat("the lookup once both are right.\n")
@@ -5750,7 +5759,8 @@ ui_correct_device_details <- function() {
             field_visit_date = local_date(Sys.time()),
             station_id = station_id, unique_id = uid,
             action_type = "metadata_correction",
-            details = paste0("elev: ", show(old_elev), " \u2192 ", show(res$elev),
+            details = paste0("elev of ", who, ": ",
+                             show(old_elev), " \u2192 ", show(res$elev),
                              " after a coordinate correction"),
             logged_by = logged_by)
         }), error = function(e) conditionMessage(e))

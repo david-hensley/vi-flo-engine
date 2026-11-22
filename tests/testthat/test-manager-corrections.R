@@ -61,7 +61,7 @@ test_that("correcting a deploy time moves the ports that began with it, and logs
   entry <- log[nrow(log), ]
   expect_equal(entry$action_type, "metadata_correction")
   expect_equal(entry$unique_id, "t-0011")
-  expect_match(entry$details, "deploy_datetime: 2026-01-01 12:00:00 → 2025-12-31 09:00:00",
+  expect_match(entry$details, "deploy_datetime of real vwc ZL6 (z6-38175): 2026-01-01 12:00:00 → 2025-12-31 09:00:00",
                fixed = TRUE)
   expect_match(entry$details, "4 port rows moved with it", fixed = TRUE)
   expect_equal(entry$logged_by, "DAH")
@@ -81,7 +81,7 @@ test_that("a logging interval corrected on a shared ZL6 changes both rows and is
 
   log <- read_log()
   expect_equal(nrow(log), n_before + 1)
-  expect_match(log$details[nrow(log)], "interval_min: 15 → 5 (2 rows)", fixed = TRUE)
+  expect_match(log$details[nrow(log)], "interval_min of Test weather (z6-90001): 15 → 5 (2 rows)", fixed = TRUE)
 })
 
 test_that("a deploy time corrected to after the device came out is refused before saving", {
@@ -190,4 +190,62 @@ test_that("a relaunch rename of a logger never named is saved, not stopped by th
   expect_false(is.null(run$value))
   expect_equal(meta_row("t-0004")$device_name, "srl1")
   expect_match(read_log()$details[nrow(read_log())], "Renamed from '(blank)' to 'srl1'", fixed = TRUE)
+})
+
+test_that("4a: a name corrected on a shared ZL6 renames both rows, logged once as a rename", {
+  local_test_root()
+  n_before <- nrow(read_log())
+  answers <- c(station_choice("uvi_weather"), "2", "UVI Campus Weather 2", "Y", "1", "q")
+  run <- with_inputs(answers, ui_correct_device_details())
+  expect_equal(meta_row("t-0005")$device_name, "UVI Campus Weather 2")
+  expect_equal(meta_row("t-0006")$device_name, "UVI Campus Weather 2")
+  log <- read_log()
+  expect_equal(nrow(log), n_before + 1)
+  e <- log[nrow(log), ]
+  expect_equal(c(e$action_type, e$station_id), c("device_renamed", "uvi_weather"))
+  expect_equal(e$details, "device_name of Test weather (z6-90001): Test weather → UVI Campus Weather 2 (2 rows)")
+  expect_match(paste(run$output, collapse = "\n"), "  5. deploy_datetime 2021", fixed = TRUE)
+})
+
+test_that("4b: a primary's corrected coordinate looks up the elevation again for the whole pair", {
+  local_test_root()
+  n_before <- nrow(read_log())
+  answers <- c(station_choice("bta2_hydro"), "1",   # testa, the primary
+               "6", "17.7170", "Y", "1",            # latitude, applied, DAH
+               "Y", "18.2", "1",                    # look up again: offline, so typed
+               "q")
+  run <- with_inputs(answers, ui_correct_device_details())
+  expect_equal(meta_row("t-0001")$lat, 17.717)
+  expect_equal(meta_row("t-0002")$lat, 17.7169)          # the secondary's own, untouched
+  expect_equal(c(meta_row("t-0001")$elev, meta_row("t-0002")$elev), c(18.2, 18.2))
+  expect_equal(meta_row("t-0002")$elev_source, "dem_manual")
+  log <- read_log()
+  expect_equal(nrow(log), n_before + 2)
+  expect_match(log$details[n_before + 1], "lat of testa (90000001): 17.7169 → 17.717", fixed = TRUE)
+  expect_match(log$details[n_before + 2], "elev of testa (90000001): 17.54 → 18.2 after a coordinate correction", fixed = TRUE)
+})
+
+test_that("a secondary's corrected coordinate leaves the pair's elevation alone", {
+  local_test_root()
+  answers <- c(station_choice("bta2_hydro"), "2", "6", "17.7170", "Y", "1", "q")
+  run <- with_inputs(answers, ui_correct_device_details())
+  expect_match(paste(run$output, collapse = "\n"), "carries its primary's elevation", fixed = TRUE)
+  expect_equal(meta_row("t-0002")$lat, 17.717)
+  expect_equal(meta_row("t-0002")$elev, 17.54)
+})
+
+test_that("4c: a retired device's wrong terminal status is corrected from the list, and logged", {
+  local_test_root()
+  answers <- c(station_choice("zzs_hydro"),
+               "10",                         # status, after end_datetime
+               "2",                          # relocated - removed, being current, is not offered
+               "Y", "1", "q")
+  run <- with_inputs(answers, ui_correct_device_details())
+  out <- paste(run$output, collapse = "\n")
+  expect_match(out, "Select the correct status:\n  1. replaced\n  2. relocated\n  3. decommissioned", fixed = TRUE)
+  expect_equal(meta_row("t-0008")$status, "relocated")
+  e <- read_log()
+  e <- e[nrow(e), ]
+  expect_equal(c(e$action_type, e$unique_id), c("metadata_correction", "t-0008"))
+  expect_match(e$details, "status of real HOBOlink (21180078): removed → relocated", fixed = TRUE)
 })

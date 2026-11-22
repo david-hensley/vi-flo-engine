@@ -237,6 +237,11 @@ All notable changes to the VI-FLO Engine project are documented here.
   device is never recorded without the entry saying when and why it
   arrived. The entry names the device. First end-to-end test of
   establishing a station
+- Correction entries name the device - "lat of bta2a (22357376): ..." - so
+  two at a station of several loggers can be told apart; a rename's names
+  it as it was. A corrected terminal status is chosen from the list, without
+  the current one, rather than typed and then refused. Enter at a
+  coordinate leaves it unchanged
 - **Every correction is logged.** *Correct device details* logged only a
   rename and a corrected terminal status; a corrected deploy time, interval,
   coordinate or elevation changed the record with nothing to say it had. Each
@@ -638,7 +643,8 @@ All notable changes to the VI-FLO Engine project are documented here.
   The lookup offered after correcting a latitude or longitude set the
   elevation on the chosen row alone, which validation then refuses at a
   paired gauge. It now sets every logger that shares the elevation, and logs
-  it
+  it - and is offered only for the primary, whose position the pair's
+  elevation describes. A secondary's corrected coordinate leaves it alone
 - **Removal accepted a time before the device went in**, or in the future.
   It now asks again, as decommissioning does
 - **Replacement and reactivation were logged on the day they were entered**,
