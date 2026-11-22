@@ -91,7 +91,10 @@ test_that("the summary puts the last 12 months first, newest first, with names a
   older <- grep("older", printed)
   expect_true(unexplained < known)
   expect_true(recent[1] < older[1] && older[1] < known)        # within unexplained: recent, then older
-  expect_true(any(grepl("real ZL6 \\(z6-13368\\).*port 2.*retired port 2", printed)))
+  # A known period is counted, not listed: its explanation is in the file
+  expect_true(any(grepl("KNOWN - 1 period(s), 1 moments, as recorded in known_unattributed.csv",
+                        printed, fixed = TRUE)))
+  expect_false(any(grepl("retired port 2", printed)))
 })
 
 test_that("a logger's ports in one story are one episode, listed compactly", {

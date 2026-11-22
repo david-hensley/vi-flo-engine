@@ -300,32 +300,20 @@ print_unattributed <- function(ep, metadata, known, now = Sys.time()) {
                 ep$variables[i]))
   })
 
-  #### Known ####
+  #### Known, and around installations: one line each ####
+  # Neither asks anything. A known period is already explained, in the file
+  # that explains it; readings in the days before a deployment, or in its
+  # first hours, are an installation settling in, set aside by design. Listed
+  # in full they buried the unexplained beneath them on every build
   sel <- ep$category == "known"
   if (any(sel)) {
-    cat("\n  KNOWN - metadata/internal/known_unattributed.csv\n")
-    periods(sel, function(i) {
-      k <- known[as.integer(sub("^known:", "", ep$episode[i])), ]
-      cat(sprintf("      %-30s %-13s %s to %s  %8s moments  %s\n", who(i), port_of(i),
-                  d(ep$first[i]), d(ep$last[i]), format(ep$moments[i], big.mark = ","),
-                  k$reason))
-    })
+    cat(sprintf("\n  KNOWN - %d period(s), %s moments, as recorded in known_unattributed.csv\n",
+                length(unique(ep$episode[sel])), format(sum(ep$moments[sel]), big.mark = ",")))
   }
-
-  #### Around installations: one line per period ####
   sel <- ep$category == "installation"
   if (any(sel)) {
-    cat("\n  AROUND INSTALLATIONS - up to 7 days before a deployment, or its first 24 hours\n")
-    for (when in c("last 12 months", "older")) {
-      rows <- which(sel & if (when == "last 12 months") recent else !recent)
-      if (length(rows) == 0) next
-      names <- unique(vapply(rows, function(i) paste0(device_short_name(ep$device_serial[i], metadata),
-                                                      " ", format(ep$last[i], "%b %Y", tz = tz)),
-                             character(1)))
-      cat(sprintf("    %-15s %s moments around %d installation(s): %s\n", when,
-                  format(sum(ep$moments[rows]), big.mark = ","), length(unique(ep$episode[rows])),
-                  paste(names, collapse = ", ")))
-    }
+    cat(sprintf("  AROUND INSTALLATIONS - %s moments around %d installation(s), set aside as settling in\n",
+                format(sum(ep$moments[sel]), big.mark = ","), length(unique(ep$episode[sel]))))
   }
   invisible(NULL)
 }

@@ -1,0 +1,35 @@
+# The VI-FLO Engine test suite, run on every push, on a clean machine.
+#
+# Every test builds its own throwaway data root from the fixtures in
+# tests/testthat/fixtures, so no real data is needed here and none is reached.
+# A failing test marks the commit with a red cross on GitHub, and GitHub
+# emails the person who pushed it.
+#
+# This file is configuration, not code: everything it runs is
+# tests/run_tests.R, the same suite run by hand after start.R.
+
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get the engine
+        uses: actions/checkout@v4
+
+      - name: Install R
+        uses: r-lib/actions/setup-r@v2
+        with:
+          use-public-rspm: true
+
+      - name: Install the packages the tests need
+        run: Rscript -e 'install.packages(c("testthat", "withr", "jsonlite"))'
+
+      - name: Run the test suite
+        env:
+          VI_FLO_ENGINE_ROOT: ${{ github.workspace }}
+        run: Rscript tests/run_tests.R

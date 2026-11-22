@@ -69,6 +69,12 @@ All notable changes to the VI-FLO Engine project are documented here.
   checking every value is in `surveys.csv`, and gives each secondary its
   primary's elevation in place of the primary's-plus-a-fall
 
+- **The test suite runs on GitHub on every push** -
+  `.github/workflows/tests.yml`, on a clean Linux machine with only the
+  fixtures, so it catches a step where the tests were not run by hand, and
+  anything that works only on one machine. A failure marks the commit with a
+  red cross and emails whoever pushed it. `tests/run_tests.R` now ends in a
+  failing exit status when run as a script and a test fails
 - **Every save is checked before it is made.** A save to a table a person
   writes - the device table, ports, surveys, the maintenance log, pending
   tasks - runs `validate_metadata()` on the table as it would be, and is
@@ -104,6 +110,12 @@ All notable changes to the VI-FLO Engine project are documented here.
   not count. `p2_code_changed_since()` and `P2_CODE_PATHS` are gone. The
   first check after this finds every station-year stale once, since none has
   a fingerprint yet
+- **The build's unattributed report lists only what is unexplained.** Known
+  periods - already explained in `known_unattributed.csv` - and readings
+  around installations - a deployment settling in, set aside by design - are
+  one line each, counted, rather than listed in full on every build. The
+  report itself is left out of the code fingerprint (`P2_NOT_OUTPUT`): how it
+  reads decides nothing a build writes
 - **A station-year built and found empty is recorded.** One with no readings
   attributed to it - fb2_vwc1 in 2025 and 2026 - left no trace in the
   manifest, so it read as "not built yet" for ever. It now gets a manifest

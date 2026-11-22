@@ -103,6 +103,12 @@ test_that("only a change to the code a build runs counts as the code changing", 
   assign("print_network_todo", function(...) "changed", envir = globalenv())
   expect_false("zzb_hydro" %in% p2_stale()$station_id)
 
+  # How the build's report reads: nothing to rebuild either
+  old_rep <- get("print_p2_report", envir = globalenv())
+  withr::defer(assign("print_p2_report", old_rep, envir = globalenv()))
+  assign("print_p2_report", function(...) cat("said differently\n"), envir = globalenv())
+  expect_false("zzb_hydro" %in% p2_stale()$station_id)
+
   # Something in the session that merely shares a local variable's name
   assign("files", "a session's own object", envir = globalenv())
   withr::defer(rm("files", envir = globalenv()))

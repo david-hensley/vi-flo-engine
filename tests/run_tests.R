@@ -1,7 +1,8 @@
 ################################################################################
 # run_tests.R - the VI-FLO Engine test suite
 #
-# Run by hand before calling a change good, after start.R:
+# Run by hand before calling a change good, after start.R - and by GitHub on
+# every push, through .github/workflows/tests.yml:
 #
 #   source(file.path(Sys.getenv("VI_FLO_ENGINE_ROOT"), "tests/run_tests.R"))
 #
@@ -65,6 +66,10 @@ local({
         nrow(df), " tests\n", sep = "")
   } else {
     cat("\u274c ", failed, " test(s) failed - see above\n", sep = "")
+    # Run as a script - by GitHub, on every push - a failure has to end in a
+    # failing exit status, or the run is marked as passing. Sourced in a
+    # session, it only reports
+    if (!interactive()) quit(save = "no", status = 1)
   }
   invisible(results)
 })

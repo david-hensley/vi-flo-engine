@@ -39,7 +39,7 @@ test_that("the build summary puts a desk launch under installations, by name", {
   write.csv(m, path, row.names = FALSE)
   printed <- utils::capture.output(build_p2("zzb_hydro", 2026))
   expect_true(any(grepl("AROUND INSTALLATIONS", printed, fixed = TRUE)))
-  expect_true(any(grepl("real U20 Aug 2026", printed, fixed = TRUE)))
+  expect_true(any(grepl("around 1 installation(s), set aside as settling in", printed, fixed = TRUE)))
   expect_true(any(grepl("UNEXPLAINED", printed, fixed = TRUE)))
   expect_true(any(grepl("none", printed, fixed = TRUE)))
 })

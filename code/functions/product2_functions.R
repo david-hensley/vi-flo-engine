@@ -1470,6 +1470,9 @@ print_p2_report <- function(out, u, unlogged, metadata, windows) {
 # Fingerprinted by meaning - comments and layout do not count - so an edit
 # that changes nothing Product 2 does changes nothing here.
 P2_ENTRY_POINTS <- c("build_p2")
+# Reached from a build, but deciding nothing it writes: the report printed at
+# the end. Changing how it reads rebuilds nothing
+P2_NOT_OUTPUT <- c("print_p2_report")
 P2_DATA_FILES <- c("data/variables.csv")
 
 #' Everything a Product 2 build runs, by name
@@ -1485,7 +1488,8 @@ p2_code_reached <- function() {
     nm <- todo[1]; todo <- todo[-1]
     # Only what the engine's own files define: an object a session happens to
     # hold under a local variable's name - `m`, `files` - is no part of it
-    if (nm %in% seen || !nm %in% ours || !exists(nm, envir = env, inherits = FALSE)) next
+    if (nm %in% seen || nm %in% P2_NOT_OUTPUT || !nm %in% ours ||
+        !exists(nm, envir = env, inherits = FALSE)) next
     seen <- c(seen, nm)
     obj <- get(nm, envir = env, inherits = FALSE)
     if (is.function(obj)) {
