@@ -956,6 +956,9 @@ engine_commit <- function() {
 # The device_metadata columns that decide Product 2: which logger was where,
 # from when to when. Battery, download dates, elevation, roles and names do
 # not change what is built, so changing them changes no fingerprint.
+# The manifest's variable for a station-year built and found empty
+P2_NOTHING <- "(nothing)"
+
 P2_METADATA_COLUMNS <- c("unique_id", "station_id", "station_type", "device_serial",
                          "deploy_datetime", "end_datetime", "status", "timezone")
 
@@ -1235,6 +1238,7 @@ build_p2 <- function(stations = NULL, years = NULL, quiet = FALSE, print_report 
   # Never on code that is not a commit - except in the test suite's throwaway
   # data roots, which are never products
   eng <- engine_commit()
+  code_fp <- p2_code_fingerprint()
   if (!is.na(eng$problem)) {
     if (!isTRUE(getOption("viflo.test_build"))) {
       stop("Not building Product 2: ", eng$problem, call. = FALSE)
@@ -1320,6 +1324,7 @@ build_p2 <- function(stations = NULL, years = NULL, quiet = FALSE, print_report 
             inputs       = paste(sort(basename(files)), collapse = "; "),
             metadata_fingerprint = fp$metadata, ports_fingerprint = fp$ports,
             engine       = eng$commit,
+            code_fingerprint = code_fp,
             built_utc    = format(Sys.time(), "%Y-%m-%d %H:%M:%S", tz = "UTC"),
             stringsAsFactors = FALSE)
           row[] <- lapply(row, as.character)
@@ -1349,6 +1354,30 @@ build_p2 <- function(stations = NULL, years = NULL, quiet = FALSE, print_report 
           rel <- sub(paste0("^", wds("products"), "/?"), "", stale)
           manifest <- manifest[!manifest$file %in% rel, , drop = FALSE]
         }
+      }
+
+      #### A build that found nothing records that it looked ####
+      # Without a row, a station-year with no readings attributed reads as
+      # "not built yet" forever. With one, it is current - fingerprinted like
+      # any other build - until its inputs change: new readings, a corrected
+      # port, different code. A gap stays a gap, and nobody has to declare it
+      if (!is.null(manifest)) {
+        manifest <- manifest[!(manifest$station_id == st & manifest$year == as.character(yr) &
+                                 manifest$variable == P2_NOTHING), , drop = FALSE]
+      }
+      # Only for a year the station should have: building a year it no
+      # longer has is how its old files are removed, and leaves no row
+      if (length(written) == 0 && yr %in% p2_years_for(st, windows)) {
+        empty <- data.frame(
+          station_id = st, variable = P2_NOTHING, year = as.character(yr), file = "",
+          rows = "0", problems = if (length(files) == 0) "no Product 1 files for this year"
+                                 else "no readings attributed to this station this year",
+          inputs = paste(sort(basename(files)), collapse = "; "),
+          metadata_fingerprint = fp$metadata, ports_fingerprint = fp$ports,
+          engine = eng$commit, code_fingerprint = code_fp,
+          built_utc = format(Sys.time(), "%Y-%m-%d %H:%M:%S", tz = "UTC"),
+          stringsAsFactors = FALSE)
+        manifest <- bind_manifest(manifest, empty)
       }
 
       if (!quiet) {
@@ -1433,25 +1462,76 @@ print_p2_report <- function(out, u, unlogged, metadata, windows) {
 
 #### Keeping Product 2 up to date ####
 
-# What Product 2 is made by: a change here between a file's commit and now
-# means the file may no longer be what the engine would make. Docs are not
-# here - a README edit rebuilds nothing.
-P2_CODE_PATHS <- c("code/functions", "data/variables.csv")
+# What Product 2 is made by. Not every file in code/functions - a change to
+# the network status or the metadata manager builds nothing differently, and
+# counting it rebuilt every station-year for hours. Instead, exactly the code
+# a build runs: build_p2() and every function and value it reaches, followed
+# through their bodies, wherever they are defined, plus the variable registry.
+# Fingerprinted by meaning - comments and layout do not count - so an edit
+# that changes nothing Product 2 does changes nothing here.
+P2_ENTRY_POINTS <- c("build_p2")
+P2_DATA_FILES <- c("data/variables.csv")
 
-#' Whether the engine's Product 2 code changed after a commit
+#' Everything a Product 2 build runs, by name
 #'
-#' @param commit Character, a short hash from the manifest
-#' @return TRUE, FALSE, or NA where git cannot tell
-p2_code_changed_since <- function(commit) {
-  if (is.na(commit) || !nzchar(commit) || !exists("git_run")) return(NA)
-  repo <- Sys.getenv("VI_FLO_ENGINE_ROOT")
-  head <- git_run(c("rev-parse", "--short", "HEAD"), repo)
-  if (is.null(head)) return(NA)
-  if (identical(trimws(head[1]), commit)) return(FALSE)
-  known <- git_run(c("cat-file", "-e", paste0(commit, "^{commit}")), repo)
-  if (is.null(known)) return(TRUE)                 # a commit this repo has never seen
-  diff <- git_run(c("diff", "--name-only", commit, "HEAD", "--", P2_CODE_PATHS), repo)
-  !is.null(diff) && length(diff) > 0
+#' @return Character names of the functions and values reached from
+#'   P2_ENTRY_POINTS, in the session's global environment
+p2_code_reached <- function() {
+  env <- globalenv()
+  ours <- engine_defined_names()
+  seen <- character(0)
+  todo <- P2_ENTRY_POINTS
+  while (length(todo) > 0) {
+    nm <- todo[1]; todo <- todo[-1]
+    # Only what the engine's own files define: an object a session happens to
+    # hold under a local variable's name - `m`, `files` - is no part of it
+    if (nm %in% seen || !nm %in% ours || !exists(nm, envir = env, inherits = FALSE)) next
+    seen <- c(seen, nm)
+    obj <- get(nm, envir = env, inherits = FALSE)
+    if (is.function(obj)) {
+      names_used <- unique(c(all.names(body(obj)),
+                             unlist(lapply(formals(obj), all.names))))
+      todo <- c(todo, setdiff(names_used, seen))
+    }
+  }
+  sort(seen)
+}
+
+#' The names the engine's function files define at their top level
+#'
+#' @return Character
+engine_defined_names <- function() {
+  files <- list.files(file.path(Sys.getenv("VI_FLO_ENGINE_ROOT"), "code", "functions"),
+                      pattern = "\\.R$", full.names = TRUE)
+  unique(unlist(lapply(files, function(f) {
+    ex <- tryCatch(parse(f, keep.source = FALSE), error = function(e) expression())
+    vapply(ex, function(e) {
+      if (is.call(e) && as.character(e[[1]]) %in% c("<-", "=") && is.symbol(e[[2]])) {
+        as.character(e[[2]])
+      } else NA_character_
+    }, character(1))
+  })))
+}
+
+#' A fingerprint of the code a Product 2 build runs
+#'
+#' @return Character MD5
+p2_code_fingerprint <- function() {
+  env <- globalenv()
+  parts <- vapply(p2_code_reached(), function(nm) {
+    obj <- get(nm, envir = env, inherits = FALSE)
+    if (is.function(obj)) obj <- utils::removeSource(obj)
+    paste(nm, paste(deparse(obj, control = c("keepNA", "keepInteger", "niceNames")),
+                    collapse = "\n"))
+  }, character(1))
+  data <- vapply(P2_DATA_FILES, function(f) {
+    p <- file.path(Sys.getenv("VI_FLO_ENGINE_ROOT"), f)
+    if (file.exists(p)) unname(tools::md5sum(p)) else "absent"
+  }, character(1))
+  tmp <- tempfile()
+  on.exit(unlink(tmp))
+  writeLines(enc2utf8(c(parts, data)), tmp, useBytes = TRUE)
+  unname(tools::md5sum(tmp))
 }
 
 #' The station-years whose Product 2 files are out of date, and why
@@ -1464,7 +1544,8 @@ p2_code_changed_since <- function(commit) {
 #'     from - this week's download, or a HOBO offload ingested by hand
 #'   - the metadata or ports of the loggers deployed there that year differ
 #'     from what it was built from
-#'   - the engine's Product 2 code has changed since the commit that built it
+#'   - the code a build runs has changed since it was built - see
+#'     p2_code_fingerprint()
 #'   - it is in the products but the current inputs no longer make it -
 #'     rebuilding removes it
 #'
@@ -1481,7 +1562,7 @@ p2_stale <- function() {
     station_id = st, year = as.integer(yr), reason = why, stringsAsFactors = FALSE)
 
   wanted <- character(0)
-  code_changed <- list()
+  code_now <- p2_code_fingerprint()
   for (st in sort(unique(windows$station_id))) {
     for (yr in p2_years_for(st, windows)) {
       wanted <- c(wanted, paste(st, yr))
@@ -1498,11 +1579,9 @@ p2_stale <- function() {
       fp <- p2_fingerprints(st, yr, metadata, ports, windows)
       if (!all(rows$metadata_fingerprint == fp$metadata)) { add(st, yr, "its loggers' metadata changed"); next }
       if (!all(rows$ports_fingerprint == fp$ports)) { add(st, yr, "its loggers' ports changed"); next }
-      for (cm in unique(rows$engine)) {
-        if (is.null(code_changed[[as.character(cm)]])) {
-          code_changed[[as.character(cm)]] <- p2_code_changed_since(cm)
-        }
-        if (isTRUE(code_changed[[as.character(cm)]])) { add(st, yr, "the Product 2 code changed"); break }
+      if (!"code_fingerprint" %in% names(rows) || any(is.na(rows$code_fingerprint)) ||
+          any(rows$code_fingerprint != code_now)) {
+        add(st, yr, "the Product 2 code changed")
       }
     }
   }

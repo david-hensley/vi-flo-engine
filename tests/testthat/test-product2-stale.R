@@ -92,24 +92,55 @@ test_that("a manifest from before fingerprints counts as stale", {
   expect_equal(reasons(p2_stale(), "zzb_hydro"), "built before fingerprints were recorded")
 })
 
-test_that("only a change to Product 2's code counts as the code changing", {
-  skip_if(Sys.which("git") == "", "git is not installed here")
-  repo <- withr::local_tempdir()
-  run <- function(...) system2("git", c("-C", shQuote(repo), ...), stdout = FALSE, stderr = FALSE)
-  head <- function() trimws(system2("git", c("-C", shQuote(repo), "rev-parse", "--short", "HEAD"), stdout = TRUE))
-  run("init", "-q"); run("config", "user.email", "t@t"); run("config", "user.name", "t")
-  dir.create(file.path(repo, "code", "functions"), recursive = TRUE)
-  writeLines("a", file.path(repo, "code", "functions", "product2_functions.R"))
-  writeLines("x", file.path(repo, "README.md"))
-  run("add", "."); run("commit", "-q", "-m", "one"); built <- head()
-  withr::local_envvar(VI_FLO_ENGINE_ROOT = repo)
+test_that("only a change to the code a build runs counts as the code changing", {
+  local_test_root(); place_p1(U20)
+  build_p2("zzb_hydro", 2026, quiet = TRUE)
+  expect_false("zzb_hydro" %in% p2_stale()$station_id)
 
-  expect_false(p2_code_changed_since(built))
-  writeLines("y", file.path(repo, "README.md")); run("commit", "-qam", "docs")
-  expect_false(p2_code_changed_since(built))                 # a README edit rebuilds nothing
-  writeLines("b", file.path(repo, "code", "functions", "product2_functions.R")); run("commit", "-qam", "code")
-  expect_true(p2_code_changed_since(built))
-  expect_true(p2_code_changed_since("abc1234"))              # a commit it has never seen
+  # A function Product 2 never runs: nothing to rebuild
+  old_todo <- get("print_network_todo", envir = globalenv())
+  withr::defer(assign("print_network_todo", old_todo, envir = globalenv()))
+  assign("print_network_todo", function(...) "changed", envir = globalenv())
+  expect_false("zzb_hydro" %in% p2_stale()$station_id)
+
+  # Something in the session that merely shares a local variable's name
+  assign("files", "a session's own object", envir = globalenv())
+  withr::defer(rm("files", envir = globalenv()))
+  expect_false("zzb_hydro" %in% p2_stale()$station_id)
+
+  # A function it does run, even outside product2_functions.R: rebuild
+  old_parse <- get("parse_raw_filename", envir = globalenv())
+  withr::defer(assign("parse_raw_filename", old_parse, envir = globalenv()))
+  assign("parse_raw_filename", function(...) { x <- 1; old_parse(...) }, envir = globalenv())
+  expect_equal(reasons(p2_stale(), "zzb_hydro"), "the Product 2 code changed")
+})
+
+test_that("a comment or layout change is not a code change", {
+  f1 <- function(x) {
+    x + 1
+  }
+  f2 <- function(x) { x + 1 }    # said differently
+  expect_identical(deparse(utils::removeSource(f1)), deparse(utils::removeSource(f2)))
+})
+
+test_that("a station-year built and found empty is recorded, and is not stale", {
+  local_test_root(); place_p1(U20)
+  # zzb_hydro's logger read nothing in 2026 as far as attribution goes, once
+  # its deployment is moved past its readings
+  set_meta(function(m) { m$deploy_datetime[m$unique_id == "t-0007"] <- "2026-12-30 12:00:00"; m })
+  build_p2("zzb_hydro", 2026, quiet = TRUE)
+  m <- read_manifest(2)
+  e <- m[m$station_id == "zzb_hydro" & m$year == "2026", ]
+  expect_equal(e$variable, "(nothing)")
+  expect_equal(e$rows, "0")
+  expect_false("zzb_hydro" %in% p2_stale()$station_id)
+
+  # New readings, and it is stale again
+  set_meta(function(m) { m$deploy_datetime[m$unique_id == "t-0007"] <- "2026-08-01 12:00:00"; m })
+  expect_true("zzb_hydro" %in% p2_stale()$station_id)
+  build_p2("zzb_hydro", 2026, quiet = TRUE)
+  m <- read_manifest(2)
+  expect_false("(nothing)" %in% m$variable[m$station_id == "zzb_hydro"])
 })
 
 test_that("a run over several stations prints one report, at the end", {

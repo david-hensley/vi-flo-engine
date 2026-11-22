@@ -302,6 +302,7 @@ p2_snapshot_file <- function(label) {
 #' Fingerprints every Product 2 file's content, before a migration
 p2_snapshot <- function(label) {
   m <- read_manifest(2)
+  m <- m[!is.na(m$file) & nzchar(m$file), , drop = FALSE]     # empty builds name no file
   cat("Fingerprinting ", nrow(m), " Product 2 files...\n", sep = "")
   m$content_md5 <- vapply(file.path(wds("products"), m$file), layer_check_content_md5,
                           character(1), USE.NAMES = FALSE)
@@ -320,6 +321,7 @@ p2_snapshot <- function(label) {
 p2_compare <- function(label, expect = character(0)) {
   b <- readRDS(p2_snapshot_file(label))$p2
   m <- read_manifest(2)
+  m <- m[!is.na(m$file) & nzchar(m$file), , drop = FALSE]     # empty builds name no file
   gone <- setdiff(b$file, m$file)
   new_files <- setdiff(m$file, b$file)
   both <- intersect(b$file, m$file)

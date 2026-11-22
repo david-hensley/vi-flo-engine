@@ -94,6 +94,21 @@ All notable changes to the VI-FLO Engine project are documented here.
   message. Neither ever holds anything back
 
 ### Changed
+- **Product 2 rebuilds only when the code it runs changes.** A station-year
+  was stale whenever anything in `code/functions` had been committed since it
+  was built - so a change to the network status or the metadata manager
+  rebuilt every station-year, for hours, to identical files. The manifest now
+  records `code_fingerprint`: `build_p2()` and every function and value it
+  reaches, followed through their bodies wherever they are defined, plus the
+  variable registry, fingerprinted by meaning so that comments and layout do
+  not count. `p2_code_changed_since()` and `P2_CODE_PATHS` are gone. The
+  first check after this finds every station-year stale once, since none has
+  a fingerprint yet
+- **A station-year built and found empty is recorded.** One with no readings
+  attributed to it - fb2_vwc1 in 2025 and 2026 - left no trace in the
+  manifest, so it read as "not built yet" for ever. It now gets a manifest
+  row, variable `(nothing)`, with the same fingerprints as any build: current
+  until its inputs change. A gap stays a gap, and nobody has to declare it
 - **The to-do list is the one list of what needs attention, field work then
   desk work**, each half in its own box. Field: not reporting, battery, HOBO
   memory, surveys outstanding, known broken. Desk: ports not configured,
