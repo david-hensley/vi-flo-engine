@@ -1173,11 +1173,9 @@ ui_carry_surveys <- function(old_uid, new_uid) {
   }
   carry$unique_id <- new_uid
   carry$carried_from <- old_uid
+  # A failure stops the replacement it is part of, which puts everything back
   res <- add_survey_rows(carry)
-  if (!isTRUE(res)) {
-    cat("⚠️  Could not carry the surveys over: ", res, "\n", sep = "")
-    return(invisible(0))
-  }
+  if (!isTRUE(res)) stop("the surveys could not be carried over: ", res)
   cat("✓ ", nrow(carry), " survey row", if (nrow(carry) != 1) "s", " carried over\n", sep = "")
   invisible(nrow(carry))
 }
@@ -1911,7 +1909,7 @@ review_shared_ports <- function(device_serial, station_type) {
 #' @return List with device_serial, or NULL if quit
 ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL,
                           suppress_logging = FALSE, companion_of = NULL,
-                          companion_type = NULL) {
+                          companion_type = NULL, replacing_uid = NULL) {
   cat("\n============================================\n")
   if (is_new_station) {
     cat("  Add Device - New Station\n")
@@ -2399,7 +2397,7 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL,
       sensor_height_cm <- ui_prompt_sensor_height(station_type)
 
       ## Device role is the one thing that is per-station, not per-device
-      device_role <- ui_prompt_device_role(station_type, station_id)
+      device_role <- ui_prompt_device_role(station_type, station_id, replacing_uid)
       if (identical(device_role, "cancel")) {
         cat("\u274c Canceled\n")
         return(NULL)
@@ -2447,7 +2445,7 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL,
     if (!is.na(model)) cat("✓ Model:", model, "\n")
     
     ## Device role (optional)
-    device_role <- ui_prompt_device_role(station_type, station_id)
+    device_role <- ui_prompt_device_role(station_type, station_id, replacing_uid)
     if (identical(device_role, "cancel")) {
       cat("❌ Canceled\n")
       return(NULL)
@@ -2846,16 +2844,89 @@ ui_replace_device <- function() {
   # current at the station, under a message saying the replacement was done.
   # The old logger came out when the new one went in - that moment, not the
   # moment this is typed, is where its deployment ends and its ports close
+  # One change: the new logger in, the old one retired, the surveys that
+  # still hold, and the log entry - kept together or not at all. Done
+  # separately, a retirement that failed left both loggers current at the
+  # station, under a message saying the replacement was done. The old logger
+  # came out when the new one went in - that moment, not the moment this is
+  # typed, is where its deployment ends and its ports close
   add_result <- NULL
+  carried <- 0
+  also_at <- character(0)
   n_open <- nrow(get_active_ports(old_device_serial))
-  result <- with_metadata_change("replacing a device", {
-    add_result <- ui_add_device(is_new_station = FALSE, preset_station_id = station_id,
-                                suppress_logging = TRUE)
-    if (is.null(add_result)) "canceled" else {
-      when <- add_result$deploy_datetime
-      retire_row(old_device_row$unique_id, when, status = "replaced")
+  result <- tryCatch(with_metadata_change("replacing a device", local({
+    add_result <<- ui_add_device(is_new_station = FALSE, preset_station_id = station_id,
+                                 suppress_logging = TRUE,
+                                 replacing_uid = old_device_row$unique_id)
+    if (is.null(add_result)) return("canceled")
+    when <- add_result$deploy_datetime
+    out <- retire_row(old_device_row$unique_id, when, status = "replaced")
+    if (!isTRUE(out)) return(out)
+    cat("\u2713 ", device_label(old_device_row), " to be retired at ",
+        format(when, "%Y-%m-%d %H:%M"),
+        if (n_open > 0) paste0(", its ", n_open, " port configuration(s) closed") else "",
+        "\n", sep = "")
+
+    # One ZL6 can serve a weather and a vwc station at once. The box that came
+    # out served both, so the box that went in takes over at both: the other
+    # station gets its own row on the new logger, inheriting everything but
+    # the device, and its row on the old one ends at the same moment
+    meta_now <- load_zentra_metadata()
+    others <- meta_now[meta_now$device_serial %in% old_device_serial &
+                         meta_now$unique_id != old_device_row$unique_id &
+                         !tolower(meta_now$status) %in% TERMINAL_STATUSES, , drop = FALSE]
+    new_row <- meta_now[meta_now$device_serial %in% add_result$device_serial &
+                          meta_now$station_id %in% station_id &
+                          !tolower(meta_now$status) %in% TERMINAL_STATUSES, , drop = FALSE][1, ]
+    for (k in seq_len(nrow(others))) {
+      o <- others[k, ]
+      cat("\u2713 ", device_label(old_device_row), " also served ", o$station_id,
+          " - the new logger takes over there too\n", sep = "")
+      out <- add_new_device(list(
+        device_serial = add_result$device_serial, station_id = o$station_id,
+        watershed = o$watershed, area = o$area, site_full = o$site_full, site = o$site,
+        station_type = o$station_type, device_role = o$device_role,
+        device_name = new_row$device_name, mfger = new_row$mfger, model = new_row$model,
+        lat = o$lat, lon = o$lon, elev = o$elev, elev_source = o$elev_source,
+        sensor_height_cm = NA, interval_min = new_row$interval_min,
+        timezone = new_row$timezone, deploy_datetime = when, status = new_row$status,
+        metadata_approved = FALSE))
+      if (!isTRUE(out)) return(out)
+      out <- retire_row(o$unique_id, when, status = "replaced")
+      if (!isTRUE(out)) return(out)
+      also_at <<- c(also_at, o$station_id)
     }
-  })
+
+    # Surveys belong to the deployment they were measured on, so the new
+    # logger starts with none. Where it went into the same housing and the
+    # rebar was not touched, what was measured still holds - only a person
+    # knows which
+    new_uid <- resolve_deployment(add_result$device_serial, station_id, when)
+    if (!is.na(new_uid)) carried <<- ui_carry_surveys(old_device_row$unique_id, new_uid)
+    logged_by <- ui_ask_whois_logging()
+
+    for (st in also_at) {
+      out <- create_maintenance_entry(
+        field_visit_date = local_date(when), station_id = st,
+        device_serial = add_result$device_serial, action_type = "device_replacement",
+        details = paste0("Replaced ", device_label(old_device_row), " with ",
+                         device_label(add_result$device_serial), " - the same logger as ",
+                         station_id),
+        logged_by = logged_by)
+      if (!isTRUE(out)) return(out)
+    }
+    create_maintenance_entry(
+      field_visit_date = local_date(when),
+      station_id = station_id,
+      device_serial = add_result$device_serial,
+      action_type = "device_replacement",
+      details = paste0("Replaced ", device_label(old_device_row), " with ",
+                       device_label(add_result$device_serial),
+                       if (carried > 0) paste0("; ", carried, " survey row",
+                                               if (carried != 1) "s", " carried over")),
+      logged_by = logged_by
+    )
+  })), error = function(e) conditionMessage(e))
 
   if (is.null(add_result) || identical(result, "canceled")) {
     cat("❌ New device not added - replacement canceled\n")
@@ -2863,45 +2934,19 @@ ui_replace_device <- function() {
     return(NULL)
   }
   if (!isTRUE(result)) {
-    cat("❌ Replacement not made - the old logger could not be retired:\n")
-    cat("   ", result, "\n", sep = "")
+    cat("❌ Replacement not made - ", result, "\n", sep = "")
     cat("   Nothing was kept: neither logger was changed.\n")
     return(NULL)
   }
 
   new_device_serial <- add_result$device_serial
-  when <- add_result$deploy_datetime
-  cat("\u2713 ", device_label(old_device_row), " retired at ", format(when, "%Y-%m-%d %H:%M"),
-      if (n_open > 0) paste0(", its ", n_open, " port configuration(s) closed") else "",
-      "\n", sep = "")
-  cat("✓ Old device marked as 'replaced'\n")
-  
-  cat("\n✓ Device replacement complete!\n")
+  cat("\n✓ Device replacement complete, and logged to maintenance\n")
   cat("  Old:", device_label(old_device_row), "(replaced)\n")
   cat("  New:", device_label(new_device_serial), "\n")
-
-  #### Surveys that still hold ####
-  # Surveys belong to the deployment they were measured on, so the new logger
-  # starts with none. Where it went into the same housing and the rebar was not
-  # touched, what was measured still holds, and is carried over row by row -
-  # only a person knows which
-  new_uid <- resolve_deployment(new_device_serial, station_id, when)
-  if (!is.na(new_uid)) ui_carry_surveys(old_device_row$unique_id, new_uid)
-
-  # Log to maintenance, dated the swap rather than the day it was entered
-  log_result <- create_maintenance_entry(
-    field_visit_date = local_date(when),
-    station_id = station_id,
-    device_serial = new_device_serial,
-    action_type = "device_replacement",
-    details = paste0("Replaced device ", device_label(old_device_row), " with ", device_label(new_device_serial)),
-    logged_by = ui_ask_whois_logging()
-  )
-  
-  if (isTRUE(log_result)) {
-    cat("✓ Replacement logged to maintenance\n")
+  if (length(also_at) > 0) {
+    cat("  At ", station_id, " and ", paste(also_at, collapse = ", "), " - one logger\n", sep = "")
   }
-  
+
   # Return both device serials
   # station_id as well as the serials - callers need it to record the metadata
   # review, which is per-station
@@ -5717,8 +5762,9 @@ ui_correct_device_details <- function() {
 #'
 #' @param station_type Character
 #' @param station_id Character. The station, to leave out roles already held
+#' @param replacing_uid Character. A row being replaced, whose role is free
 #' @return The role, NA for none, or "cancel"
-ui_prompt_device_role <- function(station_type, station_id = NULL) {
+ui_prompt_device_role <- function(station_type, station_id = NULL, replacing_uid = NULL) {
   type <- tolower(station_type)
   allowed <- switch(type, hydro = c("primary", "secondary"),
                     vwc = "primary", weather = "primary", character(0))
@@ -5742,8 +5788,10 @@ ui_prompt_device_role <- function(station_type, station_id = NULL) {
   taken <- character(0)
   if (!is.null(station_id)) {
     meta <- load_zentra_metadata()
+    # The logger being replaced is leaving: its role is the one to fill
     here <- meta[meta$station_id %in% station_id &
-                   !tolower(meta$status) %in% TERMINAL_STATUSES, , drop = FALSE]
+                   !tolower(meta$status) %in% TERMINAL_STATUSES &
+                   !meta$unique_id %in% replacing_uid, , drop = FALSE]
     taken <- tolower(here$device_role[!is.na(here$device_role)])
   }
   available <- setdiff(allowed, taken)
@@ -5780,6 +5828,54 @@ model_label <- function(model) {
   known <- !is.na(model) & model %in% names(ranges)
   out[known] <- paste0(model[known], " (", ranges[model[known]], ")")
   out
+}
+
+#' Ports for a ZL6 that replaced another
+#'
+#' The sensors usually move from the old box to the new one, port for port.
+#' Offered as one answer rather than six ports retyped - and where they did
+#' not, the ports are configured as for any new logger.
+#'
+#' @param old_serial,new_serial Character
+#' @return Invisibly TRUE if ports were saved
+ui_ports_after_replacement <- function(old_serial, new_serial) {
+  ports <- load_zentra_ports_data()
+  old <- ports[ports$sn %in% old_serial & !is.na(ports$valid_to), , drop = FALSE]
+  if (nrow(old) > 0) old <- old[old$valid_to == max(old$valid_to), , drop = FALSE]
+  if (nrow(old) == 0) {
+    if (ui_yes_no("\nInitialize port configuration for new device?", allow_quit = FALSE) == "Y") {
+      return(invisible(isTRUE(ui_initialize_ports(new_serial))))
+    }
+    return(invisible(FALSE))
+  }
+
+  old <- old[order(old$port), , drop = FALSE]
+  cat("\nThe old logger's sensors when it came out:\n")
+  for (i in seq_len(nrow(old))) {
+    cat("  Port ", old$port[i], ": ", old$sensor[i],
+        if (!is.na(old$depth_cm[i])) paste0(" @ ", old$depth_cm[i], "cm"),
+        if (!is.na(old$status[i]) && old$status[i] == "defunct") " [DEFUNCT]",
+        "\n", sep = "")
+  }
+  if (ui_yes_no("Did the same sensors go into the new logger, on the same ports?",
+                allow_quit = FALSE) == "N") {
+    return(invisible(isTRUE(ui_initialize_ports(new_serial))))
+  }
+
+  cfg <- data.frame(port = 1:6, type = "none", sensor = "none", depth_cm = NA_real_,
+                    status = NA_character_, stringsAsFactors = FALSE)
+  at <- match(old$port, cfg$port)
+  cfg$type[at] <- old$type
+  cfg$sensor[at] <- old$sensor
+  cfg$depth_cm[at] <- old$depth_cm
+  cfg$status[at] <- old$status
+  res <- initialize_ports(new_serial, cfg)
+  if (!isTRUE(res)) {
+    cat("\u274c Not saved - ", res, "\n", sep = "")
+    return(invisible(FALSE))
+  }
+  cat("\u2713 Ports recorded on ", device_label(new_serial), ", as on the old logger\n", sep = "")
+  invisible(TRUE)
 }
 
 #' Port setup for a ZL6 just added or reactivated at a station
@@ -6226,11 +6322,8 @@ metadata_manager_menu <- function(entries_at_start) {
               # it, so its ports DO need configuring. The only serial that
               # would trip such a guard is one already active at another
               # station - which is not a replacement at all.
-              init_ports <- ui_yes_no("\nInitialize port configuration for new device?",
-                                      allow_quit = FALSE)
-              if (init_ports == "Y") {
-                ui_initialize_ports(result$new_device_serial)
-              }
+              ui_ports_after_replacement(result$old_device_serial,
+                                         result$new_device_serial)
             }
             
             #### Metadata review, once the new device is fully recorded ####

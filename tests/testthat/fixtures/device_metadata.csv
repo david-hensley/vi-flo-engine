@@ -3,10 +3,10 @@
 "t-0002","Bethlehem","Adventure","Bethlehem Adventure 2","bta2","hydro","bta2_hydro","90000002","secondary","testb","HOBO","U20-001-04",17.7169,-64.80357,17.54,"usgs_3dep_1m",15,"America/Puerto_Rico","2024-11-05 10:00:00",,"manual","2026-10-14",TRUE,"2026-09-28 19:20:59"
 "t-0003","Reef Bay",,"Reef Bay 2","rb2","hydro","rb2_hydro","90000002","secondary","testb-old","HOBO","U20-001-04",18.32,-64.75,7.6,"usgs_3dep_1m",15,"America/Puerto_Rico","2021-06-01 12:00:00","2024-11-05 10:00:00","removed",,TRUE,
 "t-0004","Salt River","Lebanon","Salt River Lebanon 1","srl1","pond","srl1_pond","90000003",,"Test Pond level","HOBO","U20-001-01",17.756153,-64.778485,31.266,"gnss",15,"America/Puerto_Rico","2026-05-13 18:00:00",,"manual",,TRUE,
-"t-0005","UVI",,"UVI","uvi","weather","uvi_weather","z6-90001",,"Test weather","ZENTRA","ZL6",17.71888,-64.79673,33.98,"usgs_3dep_1m",15,"America/Puerto_Rico","2021-10-08 16:15:00",,"online","2026-03-02",TRUE,"2026-09-11 21:58:39"
-"t-0006","UVI",,"UVI","uvi","vwc","uvi_vwc1","z6-90001",,"Test weather","ZENTRA","ZL6",17.71888,-64.79673,33.98,"usgs_3dep_1m",15,"America/Puerto_Rico","2021-10-08 16:15:00",,"online","2026-03-02",TRUE,"2026-09-11 21:58:39"
+"t-0005","UVI",,"UVI","uvi","weather","uvi_weather","z6-90001",,"Test weather","Meter","ZL6",17.71888,-64.79673,33.98,"usgs_3dep_1m",15,"America/Puerto_Rico","2021-10-08 16:15:00",,"online","2026-03-02",TRUE,"2026-09-11 21:58:39"
+"t-0006","UVI",,"UVI","uvi","vwc","uvi_vwc1","z6-90001",,"Test weather","Meter","ZL6",17.71888,-64.79673,33.98,"usgs_3dep_1m",15,"America/Puerto_Rico","2021-10-08 16:15:00",,"online","2026-03-02",TRUE,"2026-09-11 21:58:39"
 "t-0007","Test",,"Test B","zzb","hydro","zzb_hydro","21652379",,"real U20","HOBO","U20-001-04",17.7,-64.8,17,"usgs_3dep_1m",15,"America/Puerto_Rico","2026-08-01 12:00:00",,"manual",,TRUE,
 "t-0008","Test",,"Test S","zzs","hydro","zzs_hydro","21180078",,"real HOBOlink","HOBO","MX2001-04-SS-S",17.7,-64.8,2,"usgs_3dep_1m",5,"America/Puerto_Rico","2023-07-01 12:00:00","2024-08-22 23:59:59","removed","2024-08-22",TRUE,
-"t-0009","Test",,"Test U","zzu","weather","zzu_weather","z6-13368",,"real ZL6","ZENTRA","ZL6",17.7,-64.8,34,"usgs_3dep_1m",15,"America/Puerto_Rico","2021-10-08 16:15:00",,"online",,TRUE,
-"t-0010","Test",,"Test U","zzu","vwc","zzu_vwc1","z6-13368",,"real ZL6","ZENTRA","ZL6",17.7,-64.8,34,"usgs_3dep_1m",15,"America/Puerto_Rico","2023-01-01 12:00:00",,"online",,TRUE,
-"t-0011","Test",,"Test V","zzv","vwc","zzv_vwc1","z6-38175",,"real vwc ZL6","ZENTRA","ZL6",17.7,-64.8,20,"usgs_3dep_1m",15,"America/Puerto_Rico","2026-01-01 12:00:00",,"online",,TRUE,
+"t-0009","Test",,"Test U","zzu","weather","zzu_weather","z6-13368",,"real ZL6","Meter","ZL6",17.7,-64.8,34,"usgs_3dep_1m",15,"America/Puerto_Rico","2021-10-08 16:15:00",,"online",,TRUE,
+"t-0010","Test",,"Test U","zzu","vwc","zzu_vwc1","z6-13368",,"real ZL6","Meter","ZL6",17.7,-64.8,34,"usgs_3dep_1m",15,"America/Puerto_Rico","2023-01-01 12:00:00",,"online",,TRUE,
+"t-0011","Test",,"Test V","zzv","vwc","zzv_vwc1","z6-38175",,"real vwc ZL6","Meter","ZL6",17.7,-64.8,20,"usgs_3dep_1m",15,"America/Puerto_Rico","2026-01-01 12:00:00",,"online",,TRUE,

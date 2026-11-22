@@ -265,9 +265,22 @@ All notable changes to the VI-FLO Engine project are documented here.
   position, leaving a row at no location; a paired survey could assign roles
   and then fail to save the survey behind them. Either now keeps both or
   neither
-- **Replacing a device is one change**: the new device and the old one's
-  retirement are saved together, so a failure partway no longer leaves two
-  devices active, or none
+- **Replacing a device is one change**: the new device, the old one's
+  retirement, the surveys carried over and the log entry are saved together,
+  so a failure partway no longer leaves two devices active, or none, or a
+  replacement nothing logged. The replacement takes the role of the logger
+  it replaces - which, still current while the new one is entered, had been
+  read as taken. The log entry says how many surveys were carried. First
+  end-to-end test of a replacement
+- **A shared ZL6 replaced at one station is replaced at both.** Replacing
+  the logger at a weather station left its vwc station on the old box, with
+  its ports closed - recorded as still running on a logger that had left.
+  The new logger now takes over at every station the old one served, each
+  getting its own row and its own log entry, all in the one change
+- **A replacement ZL6 can take the old one's sensors in one answer.** The
+  old logger's ports as they were when it came out are listed, and if the
+  same sensors went into the new one on the same ports they are recorded
+  without being typed again
 - A typed time zone for a new device is checked against the zones R knows,
   and a slip at the time zone menu asks again rather than abandoning the
   device

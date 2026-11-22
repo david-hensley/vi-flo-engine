@@ -445,7 +445,7 @@ test_that("1c: a ZL6 with weather and soil sensors sets up both stations, and it
   answers <- c(
     "2", "1", "1", "Y", "1", "2", "1", "Y", "",
     "4", "",                         # weather; bta1_weather
-    "z6-99999", "3", "Meter", "ZL6", # the fixtures know only ZENTRA, so typed
+    "z6-99999", "2", "1",            # Meter; ZL6
     "N", "Test weather 1",
     "17.74", "-64.80", "33.5", "1",
     "", "", "",                      # standard 200 cm; interval and zone default
@@ -501,7 +501,7 @@ test_that("ports for a station declined stay unrecorded, and the rest are saved"
   local_test_root()
   answers <- c(
     "2", "1", "1", "Y", "1", "2", "1", "Y", "", "4", "",
-    "z6-99999", "3", "Meter", "ZL6", "N", "Test weather 1",
+    "z6-99999", "2", "1", "N", "Test weather 1",
     "17.74", "-64.80", "33.5", "1", "", "", "", "2026-11-20 10:00", "2",
     "Y", "", "1",
     "Y", "Y", "1", "N", "Y", "Y", "2", "Y", "10", "Y", "N", "N", "N", "N",
@@ -517,4 +517,92 @@ test_that("ports for a station declined stay unrecorded, and the rest are saved"
   p <- read_table("zentra_ports")
   expect_equal(p$port[p$unique_id == w$unique_id], 1)
   expect_false("bta1_vwc1" %in% m$station_id)
+})
+
+#### Replacing a device ####
+
+test_that("2a: a HOBO replaced in the same housing takes the old one's role and the surveys that hold", {
+  local_test_root()
+  answers <- c(
+    "1", "4",                        # existing station work; replacement
+    "1", "2", "Y",                   # bta2_hydro; testb, the secondary
+    "99999904", "1", "3",
+    "Y", "1",                        # role: secondary, freed by testb leaving
+    "Test Gut 2b",                   # location and elevation inherited
+    "9", "", "", "2026-11-21 09:00", "1",
+    "Y",                             # confirm the new device
+    "Y", "N", "Y",                   # reach and fall hold; the sensor height does not
+    "1",                             # DAH
+    "Y",                             # record matches
+    "N", "N"                         # nothing else here; nothing else at all
+  )
+  run <- with_inputs(answers, metadata_manager())
+
+  old <- meta_row("t-0002")
+  expect_equal(old$status, "replaced")
+  expect_equal(format(old$end_datetime, "%Y-%m-%d %H:%M"), "2026-11-21 09:00")
+
+  m <- load_zentra_metadata()
+  new <- m[m$device_serial == "99999904", ]
+  expect_equal(c(new$station_id, new$device_role, new$device_name, new$status),
+               c("bta2_hydro", "secondary", "Test Gut 2b", "manual"))
+  expect_equal(new$elev, meta_row("t-0001")$elev)
+
+  # The reach and the fall are carried, naming where they came from; the new
+  # sensor height is its own
+  s <- load_surveys()
+  mine <- s[s$unique_id == new$unique_id, ]
+  expect_equal(nrow(mine), 3)
+  expect_equal(sum(mine$carried_from %in% "t-0002"), 2)
+  expect_equal(survey_height(new$unique_id, "sensor", "t-0001", "sensor", s), NA_real_)
+  expect_equal(mine$value[mine$quantity == "height_cm" & mine$point == "sensor"], 9)
+
+  log <- read_log()
+  e <- log[log$unique_id == new$unique_id, ]
+  expect_equal(nrow(e), 1)
+  expect_equal(c(e$action_type, e$field_visit_date), c("device_replacement", "2026-11-21"))
+  expect_equal(e$details, "Replaced testb (90000002) with Test Gut 2b (99999904); 2 survey rows carried over")
+})
+
+test_that("2b: a shared ZL6 replaced takes over at both its stations, with the sensors moved across", {
+  local_test_root()
+  answers <- c(
+    "1", "4",
+    "7", "1", "Y",                   # zzu_weather; its ZL6
+    "z6-99998", "2", "1",            # Meter; ZL6
+    "N", "Test U new",               # no role; name
+    "", "", "",                      # standard height; interval and zone default
+    "2026-11-21 09:00", "2",         # deployed; online
+    "Y", "1",                        # confirm; DAH
+    "Y",                             # same sensors, same ports
+    "Y", "Y",                        # both records match
+    "N", "N"
+  )
+  run <- with_inputs(answers, metadata_manager())
+  expect_match(paste(run$output, collapse = "\n"),
+               "also served zzu_vwc1 - the new logger takes over there too", fixed = TRUE)
+
+  expect_equal(meta_row("t-0009")$status, "replaced")
+  expect_equal(meta_row("t-0010")$status, "replaced")
+  expect_equal(format(meta_row("t-0010")$end_datetime, "%Y-%m-%d %H:%M"), "2026-11-21 09:00")
+
+  m <- load_zentra_metadata()
+  new <- m[m$device_serial == "z6-99998", ]
+  new <- new[order(new$station_id), ]
+  expect_equal(new$station_id, c("zzu_vwc1", "zzu_weather"))
+  expect_equal(new$device_name, c("Test U new", "Test U new"))
+  expect_equal(format(new$deploy_datetime, "%Y-%m-%d %H:%M"), rep("2026-11-21 09:00", 2))
+
+  # The sensors moved across, each to its own station's row on the new logger
+  p <- read_table("zentra_ports")
+  open <- p[is.na(p$valid_to) & p$unique_id %in% new$unique_id, ]
+  expect_equal(open$port[open$unique_id == new$unique_id[2]], 1)
+  expect_equal(sort(open$port[open$unique_id == new$unique_id[1]]), 2:6)
+  old_open <- p[is.na(p$valid_to) & p$unique_id %in% c("t-0009", "t-0010"), ]
+  expect_equal(nrow(old_open), 0)
+
+  log <- read_log()
+  e <- log[log$unique_id %in% new$unique_id, ]
+  expect_equal(sort(e$station_id), c("zzu_vwc1", "zzu_weather"))
+  expect_true(all(e$action_type == "device_replacement"))
 })
