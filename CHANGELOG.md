@@ -202,6 +202,41 @@ All notable changes to the VI-FLO Engine project are documented here.
   every build
 
 ### Changed
+- **Setting up a new site asks less and suggests more.** Areas are only
+  those already used in the chosen watershed, and sites only those in the
+  chosen area. A new site is asked for by its number, and offered its name -
+  "St. George Mint 1" - and an abbreviation worked out from its neighbors'
+  - sgm1, after sgm2 - each to accept or change. Models are only the chosen
+  manufacturer's, with the depth range beside the HOBO models that look
+  alike: U20-001-01 (30 ft), U20-001-04 (13 ft). The confirmation shows the
+  device's name, model, role, interval and time zone
+- **A new ZL6 with weather and soil sensors could not save its ports.**
+  Each port is recorded against the station its sensor serves, and the
+  second station was only offered after the ports were saved - so the save
+  failed for want of it, and the station was never offered. It is now
+  offered before the save, with the ports it explains named; the two are one
+  change. Declined, those ports are left unrecorded, said so, and the rest
+  saved. The companion is no longer asked whether the logger serves a second
+  station, having just said so, and both stations are reviewed in one
+  review. Third end-to-end test
+- **A step that failed inside a change could skip putting the tables
+  back.** `return()` inside a `with_metadata_change()` block returned from
+  the whole workflow, not the block - so the change never finished, nothing
+  was put back, and the caller got a bare value where it expected a result
+  ("$ operator is invalid for atomic vectors" on adding a device). Those
+  blocks now return from themselves
+- **A device role is offered only where it means something.** A hydro
+  station offers primary and secondary, a vwc or weather station primary,
+  and a pond none; a role already held at the station is not offered again,
+  and the role is always chosen from the list, even when one is left. The list had been
+  every role ever recorded, which put rb2's tertiary - not an arrangement to
+  repeat - in front of every new device. Second end-to-end test: a paired
+  gauge, established and then given its secondary
+- **A new device and its log entry are one change.** The installation note
+  and who is logging are asked before the save rather than after, so a
+  device is never recorded without the entry saying when and why it
+  arrived. The entry names the device. First end-to-end test of
+  establishing a station
 - **Every correction is logged.** *Correct device details* logged only a
   rename and a corrected terminal status; a corrected deploy time, interval,
   coordinate or elevation changed the record with nothing to say it had. Each
@@ -584,7 +619,8 @@ All notable changes to the VI-FLO Engine project are documented here.
   relocation was put back every time. It now ends at the move, its ports
   closing with it
 - **A workflow that fails returns to the menu** rather than ending the
-  metadata manager session, saying what stopped it
+  metadata manager session, saying what stopped it. A test whose scripted answers run out still stops, rather than
+  returning to the menu and asking again for ever
 - **Year-old backups were deleted whenever a detail was corrected.** An older
   backup routine, `backup_metadata()`, still ran in *Correct device details*:
   it copied every table a second time and then removed every backup more

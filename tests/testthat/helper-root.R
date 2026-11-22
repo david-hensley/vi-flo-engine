@@ -58,8 +58,9 @@ with_inputs <- function(inputs, expr) {
   queue <- as.character(inputs)
   fake <- function(prompt = "") {
     if (length(queue) == 0) {
-      stop("The workflow asked for more input than the test supplied",
-           call. = FALSE)
+      stop(structure(class = c("viflo_input_exhausted", "error", "condition"),
+                     list(message = "The workflow asked for more input than the test supplied",
+                          call = NULL)))
     }
     x <- queue[1]
     queue <<- queue[-1]

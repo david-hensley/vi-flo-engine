@@ -321,3 +321,200 @@ test_that("validation catches a paired logger whose elevation is not its primary
   res <- validate_metadata(verbose = FALSE)
   expect_true("PAIRED_ELEVATION_DIFFERS" %in% names(res$violations))
 })
+
+#### Establishing a new station ####
+
+test_that("1a: a lone HOBO gauge at a new site is established whole, from the main menu", {
+  local_test_root()
+  answers <- c(
+    "2", "1",                        # new station
+    "1",                             # Bethlehem
+    "Y", "1",                        # area: Adventure, the only one in Bethlehem
+    "2", "1", "Y",                   # a new site, number 1, named for its area
+    "",                              # abbreviation as suggested
+    "1", "",                         # hydro; station ID as suggested
+    "99999901", "1", "3",            # serial; HOBO; U20-001-04 (13 ft)
+    "N", "Test Gut 1",               # no role - a lone gauge; its name
+    "17.74", "-64.80",
+    "33.5", "1",                     # offline, so typed: from a DEM site
+    "12", "", "",                    # sensor height; interval and zone default
+    "2026-11-20 10:00", "1",         # deployed; manual
+    "Y", "", "1",                    # confirm; no note; DAH
+    "Y",                             # the record matches reality
+    "N"                              # nothing else
+  )
+  run <- with_inputs(answers, metadata_manager())
+  out <- paste(run$output, collapse = "\n")
+
+  # Asked for what a new site needs, with names suggested from what exists
+  expect_match(out, "Select area in Bethlehem:\n  1. Adventure\n  2. other", fixed = TRUE)
+  expect_match(out, "Site name: Bethlehem Adventure 1", fixed = TRUE)
+  expect_match(out, "Suggested: bta1", fixed = TRUE)
+  expect_match(out, "U20-001-04 (13 ft)", fixed = TRUE)
+  expect_false(grepl("ZL6", sub("(?s).*Select model:(.*?)Enter selection.*", "\\1", out, perl = TRUE)))
+  expect_match(out, "HOBO device added - no port configuration needed", fixed = TRUE)
+
+  m <- load_zentra_metadata()
+  r <- m[m$station_id == "bta1_hydro", ]
+  expect_equal(nrow(r), 1)
+  expect_equal(c(r$site, r$site_full, r$area, r$watershed),
+               c("bta1", "Bethlehem Adventure 1", "Adventure", "Bethlehem"))
+  expect_equal(c(r$device_serial, r$device_name, r$mfger, r$model, r$status),
+               c("99999901", "Test Gut 1", "HOBO", "U20-001-04", "manual"))
+  expect_true(is.na(r$device_role))
+  expect_equal(c(r$elev, r$elev_source), c("33.5", "dem_manual"))
+  expect_equal(format(r$deploy_datetime, "%Y-%m-%d %H:%M"), "2026-11-20 10:00")
+  expect_true(isTRUE(r$metadata_approved))
+
+  # The sensor height is a survey against this deployment, not a device column
+  s <- load_surveys()
+  h <- s[s$unique_id == r$unique_id, ]
+  expect_equal(nrow(h), 1)
+  expect_equal(c(h$point, h$relative_to, h$value), c("sensor", "bed", "12"))
+
+  # One entry, dated the day it went in, naming the device
+  log <- read_log()
+  e <- log[log$unique_id == r$unique_id, ]
+  expect_equal(nrow(e), 1)
+  expect_equal(c(e$action_type, e$field_visit_date, e$logged_by),
+               c("station_established", "2026-11-20", "DAH"))
+  expect_equal(e$details, "New station established: Bethlehem Adventure 1, with Test Gut 1 (99999901)")
+})
+
+test_that("1b: a paired gauge - primary established, secondary added - shares one place and elevation", {
+  local_test_root()
+  answers <- c(
+    # The primary, establishing the station
+    "2", "1", "1", "Y", "1", "2", "1", "Y", "", "1", "",
+    "99999902", "1", "3",
+    "Y", "1",                        # role: primary, of primary and secondary
+    "Test Gut 1a", "17.74", "-64.80", "33.5", "1",
+    "10", "", "", "2026-11-20 10:00", "1",
+    "Y", "", "1",
+    "Y", "Y",                        # record matches; something else
+    # The secondary, added to it
+    "2", "2", "1",                   # bta1_hydro, first in the list
+    "99999903", "1", "3",
+    "Y", "1",                        # role: secondary, the only one open
+    "Test Gut 1b",                   # location and elevation are inherited
+    "8", "", "", "2026-11-20 10:30", "1",
+    "Y", "", "1",
+    "N",                             # no survey data yet
+    "Y", "N"
+  )
+  run <- with_inputs(answers, metadata_manager())
+  out <- paste(run$output, collapse = "\n")
+
+  # rb2's tertiary is not on offer, and the primary is not offered twice
+  expect_false(grepl("tertiary", out, fixed = TRUE))
+  expect_match(out, "Select device role:\n  1. secondary\n", fixed = TRUE)
+  # The survey is offered once there is a pair, and only then
+  expect_equal(lengths(regmatches(out, gregexpr("--- GUT SURVEY ---", out, fixed = TRUE))), 1)
+
+  m <- load_zentra_metadata()
+  r <- m[m$station_id == "bta1_hydro", ]
+  r <- r[order(r$device_serial), ]
+  expect_equal(r$device_serial, c("99999902", "99999903"))
+  expect_equal(r$device_role, c("primary", "secondary"))
+  expect_equal(r$device_name, c("Test Gut 1a", "Test Gut 1b"))
+  expect_equal(r$lat, c(17.74, 17.74))
+  expect_equal(r$elev, c(33.5, 33.5))
+  expect_equal(r$elev_source, c("dem_manual", "dem_manual"))
+
+  s <- load_surveys()
+  expect_equal(s$value[s$unique_id %in% r$unique_id & s$point %in% "sensor"], c(10, 8))
+
+  log <- read_log()
+  e <- log[log$unique_id %in% r$unique_id, ]
+  expect_equal(e$action_type, c("station_established", "device_added"))
+  expect_equal(e$details, c("New station established: Bethlehem Adventure 1, with Test Gut 1a (99999902)",
+                            "Device added to existing station: Test Gut 1b (99999903)"))
+  expect_equal(e$field_visit_date, c("2026-11-20", "2026-11-20"))
+})
+
+test_that("a station with its primary and secondary offers a third logger no role", {
+  local_test_root()
+  run <- with_inputs(character(0), ui_prompt_device_role("hydro", "bta2_hydro"))
+  expect_true(is.na(run$value))
+  expect_match(paste(run$output, collapse = "\n"),
+               "bta2_hydro already has its primary and secondary", fixed = TRUE)
+})
+
+test_that("1c: a ZL6 with weather and soil sensors sets up both stations, and its ports go to each", {
+  local_test_root()
+  answers <- c(
+    "2", "1", "1", "Y", "1", "2", "1", "Y", "",
+    "4", "",                         # weather; bta1_weather
+    "z6-99999", "3", "Meter", "ZL6", # the fixtures know only ZENTRA, so typed
+    "N", "Test weather 1",
+    "17.74", "-64.80", "33.5", "1",
+    "", "", "",                      # standard 200 cm; interval and zone default
+    "2026-11-20 10:00", "2",         # deployed; online
+    "Y", "", "1",
+    "Y",                             # initialize ports
+    "Y", "1", "N", "Y",              # 1: ATMOS 41
+    "Y", "2", "Y", "10", "Y",        # 2-4: TEROS 10 at 10, 30, 50 cm
+    "Y", "2", "Y", "30", "Y",
+    "Y", "2", "Y", "50", "Y",
+    "N", "N",                        # 5, 6 empty
+    "Y",                             # save
+    "Y",                             # set up the vwc station
+    "",                              # bta1_vwc1
+    "Y",                             # its sensors went in with the logger
+    "Y", "1",                        # role: primary, the only one open
+    "Y", "", "1",
+    "Y", "Y",                        # weather matches; so does vwc, same logger
+    "N"
+  )
+  run <- with_inputs(answers, metadata_manager())
+  out <- paste(run$output, collapse = "\n")
+  expect_match(out, "Ports 2, 3, 4 hold vwc sensors", fixed = TRUE)
+  expect_match(out, "bta1_vwc1 is on the same logger.", fixed = TRUE)
+  expect_equal(lengths(regmatches(out, gregexpr("--- METADATA REVIEW", out, fixed = TRUE))), 1)
+  expect_false(grepl("Add this device to a new station as well?", out, fixed = TRUE))
+  expect_equal(lengths(regmatches(out, gregexpr("ANOTHER STATION ON THIS LOGGER", out, fixed = TRUE))), 1)
+
+  m <- load_zentra_metadata()
+  w <- m[m$station_id == "bta1_weather", ]
+  v <- m[m$station_id == "bta1_vwc1", ]
+  expect_equal(c(nrow(w), nrow(v)), c(1, 1))
+  expect_equal(c(v$device_serial, v$site, v$device_role, v$model), c("z6-99999", "bta1", "primary", "ZL6"))
+  expect_true(is.na(w$device_role))
+  expect_equal(c(v$lat, v$lon, v$elev), c(w$lat, w$lon, w$elev))
+  expect_equal(format(v$deploy_datetime), format(w$deploy_datetime))
+  expect_true(isTRUE(w$metadata_approved) && isTRUE(v$metadata_approved))
+
+  # Each sensor recorded against the station it serves, once
+  p <- read_table("zentra_ports")
+  expect_equal(p$port[p$unique_id == w$unique_id], 1)
+  expect_equal(sort(p$port[p$unique_id == v$unique_id]), 2:4)
+  expect_equal(p$depth_cm[p$unique_id == v$unique_id][order(p$port[p$unique_id == v$unique_id])],
+               c(10, 30, 50))
+
+  log <- read_log()
+  e <- log[log$unique_id %in% c(w$unique_id, v$unique_id), ]
+  expect_equal(e$station_id, c("bta1_weather", "bta1_vwc1"))
+  expect_true(all(e$action_type == "station_established"))
+})
+
+test_that("ports for a station declined stay unrecorded, and the rest are saved", {
+  local_test_root()
+  answers <- c(
+    "2", "1", "1", "Y", "1", "2", "1", "Y", "", "4", "",
+    "z6-99999", "3", "Meter", "ZL6", "N", "Test weather 1",
+    "17.74", "-64.80", "33.5", "1", "", "", "", "2026-11-20 10:00", "2",
+    "Y", "", "1",
+    "Y", "Y", "1", "N", "Y", "Y", "2", "Y", "10", "Y", "N", "N", "N", "N",
+    "Y",
+    "N",                             # no vwc station now
+    "Y", "N"
+  )
+  run <- with_inputs(answers, metadata_manager())
+  expect_match(paste(run$output, collapse = "\n"),
+               "Port 2 not recorded - record it with 'Port configuration change'", fixed = TRUE)
+  m <- load_zentra_metadata()
+  w <- m[m$station_id == "bta1_weather", ]
+  p <- read_table("zentra_ports")
+  expect_equal(p$port[p$unique_id == w$unique_id], 1)
+  expect_false("bta1_vwc1" %in% m$station_id)
+})

@@ -227,8 +227,6 @@ write_maintenance_entry <- function(field_visit_date, station_id, unique_id,
 
   # By column name, through the data layer
   append_rows("maintenance_log", new_entry)
-
-  message("✓ Maintenance entry logged for ", station_id, " (", unique_id, ")")
   invisible(TRUE)
 }
 
@@ -1325,7 +1323,7 @@ retire_row <- function(unique_id, when, close_ports = TRUE, status = NULL) {
   with_metadata_change(paste("retiring row", unique_id), tryCatch({
     metadata <- load_zentra_metadata()
     i <- which(metadata$unique_id == unique_id)
-    if (length(i) != 1) return(paste0("No single row '", unique_id, "'"))
+    if (length(i) != 1) stop("no single row '", unique_id, "'")
     # The moment the deployment ended - the logger's removal, or its
     # replacement going in. Set once, here; a later visit to the station never
     # moves it. The terminal status goes with it, in the same save: a row that

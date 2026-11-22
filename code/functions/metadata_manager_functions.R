@@ -260,7 +260,7 @@ ui_log_maintenance <- function(prefill_station = NULL, prefill_device = NULL,
   #### 10 - Write: the entry, the visit, any status and settings, as one change
   # A visit logged without its status change, or a rename saved without the
   # entry that explains it, is half an entry
-  result <- tryCatch(with_metadata_change("logging maintenance", {
+  result <- tryCatch(with_metadata_change("logging maintenance", local({
     out <- create_maintenance_entry(
       field_visit_date = field_visit_date,
       station_id = station_id,
@@ -300,7 +300,7 @@ ui_log_maintenance <- function(prefill_station = NULL, prefill_device = NULL,
       }
     }
     TRUE
-  }), error = function(e) conditionMessage(e))
+  })), error = function(e) conditionMessage(e))
 
   if (!isTRUE(result)) {
     cat("❌ Not logged - ", result, "\n   Nothing was saved.\n", sep = "")
@@ -1976,8 +1976,13 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL,
       area <- NA
       cat("✓ No area recorded\n")
     } else {
-      existing_areas <- get_metadata_unique_values("area")
-      area <- ui_select_or_specify("Select area:", existing_areas)
+      # Only this watershed's areas: an area belongs to one watershed, and
+      # Mint offered under Salt River is a slip waiting to happen
+      meta_areas <- load_zentra_metadata()
+      existing_areas <- sort(unique(meta_areas$area[meta_areas$watershed %in% watershed &
+                                                     !is.na(meta_areas$area) &
+                                                     nzchar(trimws(meta_areas$area))]))
+      area <- ui_select_or_specify(paste0("Select area in ", watershed, ":"), existing_areas)
       if (is.null(area)) {
         cat("❌ Canceled\n")
         return(NULL)
@@ -1993,26 +1998,51 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL,
     # watershed, so offering all of them makes the list long and invites
     # picking one from the wrong catchment.
     all_meta <- load_zentra_metadata()
-    existing_sites <- unique(all_meta$site_full[all_meta$watershed == watershed])
+    has_area <- !is.na(area) && nzchar(trimws(area))
+    in_area <- all_meta$watershed %in% watershed &
+      (if (has_area) all_meta$area %in% area else is.na(all_meta$area) | !nzchar(trimws(all_meta$area)))
+    existing_sites <- unique(all_meta$site_full[in_area])
     existing_sites <- sort(existing_sites[!is.na(existing_sites)])
 
     cat("\nSite name - lower numbers are further upstream.\n")
 
-    if (length(existing_sites) == 0) {
-      # New watershed, so nothing to choose from
-      cat("No sites recorded in ", watershed, " yet.\n", sep = "")
-      cat("Enter site full name (e.g. 'Salt River 1'): ")
-      site_full <- trimws(readline())
-      if (site_full == "") {
-        cat("❌ Site name cannot be empty\n")
-        return(NULL)
-      }
+    # A new site is asked for by its number: the name follows from the
+    # watershed and area, which is how every site is already named
+    new_label <- "new site"
+    site_number <- NA
+    pick <- if (length(existing_sites) == 0) new_label else
+      ui_select_from_menu(paste0("Select site in ", watershed,
+                                 if (has_area) paste0(" ", area), ":"),
+                          c(existing_sites, new_label))
+    if (is.null(pick)) {
+      cat("❌ Canceled\n")
+      return(NULL)
+    }
+    if (pick != new_label) {
+      site_full <- pick
     } else {
-      site_full <- ui_select_or_specify(
-        paste0("Select site in ", watershed, ":"), existing_sites)
-      if (is.null(site_full)) {
+      repeat {
+        cat("Site number: ")
+        site_number <- suppressWarnings(as.integer(trimws(readline())))
+        if (!is.na(site_number) && site_number > 0) break
+        cat("⚠️  A whole number, e.g. 1\n")
+      }
+      suggested <- paste(c(watershed, if (has_area) area, site_number), collapse = " ")
+      if (suggested %in% all_meta$site_full) {
+        cat("⚠️  '", suggested, "' is already a site - choose it from the list\n", sep = "")
         cat("❌ Canceled\n")
         return(NULL)
+      }
+      cat("  Site name: ", suggested, "\n", sep = "")
+      if (ui_yes_no("Use this name?", allow_quit = FALSE) == "Y") {
+        site_full <- suggested
+      } else {
+        cat("Enter site full name: ")
+        site_full <- trimws(readline())
+        if (site_full == "") {
+          cat("❌ Site name cannot be empty\n")
+          return(NULL)
+        }
       }
     }
     cat("✓ Site:", site_full, "\n")
@@ -2042,15 +2072,34 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL,
       cat("✓ Site abbrev:", site, "\n")
       
     } else {
-      cat("\nEnter site abbreviation (e.g., 'sr1' for Salt River 1):\n")
-      cat("  Two or three letters for the watershed, plus one for the area if\n")
-      cat("  needed, followed by the site number.\n")
-      site <- trimws(readline())
+      # Suggested from the sites already in this area - sgm2 makes the next
+      # Mint site sgm-something - or, in an area not used before, from the
+      # watershed's own letters plus the area's first
+      prefix_of <- function(x) unique(sub("[0-9]+$", "", x[!is.na(x) & nzchar(x)]))
+      number <- if (!is.na(site_number)) site_number else
+        suppressWarnings(as.integer(sub(".*?([0-9]+)$", "\\1", site_full, perl = TRUE)))
+      prefixes <- prefix_of(all_meta$site[in_area])
+      if (length(prefixes) != 1 && has_area) {
+        ws <- prefix_of(all_meta$site[all_meta$watershed %in% watershed &
+                                        (is.na(all_meta$area) | !nzchar(trimws(all_meta$area)))])
+        prefixes <- if (length(ws) == 1) paste0(ws, tolower(substr(area, 1, 1))) else character(0)
+      }
+      suggested <- if (length(prefixes) == 1 && !is.na(number)) paste0(prefixes, number) else NA
+
+      cat("\nSite abbreviation - two or three letters for the watershed, plus one\n")
+      cat("for the area if needed, followed by the site number.\n")
+      if (!is.na(suggested)) {
+        cat("  Suggested: ", suggested, "\n", sep = "")
+        cat("  Press Enter to accept, or type a different one: ")
+      } else {
+        cat("  Enter abbreviation (e.g. 'sr1' for Salt River 1): ")
+      }
+      site <- tolower(trimws(readline()))
+      if (site == "" && !is.na(suggested)) site <- suggested
       if (site == "") {
         cat("❌ Site abbreviation cannot be empty\n")
         return(NULL)
       }
-      site <- tolower(site)
       
       if (site %in% get_metadata_unique_values("site")) {
         existing_full <- unique(metadata_all$site_full[metadata_all$site == site])
@@ -2251,6 +2300,9 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL,
           return(NULL)
         }
 
+        # A companion was asked for by name a moment ago - asking again
+        # whether the logger serves a second station is asking twice
+        if (is.null(companion_of)) {
         cat("\n\u2139\ufe0f  Serial '", device_serial, "' is already in use at:\n", sep = "")
         for (i in seq_len(nrow(active))) {
           cat("     ", active$station_id[i], " (", active$station_type[i], ")\n",
@@ -2259,8 +2311,10 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL,
         cat("\n   One logger can serve several stations - a ZL6 with an ATMOS\n")
         cat("   and TEROS sensors is a weather station and a vwc station at\n")
         cat("   once. Its ports are configured once, on the device.\n\n")
+        }
 
-        if (ui_yes_no("Add this device to a new station as well?",
+        if (is.null(companion_of) &&
+            ui_yes_no("Add this device to a new station as well?",
                       allow_quit = FALSE) == "N") {
           cat("\u274c Canceled\n")
           return(NULL)
@@ -2345,28 +2399,10 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL,
       sensor_height_cm <- ui_prompt_sensor_height(station_type)
 
       ## Device role is the one thing that is per-station, not per-device
-      # Role is not a general label - it means one specific thing per station
-      # type, and "recommended" invited people to pick primary when unsure.
-      # Saying what it is for keeps that from happening.
-      cat("\nDevice role - most devices do not need one:\n\n")
-      cat("  hydro    paired stream gauges only. primary is the anchor - where\n")
-      cat("           flow is gauged, normally the DOWNSTREAM logger.\n")
-      cat("           A lone gauge has no role.\n")
-      cat("  vwc      primary ONLY if this shares the weather station's logger.\n")
-      cat("           Otherwise none.\n")
-      cat("  weather  almost always none.\n\n")
-      specify_role <- ui_yes_no("Specify a device role?", allow_quit = FALSE)
-      if (specify_role == "N") {
-        device_role <- NA
-        cat("\u2713 No device role recorded\n")
-      } else {
-        existing_roles <- get_metadata_unique_values("device_role")
-        device_role <- ui_select_or_specify("Select device role:", existing_roles)
-        if (is.null(device_role)) {
-          cat("\u274c Canceled\n")
-          return(NULL)
-        }
-        cat("\u2713 Device role:", device_role, "\n")
+      device_role <- ui_prompt_device_role(station_type, station_id)
+      if (identical(device_role, "cancel")) {
+        cat("\u274c Canceled\n")
+        return(NULL)
       }
 
       ## The metadata review happens after the row exists, like the branch
@@ -2388,13 +2424,18 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL,
     # The model determines what the numbers mean. A HOBO U20-001-01 is the 9 m
     # range version and the -04 is 4 m - without this, you cannot tell whether a
     # pressure reading is in spec or off the end of the sensor.
-    existing_models <- get_metadata_unique_values("model")
+    # Only this manufacturer's models, each with its range where it has one
+    meta_models <- load_zentra_metadata()
+    existing_models <- sort(unique(meta_models$model[tolower(meta_models$mfger) == tolower(mfger) &
+                                                      !is.na(meta_models$model)]))
     if (length(existing_models) > 0) {
-      model <- ui_select_or_specify("Select model:", existing_models)
+      shown <- model_label(existing_models)
+      model <- ui_select_or_specify("Select model:", shown)
       if (is.null(model)) {
         cat("❌ Canceled\n")
         return(NULL)
       }
+      if (model %in% shown) model <- existing_models[match(model, shown)]
     } else {
       cat("\nEnter device model (e.g. 'U20-001-01', 'ZL6'):\n")
       model <- trimws(readline())
@@ -2406,28 +2447,10 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL,
     if (!is.na(model)) cat("✓ Model:", model, "\n")
     
     ## Device role (optional)
-    # Role is not a general label - it means one specific thing per station
-    # type, and "recommended" invited people to pick primary when unsure.
-    # Saying what it is for keeps that from happening.
-    cat("\nDevice role - most devices do not need one:\n\n")
-    cat("  hydro    paired stream gauges only. primary is the anchor - where\n")
-    cat("           flow is gauged, normally the DOWNSTREAM logger.\n")
-    cat("           A lone gauge has no role.\n")
-    cat("  vwc      primary ONLY if this shares the weather station's logger.\n")
-    cat("           Otherwise none.\n")
-    cat("  weather  almost always none.\n\n")
-    specify_role <- ui_yes_no("Specify a device role?", allow_quit = FALSE)
-    if (specify_role == "N") {
-      device_role <- NA
-      cat("✓ No device role recorded\n")
-    } else {
-      existing_roles <- get_metadata_unique_values("device_role")
-      device_role <- ui_select_or_specify("Select device role:", existing_roles)
-      if (is.null(device_role)) {
-        cat("❌ Canceled\n")
-        return(NULL)
-      }
-      cat("✓ Device role:", device_role, "\n")
+    device_role <- ui_prompt_device_role(station_type, station_id)
+    if (identical(device_role, "cancel")) {
+      cat("❌ Canceled\n")
+      return(NULL)
     }
     
     ## Device name (optional)
@@ -2619,21 +2642,25 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL,
     
     cat("\n============================================\n")
     cat("Ready to add this device:\n")
-    cat("  Station:", station_id, "(", site_full, ")\n")
-    cat("  Device:", device_serial, "(", mfger, ")\n")
-    cat("  Location:", lat, ",", lon, "\n")
+    cat("  Station:   ", station_id, " (", site_full, ")\n", sep = "")
+    cat("  Device:    ", if (!is.na(device_name) && nzchar(device_name))
+          paste0(device_name, " (", device_serial, ")") else device_serial, "\n", sep = "")
+    cat("  Model:     ", mfger, " ", model_label(model), "\n", sep = "")
+    if (!is.na(device_role)) cat("  Role:      ", device_role, "\n", sep = "")
+    cat("  Location:  ", lat, ", ", lon, "\n", sep = "")
     if (!is.na(elev)) {
-      cat("  Elevation:", elev, "m",
-          if (!is.na(elev_source)) paste0(" (", elev_source, ")") else "", "\n")
+      cat("  Elevation: ", elev, " m",
+          if (!is.na(elev_source)) paste0(" (", elev_source, ")") else "", "\n", sep = "")
     } else {
       cat("  Elevation: not set\n")
     }
     if (!is.na(sensor_height_cm)) {
-      cat("  Sensor height:", sensor_height_cm, "cm above the",
-          if (tolower(station_type) == "weather") "ground" else "bed", "\n")
+      cat("  Sensor height: ", sensor_height_cm, " cm above the ",
+          if (tolower(station_type) == "weather") "ground" else "bed", "\n", sep = "")
     }
-    cat("  Deploy:", format(deploy_datetime), "\n")
-    cat("  Status:", status, "\n")
+    cat("  Interval:  ", interval, " minutes\n", sep = "")
+    cat("  Deploy:    ", format(deploy_datetime, "%Y-%m-%d %H:%M"), " (", timezone, ")\n", sep = "")
+    cat("  Status:    ", status, "\n", sep = "")
     # The metadata review is not shown here - it is asked after the ports and
     # any survey, once there is a complete record to confirm.
     cat("============================================\n\n")
@@ -2685,54 +2712,48 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL,
     metadata_approved = metadata_approved
   )
   
-  # Call logic function
-  result <- add_new_device(device_data)
-  
-  if (!isTRUE(result)) {
-    cat("❌ Error:", result, "\n")
-    return(NULL)
-  }
-  
-  cat("\n✓ Device added successfully!\n")
-  
-  # Log to maintenance (unless suppressed by parent workflow)
+  # The note and who is logging are asked before anything is saved, so the
+  # device and its log entry can be one change: a device recorded with no
+  # entry saying when and why it arrived is half a record
   if (!suppress_logging) {
-    # Anything about the installation worth keeping - how the elevation was
-    # got, where the logger sits - goes into the same entry, not a second
     cat("\nAnything worth noting about this installation? (Enter to skip): ")
     install_note <- trimws(readline())
+    logged_by <- ui_ask_whois_logging()
     with_note <- function(text) {
       if (nzchar(install_note)) paste0(text, ". ", install_note) else text
     }
+  }
+  who <- if (!is.na(device_name) && nzchar(device_name)) {
+    paste0(device_name, " (", device_serial, ")")
+  } else device_serial
 
-    if (is_new_station) {
-      log_result <- create_maintenance_entry(
+  result <- tryCatch(with_metadata_change(
+    if (is_new_station) "establishing a station" else "adding a device", local({
+      out <- add_new_device(device_data)
+      if (!isTRUE(out) || suppress_logging) return(out)
+      create_maintenance_entry(
         field_visit_date = local_date(deploy_datetime),
         station_id = station_id,
         device_serial = device_serial,
-        action_type = "station_established",
-        details = with_note(paste0("New station established: ", site_full)),
-        logged_by = ui_ask_whois_logging()
+        action_type = if (is_new_station) "station_established" else "device_added",
+        details = with_note(if (is_new_station) {
+          paste0("New station established: ", site_full, ", with ", who)
+        } else {
+          paste0("Device added to existing station: ", who)
+        }),
+        logged_by = logged_by
       )
-      
-      if (isTRUE(log_result)) {
-        cat("✓ Station establishment logged to maintenance\n")
-      }
-    } else {
-      # Adding to existing station
-      log_result <- create_maintenance_entry(
-        field_visit_date = local_date(deploy_datetime),
-        station_id = station_id,
-        device_serial = device_serial,
-        action_type = "device_added",
-        details = with_note("Device added to existing station"),
-        logged_by = ui_ask_whois_logging()
-      )
-      
-      if (isTRUE(log_result)) {
-        cat("✓ Device addition logged to maintenance\n")
-      }
-    }
+    })), error = function(e) conditionMessage(e))
+
+  if (!isTRUE(result)) {
+    cat("❌ Not added - ", result, "\n   Nothing was saved.\n", sep = "")
+    return(NULL)
+  }
+
+  cat("\n✓ Device added successfully!\n")
+  if (!suppress_logging) {
+    cat(if (is_new_station) "✓ Station establishment logged to maintenance\n"
+        else "✓ Device addition logged to maintenance\n")
   }
   
   # Return device_serial for potential port initialization
@@ -3949,14 +3970,60 @@ ui_initialize_ports <- function(device_serial) {
   #### CALL LOGIC FUNCTION ####
   ################################################################################
   
-  result <- initialize_ports(device_serial, port_config)
+  #### A station for every kind of sensor ####
+  # Each port is recorded against the station its sensor serves. A new ZL6
+  # with an ATMOS and four TEROS is a weather station and a vwc station - and
+  # when only the first exists yet, the TEROS ports have nowhere to go. The
+  # second station is offered here, before the save, rather than the save
+  # failing for want of it
+  meta_now <- load_zentra_metadata()
+  mine <- meta_now[meta_now$device_serial %in% device_serial &
+                     !tolower(meta_now$status) %in% TERMINAL_STATUSES, , drop = FALSE]
+  served <- unique(tolower(mine$station_type))
+  needed <- unique(tolower(port_config$type[port_config$sensor != "none"]))
+  missing <- setdiff(needed, served)
+  companions <- character(0)
+
+  result <- tryCatch(with_metadata_change("setting up ports", {
+    for (mt in missing) {
+      at <- port_config$port[tolower(port_config$type) == mt & port_config$sensor != "none"]
+      cat("\n--- ANOTHER STATION ON THIS LOGGER ---\n\n")
+      cat("Port", if (length(at) > 1) "s", " ", paste(at, collapse = ", "), " hold ", mt,
+          " sensors, but no ", mt, " station is\n", sep = "")
+      cat("recorded on this logger. One logger serving a weather and a vwc\n")
+      cat("station is two stations sharing a device.\n\n")
+      made <- NULL
+      if (ui_yes_no(paste0("Set up the ", mt, " station now?"), allow_quit = FALSE) == "Y") {
+        # Everything except the sensor type is already known - same site,
+        # same logger - so it is handed over rather than asked for again
+        made <- ui_add_device(is_new_station = TRUE, companion_of = mine[1, ],
+                              companion_type = mt)
+      }
+      if (is.null(made)) {
+        cat("\u26a0\ufe0f  Port", if (length(at) > 1) "s", " ", paste(at, collapse = ", "),
+            " not recorded - record ", if (length(at) > 1) "them" else "it",
+            " with 'Port configuration change'\n", "   once the ", mt,
+            " station exists.\n", sep = "")
+        drop <- port_config$port %in% at
+        port_config$sensor[drop] <- "none"
+        port_config$type[drop] <- "none"
+        port_config$depth_cm[drop] <- NA
+        port_config$status[drop] <- NA
+      } else {
+        companions <- c(companions, made$station_id)
+      }
+    }
+    initialize_ports(device_serial, port_config)
+  }), error = function(e) conditionMessage(e))
   
   if (!isTRUE(result)) {
-    cat("❌ Error:", result, "\n")
+    cat("❌ Not saved - ", result, "\n   Nothing was kept.\n", sep = "")
     return(NULL)
   }
   
   cat("\n✓ Port configuration saved successfully!\n")
+  # A station set up here is reviewed with the one that led here: that
+  # review offers every other station on the same logger
   
   return(TRUE)
 }
@@ -4327,7 +4394,7 @@ ui_update_ports <- function(preset_device_serial = NULL) {
   }, character(1))
   logged_by <- ui_ask_whois_logging()
   logged_at <- character(0)
-  result <- tryCatch(with_metadata_change("recording a port configuration", {
+  result <- tryCatch(with_metadata_change("recording a port configuration", local({
     res <- update_ports(device_serial, new_config, change_datetime)
     if (!isTRUE(res)) return(res)
     ports_now <- load_zentra_ports_data()
@@ -4349,10 +4416,10 @@ ui_update_ports <- function(preset_device_serial = NULL) {
         logged_by = logged_by
       )
       if (!isTRUE(out)) return(out)
-      logged_at <- c(logged_at, stn)
+      logged_at <<- c(logged_at, stn)
     }
     TRUE
-  }), error = function(e) conditionMessage(e))
+  })), error = function(e) conditionMessage(e))
   
   if (!isTRUE(result)) {
     cat("❌ Not saved - ", result, "\n   Nothing was changed.\n", sep = "")
@@ -5640,6 +5707,81 @@ ui_correct_device_details <- function() {
   invisible(TRUE)
 }
 
+#' Asks for a device role, offering only the roles this station can use
+#'
+#' A role means one thing per station type: at a paired stream gauge, which
+#' logger is the anchor and which the upstream one; at a vwc station, that it
+#' shares the weather station's logger. Offering every role ever recorded put
+#' rb2's tertiary - an arrangement not to be repeated - on every menu, and a
+#' role already held at the station could be given out twice.
+#'
+#' @param station_type Character
+#' @param station_id Character. The station, to leave out roles already held
+#' @return The role, NA for none, or "cancel"
+ui_prompt_device_role <- function(station_type, station_id = NULL) {
+  type <- tolower(station_type)
+  allowed <- switch(type, hydro = c("primary", "secondary"),
+                    vwc = "primary", weather = "primary", character(0))
+  if (length(allowed) == 0) {
+    cat("\n\u2713 No device role - a ", type, " station does not use one\n", sep = "")
+    return(NA_character_)
+  }
+
+  cat("\nDevice role - most devices do not need one:\n\n")
+  if (type == "hydro") {
+    cat("  Paired stream gauges only. primary is the anchor - where flow is\n")
+    cat("  gauged, normally the DOWNSTREAM logger; secondary is upstream.\n")
+    cat("  A lone gauge has no role.\n\n")
+  } else if (type == "vwc") {
+    cat("  primary ONLY if this shares the weather station's logger.\n")
+    cat("  Otherwise none.\n\n")
+  } else {
+    cat("  Almost always none.\n\n")
+  }
+
+  taken <- character(0)
+  if (!is.null(station_id)) {
+    meta <- load_zentra_metadata()
+    here <- meta[meta$station_id %in% station_id &
+                   !tolower(meta$status) %in% TERMINAL_STATUSES, , drop = FALSE]
+    taken <- tolower(here$device_role[!is.na(here$device_role)])
+  }
+  available <- setdiff(allowed, taken)
+  if (length(available) == 0) {
+    cat("\u2713 No device role - ", station_id, " already has its ",
+        paste(allowed, collapse = " and "), "\n", sep = "")
+    return(NA_character_)
+  }
+
+  if (ui_yes_no("Specify a device role?", allow_quit = FALSE) == "N") {
+    cat("\u2713 No device role recorded\n")
+    return(NA_character_)
+  }
+  # Chosen even when only one is open: a role is a statement about the
+  # station, and it should be made, not assumed
+  role <- ui_select_from_menu("Select device role:", available)
+  if (is.null(role)) return("cancel")
+  cat("\u2713 Device role:", role, "\n")
+  role
+}
+
+#' A model with its depth range, for a menu or a summary
+#'
+#' The two U20 models look alike in a list, and which one went in decides
+#' whether a pressure reading is in range
+#'
+#' @param model Character
+#' @return Character, the model with its range in parentheses where known
+model_label <- function(model) {
+  ranges <- c("U20-001-01" = "30 ft", "U20-001-04" = "13 ft",
+              "U20L-01" = "30 ft", "U20L-04" = "13 ft",
+              "MX2001-01-SS-S" = "30 ft", "MX2001-04-SS-S" = "13 ft")
+  out <- ifelse(is.na(model), "(model not recorded)", model)
+  known <- !is.na(model) & model %in% names(ranges)
+  out[known] <- paste0(model[known], " (", ranges[model[known]], ")")
+  out
+}
+
 #' Port setup for a ZL6 just added or reactivated at a station
 #'
 #' Shared by the new-station and reactivation paths, which had drifted into
@@ -5866,6 +6008,9 @@ metadata_manager <- function() {
       metadata_manager_menu(entries_at_start)
       TRUE
     }, error = function(e) {
+      # Scripted answers that ran out (the tests) are not a workflow failing:
+      # going back to the menu would ask again, forever
+      if (inherits(e, "viflo_input_exhausted")) stop(e)
       cat("\n\u274c That stopped: ", conditionMessage(e), "\n", sep = "")
       cat("   Back to the menu.\n")
       FALSE
@@ -6284,55 +6429,11 @@ metadata_manager_menu <- function(entries_at_start) {
             ui_setup_ports_after_add(result)
           }
           
-          # Fetched here rather than after the companion block, which needs it
-          # to inherit the site and the logger.
           device_row <- get_device_row(result$device_serial,
                                        station_id = result$station_id)
 
-          #### A companion station, if the ports imply one ####
-          # A ZL6 with an ATMOS and four TEROS is two stations. Having just
-          # configured all its ports, the user has already told us the second
-          # one exists - so offer it here rather than leaving them to remember
-          # on another day.
-          ports_here <- tryCatch(get_active_ports(result$device_serial),
-                                 error = function(e) NULL)
-          if (!is.null(ports_here) && nrow(ports_here) > 0) {
-            types <- unique(tolower(ports_here$type))
-            types <- types[!is.na(types) & types != "none"]
-            meta_now <- load_zentra_metadata()
-            served <- unique(tolower(
-              meta_now$station_type[meta_now$device_serial == result$device_serial]))
-
-            for (mt in setdiff(types, served)) {
-              cat("\n--- ANOTHER STATION ON THIS LOGGER ---\n\n")
-              cat("This ZL6 has ", mt, " sensors configured, but no ", mt,
-                  " station\n", sep = "")
-              cat("is recorded against it. One logger serving a weather and a\n")
-              cat("vwc station is two stations sharing a device.\n\n")
-
-              if (ui_yes_no(paste0("Set up the ", mt, " station now?"),
-                            allow_quit = FALSE) == "Y") {
-                # Everything except the sensor type is already known - same
-                # site, same logger - so it is handed over rather than asked
-                # for again.
-                companion <- ui_add_device(is_new_station = TRUE,
-                                           companion_of   = device_row,
-                                           companion_type = mt)
-
-                # The review belongs to the station just created, not to the
-                # one that led here.
-                if (!is.null(companion)) {
-                  c_row <- get_device_row(companion$device_serial,
-                                          station_id = companion$station_id)
-                  if (!is.null(c_row)) {
-                    ui_prompt_metadata_approval(c_row$station_id)
-                  }
-                }
-              } else {
-                cat("\u2713 Set it up later with 'Established new station'\n")
-              }
-            }
-          }
+          # A companion station - the vwc on a weather logger - is offered
+          # while the ports are set up, where its sensors first appear
 
           #### Metadata review, last ####
           # Everything that makes up the record has now been entered - the
