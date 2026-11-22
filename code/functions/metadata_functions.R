@@ -1117,7 +1117,7 @@ add_new_device_unchecked <- function(device_data) {
       # date. The deploy datetime IS a field visit, so recording it as one is
       # not an inference - it is the same fact stated in the field that asks
       # "when was this last visited?"
-      last_visit = as.Date(device_data$deploy_datetime),
+      last_visit = local_date(device_data$deploy_datetime),
       metadata_approved = device_data$metadata_approved,
       # Written together: the flag says a human confirmed the record, the
       # timestamp says when. Establishing a station IS that confirmation, so
@@ -1142,7 +1142,7 @@ add_new_device_unchecked <- function(device_data) {
       if (is.null(method)) method <- if (weather && h == 200) "nominal" else "tape"
       res <- add_survey_rows(survey_row(
         station_id = device_data$station_id, unique_id = unique_id,
-        measured_on = as.Date(device_data$deploy_datetime), quantity = "height_cm",
+        measured_on = local_date(device_data$deploy_datetime), quantity = "height_cm",
         point = "sensor", value = as.numeric(h),
         relative_to = if (weather) "ground" else "bed", method = method))
       if (!isTRUE(res)) {
@@ -1253,7 +1253,7 @@ relocate_station_unchecked <- function(station_id, new_lat, new_lon, deploy_date
       new_row$deploy_datetime <- deploy_datetime
       new_row$end_datetime <- as.POSIXct(NA, tz = PROJECT_TZ)
       new_row$status <- new_status
-      new_row$last_visit <- as.Date(deploy_datetime)
+      new_row$last_visit <- local_date(deploy_datetime)
       new_row$metadata_approved <- metadata_approved
 
       # A station can move AND get a different logger in one field operation.
@@ -1398,7 +1398,7 @@ remove_device <- function(unique_id, removal_datetime) {
       # 3. The station's other deployments were visited too - a pair's
       # partner. update_last_visit() leaves the removed rows alone;
       # retire_row() dated them
-      update_last_visit(st, as.Date(removal_datetime))
+      update_last_visit(st, local_date(removal_datetime))
     }
 
     return(TRUE)

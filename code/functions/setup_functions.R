@@ -262,3 +262,17 @@ path_relative_to <- function(path, root = Sys.getenv("VI_FLO_DATA_ROOT")) {
   p
 }
 
+
+#' The project-local calendar day of a moment
+#'
+#' as.Date() on a time has taken its day in UTC in some versions of R, which
+#' puts an evening event in the project's zone on the next day. This takes the
+#' day where the event happened.
+#'
+#' @param x POSIXct, or a Date (returned as it is)
+#' @return Date
+local_date <- function(x) {
+  if (inherits(x, "Date")) return(x)
+  as.Date(format(as.POSIXct(x), "%Y-%m-%d", tz = PROJECT_TZ))
+}
+

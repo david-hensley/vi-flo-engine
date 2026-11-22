@@ -202,6 +202,51 @@ All notable changes to the VI-FLO Engine project are documented here.
   every build
 
 ### Changed
+- **Every correction is logged.** *Correct device details* logged only a
+  rename and a corrected terminal status; a corrected deploy time, interval,
+  coordinate or elevation changed the record with nothing to say it had. Each
+  is now a `metadata_correction` entry reading "field: from → to", saved
+  in the same change as the value, so a correction is never kept without its
+  entry. Who is logging is asked once per session of corrections
+- **A corrected deploy or end time takes its ports with it.** Port
+  configurations that began when the device went in, or ended when it came
+  out, move to the corrected time; left behind, the sensors would appear to
+  start before the device existed. A retired device's end time can now be
+  corrected, and a deploy time after its end is refused before anything is
+  saved
+- **A port change is logged at each station whose sensors changed, saying
+  how** - "port 6: TEROS 10 @ 100cm → empty" - rather than once, at the
+  first station on the logger, as "Port configuration updated". The new
+  configuration and its entries are one change
+- **Viewing ports lists deployments, by device name and station.** Picking a
+  device is by name too, and a ZL6 serving two stations shows a block for
+  each
+- **Logging maintenance is one change.** The entry, the visit date, a status
+  change and a relaunch's new name or interval are saved together or not at
+  all; the relaunch questions come before the confirmation, which shows
+  everything the entry will save
+- **Reactivating a station and recording a paired survey are each one
+  change.** A reactivation could add its device and fail to set its
+  position, leaving a row at no location; a paired survey could assign roles
+  and then fail to save the survey behind them. Either now keeps both or
+  neither
+- **Replacing a device is one change**: the new device and the old one's
+  retirement are saved together, so a failure partway no longer leaves two
+  devices active, or none
+- A typed time zone for a new device is checked against the zones R knows,
+  and a slip at the time zone menu asks again rather than abandoning the
+  device
+- Device metadata view shows each device's name, and reads its logging
+  interval from `interval_min` by name rather than through R's partial
+  matching of `$interval`
+- Unfinished data tasks are listed with the logger's name
+- The port setup offered after adding a device and after reactivating one
+  is one shared step, `ui_setup_ports_after_add()`, where the two copies had
+  drifted apart
+- The download log's date filter reads `timestamp_utc` as a date in the
+  project zone, and its branches for column names the log has not had since
+  v2 are gone
+- *Existing station work* prompts "Enter selection:" like every other menu
 - **Product 2 rebuilds only when the code it runs changes.** A station-year
   was stale whenever anything in `code/functions` had been committed since it
   was built - so a change to the network status or the metadata manager
@@ -501,6 +546,32 @@ All notable changes to the VI-FLO Engine project are documented here.
   `TERMINAL_STATUSES`
 
 ### Fixed
+- **Viewing every logger's ports stopped at a logger with none open.** A
+  logger whose ports had all been closed - its sensors taken off at
+  retirement - ended the listing with an error, as did a port with no sensor
+  recorded. Both are now shown, or left out, as they should be
+- **Maintenance at a paired gauge read the wrong logger's status.** The
+  status offered for change was the primary's, whichever logger was chosen,
+  so marking the secondary defunct compared against the wrong value
+- **A relaunch stopped on a logger never named or never given an interval.**
+  Comparing the new name with a missing one ended the workflow; a missing
+  value is now read as different, and the rename is saved and logged
+- **A maintenance action typed in was refused by validation.** The action
+  menu accepted free text that `MAINTENANCE_ACTIONS` does not know, so the
+  entry was refused at the save. Actions now come from the list only
+- **A refused correction ended the workflow.** Since refused saves became
+  errors, a correction validation refused left *Correct device details*
+  entirely. It now says nothing was changed and returns to the field list
+- **A coordinate correction's new elevation reached one logger of a pair.**
+  The lookup offered after correcting a latitude or longitude set the
+  elevation on the chosen row alone, which validation then refuses at a
+  paired gauge. It now sets every logger that shares the elevation, and logs
+  it
+- **Removal accepted a time before the device went in**, or in the future.
+  It now asks again, as decommissioning does
+- **Replacement and reactivation were logged on the day they were entered**,
+  not the day they happened. Both now take the date of the event
+- A relocation that kept its ports could stop on a variable never set
 - **A refused save could be reported as done.** `save_device_metadata()`
   returned FALSE when a save was refused - by validation, or because the
   file changed underneath - and eleven of its callers never looked: setting
