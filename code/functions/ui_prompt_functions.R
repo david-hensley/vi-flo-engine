@@ -302,9 +302,11 @@ ui_prompt_datetime <- function(prompt, allow_now = TRUE, allow_quit = TRUE,
       return(as.POSIXct(Sys.time(), tz = timezone))
     }
     
-    # Try to parse datetime
+    # With or without seconds - a field time is rarely known to the second
     parsed_datetime <- tryCatch({
-      as.POSIXct(datetime_input, format = "%Y-%m-%d %H:%M:%S", tz = timezone)
+      fmt <- if (grepl("^\\s*[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{1,2}:[0-9]{2}\\s*$", datetime_input))
+        "%Y-%m-%d %H:%M" else "%Y-%m-%d %H:%M:%S"
+      as.POSIXct(datetime_input, format = fmt, tz = timezone)
     }, error = function(e) {
       NULL
     })
@@ -313,23 +315,20 @@ ui_prompt_datetime <- function(prompt, allow_now = TRUE, allow_quit = TRUE,
       return(parsed_datetime)
     }
     
-    cat("⚠️  Invalid datetime format. Please use YYYY-MM-DD HH:MM:SS\n")
+    cat("⚠️  Invalid datetime format. Please use YYYY-MM-DD HH:MM, seconds optional\n")
   }
 }
 
 #' Display status reference and prompt for status change
 #' @param current_status Character. Current status value
 #' @param allow_quit Logical. Allow 'q' to quit (default TRUE)
+#' The working statuses only - ending a deployment is a workflow of its own
 #' @return New status string, or NULL if user quit, or current_status if no change
-ui_prompt_status_change <- function(current_status, allow_quit = TRUE, restrict_to_device_level = FALSE) {
+ui_prompt_status_change <- function(current_status, allow_quit = TRUE) {
   cat("\nCurrent status: ", current_status, "\n", sep = "")
   cat("\nStatus options:\n")
-  shown <- if (restrict_to_device_level) ACTIVE_STATUSES else
-    c(ACTIVE_STATUSES, setdiff(TERMINAL_STATUSES, "removed"))
-  for (st in shown) cat("  ", format(st, width = 16), " = ", STATUS_MEANINGS[[st]], "\n", sep = "")
-  if (restrict_to_device_level) {
-    cat("\n  Note: For replacement/relocation/decommissioning, use those workflows\n")
-  }
+  for (st in ACTIVE_STATUSES) cat("  ", format(st, width = 16), " = ", STATUS_MEANINGS[[st]], "\n", sep = "")
+  cat("\n  Note: For replacement/relocation/decommissioning, use those workflows\n")
   
   cat("\n")
   
@@ -345,15 +344,8 @@ ui_prompt_status_change <- function(current_status, allow_quit = TRUE, restrict_
     return(current_status)
   }
   
-  # Build allowed status list
-  if (restrict_to_device_level) {
-    allowed_statuses <- ACTIVE_STATUSES
-  } else {
-    allowed_statuses <- get_metadata_unique_values("status")
-  }
-  
-  new_status <- ui_select_or_specify("Select new status:", allowed_statuses, 
-                                     allow_quit = allow_quit)
+  # From the list only: a status typed in would be one nothing knows
+  new_status <- ui_select_from_menu("Select new status:", ACTIVE_STATUSES)
   
   return(new_status)
 }

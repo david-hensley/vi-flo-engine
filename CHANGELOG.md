@@ -176,6 +176,18 @@ All notable changes to the VI-FLO Engine project are documented here.
   break, and one of which did not normalize slashes at all
 - The unfinished-tasks list names each task's device as well as its
   station: a paired gauge can have two offloads in flight
+- **A status change offers the working statuses only.** Ending a deployment -
+  removal, replacement, relocation, decommissioning - is a workflow that
+  dates the end, closes the ports and logs it; `update_device_status()` now
+  refuses a terminal status rather than flipping one without any of that,
+  and the prompt no longer offers typed-in statuses. `update_station_status()`
+  is decommissioning only: its other branches rewrote a whole station's
+  retired rows along with its current ones
+- **Adding a device is one change**: the row and the sensor height measured
+  as it went in, kept together or not at all
+- **One "who is logging" prompt.** Six workflows carried their own copy;
+  all use `ui_ask_whois_logging()`
+- A field time can be typed without seconds: `2026-11-03 14:30`
 - **Tests can no longer reach ZentraCloud.** Every call the engine makes to
   the API now goes through one function, `zc_call()`, and the test suite
   closes it for its whole run (`options(viflo.offline = TRUE)`), whatever
@@ -489,6 +501,19 @@ All notable changes to the VI-FLO Engine project are documented here.
   `TERMINAL_STATUSES`
 
 ### Fixed
+- **A refused save could be reported as done.** `save_device_metadata()`
+  returned FALSE when a save was refused - by validation, or because the
+  file changed underneath - and eleven of its callers never looked: setting
+  a location, a status, a visit or a review printed its check mark either
+  way. A refused save is now an error, as it already was for the port table,
+  and each caller reports it as a failure
+- **A relocation that left a station's sensors behind could never succeed.**
+  The station staying behind was marked `removed` but given no end, and its
+  ports were left open - exactly what the save checks refuse, so the whole
+  relocation was put back every time. It now ends at the move, its ports
+  closing with it
+- **A workflow that fails returns to the menu** rather than ending the
+  metadata manager session, saying what stopped it
 - **Year-old backups were deleted whenever a detail was corrected.** An older
   backup routine, `backup_metadata()`, still ran in *Correct device details*:
   it copied every table a second time and then removed every backup more

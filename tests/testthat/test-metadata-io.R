@@ -50,8 +50,7 @@ test_that("a file changed since this session read it is not overwritten", {
   cat("\n", file = path, append = TRUE)
   changed <- readLines(path)
 
-  utils::capture.output(ok <- save_device_metadata(m))
-  expect_false(ok)
+  utils::capture.output(expect_error(save_device_metadata(m), "was not saved"))
   expect_identical(readLines(path), changed)
 })
 

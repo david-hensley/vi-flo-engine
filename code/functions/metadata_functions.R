@@ -706,6 +706,12 @@ update_device_status <- function(device_serial, new_status, station_id = NULL) {
     # Terminal rows are excluded because they are closed history. Where the
     # caller knows which station it is acting on, that narrows it further.
     terminal_statuses <- TERMINAL_STATUSES
+    # A working status only. Ending a deployment is a workflow's job - removal,
+    # replacement, relocation, decommissioning - each of which dates the end,
+    # closes the ports and logs it; a status flipped here would do none of that
+    if (!new_status %in% ACTIVE_STATUSES) {
+      return(paste0("'", new_status, "' is not a working status - use the workflow that ends a deployment"))
+    }
     
     rows <- metadata$device_serial == device_serial &
             !tolower(metadata$status) %in% terminal_statuses
@@ -720,11 +726,6 @@ update_device_status <- function(device_serial, new_status, station_id = NULL) {
     }
     
     metadata$status[rows] <- new_status
-    # A terminal status ends the deployment, in the same save - now, unless
-    # the caller goes on to date it with retire_row()
-    if (tolower(new_status) %in% TERMINAL_STATUSES) {
-      metadata$end_datetime[rows & is.na(metadata$end_datetime)] <- Sys.time()
-    }
     
     # The approval is NOT cleared on a terminal transition, though it used to
     # be. That made sense when the flag gated downloading - a device out of
@@ -756,6 +757,12 @@ update_station_status <- function(...) {
 #' The saves of a station status change, unchecked - see update_station_status()
 update_station_status_unchecked <- function(station_id, new_status, when = Sys.time()) {
   tryCatch({
+    # Decommissioning only. Every other status has its own workflow -
+    # removal, replacement, relocation - and a blanket status for a whole
+    # station would rewrite its retired rows' history along with it
+    if (!identical(new_status, "decommissioned")) {
+      stop("only decommissioning changes a whole station's status")
+    }
     metadata <- load_zentra_metadata()
     
     if (new_status == "decommissioned") {
@@ -794,14 +801,6 @@ update_station_status_unchecked <- function(station_id, new_status, when = Sys.t
         }
         # If no removed devices either, nothing to mark (all replaced/relocated)
       }
-      
-    } else if (new_status == "relocated") {
-      # For relocation, update all devices
-      metadata$status[metadata$station_id == station_id] <- new_status
-      
-    } else {
-      # Default: update all
-      metadata$status[metadata$station_id == station_id] <- new_status
     }
     
     # As in update_device_status(), the approval is not cleared here. A
@@ -1040,6 +1039,13 @@ update_ports <- function(device_serial, port_config, change_datetime) {
 #' @param device_data List containing all device fields
 #' @return TRUE if successful, error message string if failed
 add_new_device <- function(device_data) {
+  # One change: the row and the sensor height measured as it went in - a
+  # device recorded without the height it was given is half an entry
+  with_metadata_change("adding a device", add_new_device_unchecked(device_data))
+}
+
+#' The saves of adding a device, unchecked - see add_new_device()
+add_new_device_unchecked <- function(device_data) {
   tryCatch({
     metadata <- load_zentra_metadata()
     
@@ -1140,7 +1146,7 @@ add_new_device <- function(device_data) {
         point = "sensor", value = as.numeric(h),
         relative_to = if (weather) "ground" else "bed", method = method))
       if (!isTRUE(res)) {
-        return(paste0("Device added, but its sensor height was not recorded: ", res))
+        return(paste0("Device not added - its sensor height could not be recorded: ", res))
       }
     }
 
@@ -1207,10 +1213,14 @@ relocate_station_unchecked <- function(station_id, new_lat, new_lon, deploy_date
     # row ends as `removed` - the sensors that constituted the station were
     # taken out. Not `relocated`, which would claim it moved; not
     # `decommissioned`, which implies a site nobody returns to.
+    # It ends at the move, like any retired row, and its ports close with it
+    left_ids <- character(0)
     if (length(staying_behind) > 0) {
       left <- metadata$station_id %in% staying_behind &
-              !metadata$status %in% TERMINAL_STATUSES
+              !tolower(metadata$status) %in% TERMINAL_STATUSES
       metadata$status[left] <- "removed"
+      metadata$end_datetime[left] <- as.POSIXct(deploy_datetime, tz = PROJECT_TZ)
+      left_ids <- metadata$unique_id[left]
     }
     
     # Create new rows for each device at new location
@@ -1275,6 +1285,7 @@ relocate_station_unchecked <- function(station_id, new_lat, new_lon, deploy_date
       new_unique_ids <- c(new_unique_ids, new_unique_id)
     }
     save_device_metadata(metadata)
+    if (length(left_ids) > 0) close_deployment_ports(left_ids, deploy_datetime)
 
     # The old logger's ports describe sensors that came out with it. Leaving
     # them open would have a device in a cupboard still carrying a live
@@ -1426,13 +1437,19 @@ remove_device <- function(unique_id, removal_datetime) {
 #' @param intent Character. What the caller was doing, for a refusal
 #' @param guard Logical. Refuse if the file changed since it was read. Off
 #'   only where the caller replaces the file wholesale and says so
-#' @return Invisibly TRUE if written, FALSE if refused
+#' A refused save is an error, as it is for the port table: returning FALSE
+#' let eleven callers that never looked report a refused save as done.
+#'
+#' @return Invisibly TRUE; an error if the save was refused
 save_device_metadata <- function(metadata, path = NULL, intent = NULL,
                                  guard = TRUE) {
   if (!is.null(path)) {
     return(invisible(write_table("device_metadata", metadata, path = path)))
   }
-  invisible(write_table("device_metadata", metadata, guard = guard, intent = intent))
+  if (!isTRUE(write_table("device_metadata", metadata, guard = guard, intent = intent))) {
+    stop("device_metadata.csv was not saved - the reason is above", call. = FALSE)
+  }
+  invisible(TRUE)
 }
 
 #' Resolves a device serial to a single metadata row

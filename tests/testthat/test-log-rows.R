@@ -140,7 +140,7 @@ test_that("a HOBO export is read in the zone it declares", {
                '"#","Date Time, GMT-05:00","Abs Pres, kPa (LGR S/N: 21652379)"',
                '1,03/23/26 10:00:00 AM,101.2', '2,03/23/26 10:15:00 AM,101.3',
                '3,03/23/26 10:30:00 AM,101.4'), f)
-  p <- read_exported_csv(f, expected_serial = "21652379")
+  utils::capture.output(p <- read_exported_csv(f, expected_serial = "21652379"))   # it narrates
   # 10:00 at GMT-05:00 is 11:00 in the project's zone, GMT-04:00
   expect_equal(format(p$start, "%Y-%m-%d %H:%M", tz = PROJECT_TZ), "2026-03-23 11:00")
 })

@@ -107,8 +107,7 @@ test_that("a replaced row's deployment ends at its replacement, for Product 2", 
   local_test_root()
   # The old logger came out when its replacement went in
   when <- as.POSIXct("2026-10-29 12:15:00", tz = "America/Puerto_Rico")
-  update_device_status("90000001", "replaced", station_id = "bta2_hydro")
-  retire_row("t-0001", when)
+  retire_row("t-0001", when, status = "replaced")
   w <- deployment_windows()
   w <- w[w$unique_id == "t-0001", ]
   expect_equal(w$end_basis, "end")
@@ -262,4 +261,24 @@ test_that("decommissioning ends the station at the moment given, not when it is 
   expect_equal(nrow(entry), 1)
   expect_equal(as.character(entry$field_visit_date), "2026-11-03")
   expect_length(validation_new_problems(before, validate_metadata(verbose = FALSE)), 0)
+})
+
+test_that("a relocation can leave a station's sensors behind, ended at the move", {
+  local_test_root()
+  when <- as.POSIXct("2026-11-01 10:00:00", tz = PROJECT_TZ)
+  r <- relocate_station("zzu_weather", 17.71, -64.80, when, "online", TRUE,
+                        staying_behind = "zzu_vwc1")
+  expect_true(isTRUE(r$success))
+  expect_equal(meta_row("t-0010")$status, "removed")
+  expect_equal(ends_at("t-0010"), "2026-11-01 10:00")
+  p <- load_zentra_ports_data()
+  expect_false(any(is.na(p$valid_to[p$unique_id == "t-0010"])))
+})
+
+test_that("a status change offers working statuses only; ending one is a workflow's", {
+  local_test_root()
+  expect_match(update_device_status("z6-38175", "replaced"), "not a working status")
+  expect_equal(meta_row("t-0011")$status, "online")
+  expect_true(isTRUE(update_device_status("z6-38175", "local")))
+  expect_equal(meta_row("t-0011")$status, "local")
 })

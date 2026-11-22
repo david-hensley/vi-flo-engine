@@ -184,36 +184,15 @@ ui_log_maintenance <- function(prefill_station = NULL, prefill_device = NULL,
   if (prefilled && !is.null(prefill_logged_by)) {
     logged_by <- prefill_logged_by
     cat("\n✓ Logged by:", logged_by, "(carried over)\n")
-    logged_by_input <- NA
   } else {
-  cat("\nWho is logging this entry?\n")
-  cat("  1. DAH\n")
-  cat("  2. Enter custom initials (3 letters)\n")
-  cat("\nEnter selection: ")
-  logged_by_input <- trimws(readline())
-  
-  if (logged_by_input == "1") {
-    logged_by <- "DAH"
-  } else if (logged_by_input == "2") {
-    repeat {
-      cat("Enter 3-letter initials: ")
-      custom_initials <- toupper(trimws(readline()))
-      if (nchar(custom_initials) == 3) {
-        logged_by <- custom_initials
-        break
-      } else {
-        cat("⚠️  Please enter exactly 3 letters\n")
-      }
-    }
-  } else {
-    logged_by <- "DAH"  # Default
-  }
-  cat("✓ Logged by:", logged_by, "\n")
+  logged_by <- ui_ask_whois_logging()
+  cat("✓ Logged by:", logged_by, "
+")
   }  # end of the non-prefilled logged_by path
   
   #### 7 - Status update (uses helper function for consistency)
   current_status <- station_devices$status[1]
-  new_status <- ui_prompt_status_change(current_status, allow_quit = TRUE, restrict_to_device_level = TRUE)
+  new_status <- ui_prompt_status_change(current_status, allow_quit = TRUE)
   
   if (is.null(new_status)) {
     cat("❌ Canceled\n")
@@ -472,29 +451,9 @@ ui_log_download <- function() {
   cat("✓ Details: ", details, "\n", sep = "")
   
   #### 5 - Who logged this?
-  cat("\nWho is logging this entry?\n")
-  cat("  1. DAH\n")
-  cat("  2. Enter custom initials (3 letters)\n")
-  cat("\nEnter selection: ")
-  logged_by_input <- trimws(readline())
-  
-  if (logged_by_input == "1") {
-    logged_by <- "DAH"
-  } else if (logged_by_input == "2") {
-    repeat {
-      cat("Enter 3-letter initials: ")
-      custom_initials <- toupper(trimws(readline()))
-      if (nchar(custom_initials) == 3) {
-        logged_by <- custom_initials
-        break
-      } else {
-        cat("⚠️  Please enter exactly 3 letters\n")
-      }
-    }
-  } else {
-    logged_by <- "DAH"  # Default
-  }
-  cat("✓ Logged by:", logged_by, "\n")
+  logged_by <- ui_ask_whois_logging()
+  cat("✓ Logged by:", logged_by, "
+")
   
   #### 6 - Confirmation
   cat("\n============================================\n")
@@ -770,19 +729,7 @@ survey_ask_when_who <- function() {
   if (is.null(survey_date)) return(NULL)
   cat("✓ Survey date: ", survey_date, "\n", sep = "")
 
-  cat("\nWho is logging this survey?\n")
-  cat("  1. DAH\n")
-  cat("  2. Enter custom initials (3 letters)\n")
-  cat("\nEnter selection: ")
-  logged_by <- "DAH"
-  if (trimws(readline()) == "2") {
-    repeat {
-      cat("Enter 3-letter initials: ")
-      ini <- toupper(trimws(readline()))
-      if (nchar(ini) == 3) { logged_by <- ini; break }
-      cat("⚠️  Please enter exactly 3 letters\n")
-    }
-  }
+  logged_by <- ui_ask_whois_logging()
   cat("✓ Logged by: ", logged_by, "\n\n", sep = "")
   list(survey_date = survey_date, logged_by = logged_by)
 }
@@ -1311,20 +1258,7 @@ ui_survey_gut_pair <- function() {
   if (is.null(survey_date)) return(cancel())
   cat("\u2713 Survey date: ", survey_date, "\n", sep = "")
 
-  cat("\nWho is logging this survey?\n")
-  cat("  1. DAH\n")
-  cat("  2. Enter custom initials (3 letters)\n")
-  cat("\nEnter selection: ")
-  lb <- trimws(readline())
-  logged_by <- "DAH"
-  if (lb == "2") {
-    repeat {
-      cat("Enter 3-letter initials: ")
-      ini <- toupper(trimws(readline()))
-      if (nchar(ini) == 3) { logged_by <- ini; break }
-      cat("\u26a0\ufe0f  Please enter exactly 3 letters\n")
-    }
-  }
+  logged_by <- ui_ask_whois_logging()
   cat("\u2713 Logged by: ", logged_by, "\n\n", sep = "")
 
   ##############################################################################
@@ -5121,28 +5055,7 @@ ui_remove_device <- function() {
   cat("✓ Details:", details, "\n\n")
   
   # Who is logging
-  cat("Who is logging this removal?\n")
-  cat("  1. DAH\n")
-  cat("  2. Enter custom initials (3 letters)\n")
-  cat("\nEnter selection: ")
-  logged_by_input <- trimws(readline())
-  
-  if (logged_by_input == "1") {
-    logged_by <- "DAH"
-  } else if (logged_by_input == "2") {
-    repeat {
-      cat("Enter 3-letter initials: ")
-      custom_initials <- toupper(trimws(readline()))
-      if (nchar(custom_initials) == 3) {
-        logged_by <- custom_initials
-        break
-      } else {
-        cat("⚠️  Please enter exactly 3 letters\n")
-      }
-    }
-  } else {
-    logged_by <- "DAH"  # Default
-  }
+  logged_by <- ui_ask_whois_logging()
   cat("✓ Logged by:", logged_by, "\n")
   
   ################################################################################
@@ -5871,6 +5784,25 @@ metadata_manager <- function() {
   # added rather than the whole log
   entries_at_start <- tryCatch(nrow(load_maintenance_log()),
                                error = function(e) NA_integer_)
+
+  # A workflow that fails - a refused save, a file that will not read - comes
+  # back to the menu saying why, rather than ending the session. What it had
+  # already saved stays saved; a change of several saves is put back whole
+  repeat {
+    done <- tryCatch({
+      metadata_manager_menu(entries_at_start)
+      TRUE
+    }, error = function(e) {
+      cat("\n\u274c That stopped: ", conditionMessage(e), "\n", sep = "")
+      cat("   Back to the menu.\n")
+      FALSE
+    })
+    if (done) return(invisible(TRUE))
+  }
+}
+
+#' The metadata manager's menu, until the person quits - see metadata_manager()
+metadata_manager_menu <- function(entries_at_start) {
   
   repeat {  # Main loop - allows multiple operations
     

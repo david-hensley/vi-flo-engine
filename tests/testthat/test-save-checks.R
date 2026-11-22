@@ -9,8 +9,7 @@ test_that("a save that would add a problem is refused, and nothing is written", 
   before <- readLines(table_path("device_metadata"))
   m <- load_zentra_metadata()
   m$status[m$unique_id == "t-0004"] <- "sleeping"          # not a status
-  out <- utils::capture.output(ok <- save_device_metadata(m))
-  expect_false(isTRUE(ok))
+  out <- utils::capture.output(expect_error(save_device_metadata(m), "was not saved"))
   expect_identical(readLines(table_path("device_metadata")), before)
   expect_true(any(grepl("SAVE REFUSED", out)))
   expect_true(any(grepl("INVALID_STATUS", out)))
@@ -34,7 +33,7 @@ test_that("a second row with a known problem is still a new problem", {
   write_table("device_metadata", m, guard = FALSE)
   m <- load_zentra_metadata()
   m$status[m$unique_id == "t-0005"] <- "dozing"
-  utils::capture.output(ok <- save_device_metadata(m))
+  utils::capture.output(ok <- tryCatch(save_device_metadata(m), error = function(e) FALSE))
   expect_false(isTRUE(ok))
 })
 
@@ -148,4 +147,20 @@ test_that("a maintenance entry with an action type not on the list is a problem"
   v <- validate_metadata(verbose = FALSE)
   expect_true("UNKNOWN_ACTION_TYPE" %in% names(v$violations))
   expect_match(v$violations$UNKNOWN_ACTION_TYPE$description, "elevation_survey")
+})
+
+test_that("a refused save is reported as a failure, never as done", {
+  local_test_root()
+  before <- readLines(table_path("device_metadata"))
+  # A latitude off the planet: validation refuses the save, and the caller -
+  # which once ignored the refusal and said "done" - says it failed
+  utils::capture.output(res <- update_device_location("z6-38175", 500, -64.8, NA))
+  expect_false(isTRUE(res))
+  expect_match(res, "was not saved")
+  expect_identical(readLines(table_path("device_metadata")), before)
+})
+
+test_that("a field time can be typed without seconds", {
+  out <- with_inputs("2026-11-03 14:30", ui_prompt_datetime("When?", allow_now = TRUE))
+  expect_equal(format(out$value, "%Y-%m-%d %H:%M:%S"), "2026-11-03 14:30:00")
 })
