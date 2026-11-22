@@ -607,6 +607,124 @@ ui_log_download <- function() {
   ))
 }
 
+#' Interactive explanation of readings that belong to no station
+#'
+#' Two kinds of thing need explaining, and both are offered rather than typed:
+#'
+#'   - a logger VI-FLO has no row for - on the ZentraCloud account, or only in
+#'     the archive - explained whole, with the choice of whether the download
+#'     job keeps archiving it
+#'   - an unexplained period the last builds found on a logger VI-FLO does
+#'     know - its ports and dates filled in from the build
+#'
+#' Each becomes a row of known_unattributed.csv, a checked save. Whatever is
+#' left unexplained stays on the to-do list and in the build's report, so the
+#' file keeps up rather than drifting.
+#'
+#' @param devices ZentraCloud device list (zc_list_devices); fetched if NULL
+#' @return TRUE if a row was added, NULL if canceled
+ui_explain_unattributed <- function(devices = NULL) {
+  cancel <- function(msg = "Canceled - nothing recorded") {
+    cat("\n\u274c ", msg, "\n", sep = "")
+    invisible(NULL)
+  }
+
+  cat("\n============================================\n")
+  cat("  Explain Unattributed Readings\n")
+  cat("============================================\n\n")
+  cat("Readings that belong to no station, explained once so they stop being\n")
+  cat("asked about. Recorded in known_unattributed.csv.\n\n")
+
+  meta <- load_zentra_metadata()
+  known <- load_known_unattributed()
+  if (is.null(devices)) {
+    devices <- tryCatch(zc_call("zc_list_devices", expand = "max_min_timestamp"),
+                        error = function(e) NULL)
+  }
+  if (is.null(devices)) {
+    cat("\u26a0\ufe0f  ZentraCloud could not be reached - only loggers in the archive are offered\n\n")
+  }
+
+  #### What needs explaining ####
+  whole_known <- known_unattributed_loggers()
+  on_cloud <- if (is.null(devices)) character(0) else
+    setdiff(devices$device_id, c(meta$device_serial, whole_known))
+  dl <- tryCatch(load_download_log(), error = function(e) NULL)
+  archive_only <- if (is.null(dl)) character(0) else
+    setdiff(unique(dl$device_serial[!is.na(dl$device_serial)]),
+            c(meta$device_serial, whole_known, if (!is.null(devices)) devices$device_id))
+  periods <- load_unexplained()
+
+  opts <- character(0); what <- list()
+  for (sn in on_cloud) {
+    opts <- c(opts, paste0(zc_display_name(devices, sn), " (", sn, ") - on ZentraCloud, no metadata row"))
+    what[[length(what) + 1]] <- list(kind = "logger", serial = sn, name = zc_display_name(devices, sn))
+  }
+  for (sn in sort(archive_only)) {
+    opts <- c(opts, paste0(sn, " - in the archive only, no metadata row"))
+    what[[length(what) + 1]] <- list(kind = "logger", serial = sn, name = NA_character_)
+  }
+  d <- function(x) format(x, "%Y-%m-%d", tz = PROJECT_TZ)
+  for (i in seq_len(nrow(periods))) {
+    p <- periods[i, ]
+    nm <- device_short_name(p$device_serial, meta)
+    opts <- c(opts, sprintf("%s (%s) %s - %s to %s, %s moments", nm, p$device_serial,
+                            if (nzchar(p$ports)) paste("ports", p$ports) else "",
+                            d(p$first), d(p$last), format(p$moments, big.mark = ",")))
+    what[[length(what) + 1]] <- list(kind = "period", serial = p$device_serial, name = nm,
+                                     first = p$first, last = p$last)
+  }
+  if (length(opts) == 0) {
+    cat("\u2713 Nothing waiting to be explained.\n")
+    return(invisible(NULL))
+  }
+
+  pick <- ui_select_from_menu("Which?", opts)
+  if (is.null(pick)) return(cancel())
+  w <- what[[match(pick, opts)]]
+
+  cat("\nWhy do these readings belong to no station? One line, for whoever\n")
+  cat("reads this next (e.g. 'not VI-FLO - a colleague's experiment'):\n")
+  reason <- ""
+  while (!nzchar(reason)) {
+    reason <- trimws(readline())
+    if (tolower(reason) == "q") return(cancel())
+  }
+
+  archive <- NA
+  if (w$kind == "logger") {
+    cat("\n")
+    a <- ui_yes_no("Keep archiving its readings when the download job runs?", allow_quit = TRUE)
+    if (a == "Q") return(cancel())
+    archive <- a == "Y"
+  }
+
+  # A period covers exactly what the build found: its first reading to just
+  # past its last, all ports - no wider, so nothing later hides inside it
+  row <- data.frame(
+    device_serial = w$serial, device_name = w$name, port = NA_integer_,
+    from = if (w$kind == "period") as.POSIXct(w$first, tz = PROJECT_TZ)
+           else as.POSIXct(NA, tz = PROJECT_TZ),
+    to   = if (w$kind == "period") as.POSIXct(w$last, tz = PROJECT_TZ) + 60
+           else as.POSIXct(NA, tz = PROJECT_TZ),
+    reason = reason, archive = archive, stringsAsFactors = FALSE)
+
+  cat("\n============================================\n")
+  cat("  ", pick, "\n", sep = "")
+  cat("  Reason: ", reason, "\n", sep = "")
+  if (w$kind == "logger") cat("  Archive it: ", if (archive) "yes" else "no - the job stops downloading it", "\n", sep = "")
+  cat("============================================\n\n")
+  if (ui_yes_no("Record this?", allow_quit = FALSE) != "Y") return(cancel())
+
+  res <- tryCatch(write_table_or_stop("known_unattributed", rbind(known, row),
+                                      intent = "explaining unattributed readings"),
+                  error = function(e) conditionMessage(e))
+  if (!isTRUE(res)) return(cancel(res))
+  cat("\u2713 Recorded - it will no longer be asked about\n")
+  invisible(TRUE)
+}
+
+
 #' Interactive field survey workflow
 #'
 #' Everything measured in the field with an instrument or a tape is recorded
@@ -5746,6 +5864,7 @@ metadata_manager <- function() {
     cat("  1. Worked on existing station/device\n")
     cat("  2. Established new station/device or reactivated old station\n")
     cat("  3. View metadata and network status\n")
+    cat("  4. Explain unattributed readings\n")
     if (n_pending > 0) {
       cat("  r. Resume an unfinished data task\n")
     }
@@ -5764,6 +5883,12 @@ metadata_manager <- function() {
       next
     }
     
+    #### Explain readings that belong to no station ####
+    if (top_choice == "4") {
+      ui_explain_unattributed()
+      next
+    }
+
     # Hidden admin function - delete metadata row
     if (tolower(top_choice) == "deletion") {
       ui_delete_metadata_row()

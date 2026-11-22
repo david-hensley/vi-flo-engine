@@ -12,6 +12,7 @@ reading <- function(sn, port, when, variable = "vwc") {
              stringsAsFactors = FALSE)
 }
 write_known <- function(rows) {
+  if (!"archive" %in% names(rows)) rows$archive <- NA
   write.csv(rows, file.path(wds("meta_internal"), "known_unattributed.csv"), row.names = FALSE, na = "")
 }
 
@@ -175,4 +176,81 @@ test_that("an excluded sensor's readings are set aside: neither placed nor repor
   expect_false(any(attr(a, "unattributed_readings")$port %in% 2))
   # The logger's other sensors go on as before
   expect_true(any(a$port %in% 3))
+})
+
+test_that("readings after a logger's last deployment ended are 'after retirement'", {
+  local_test_root()
+  # 21180078 is t-0008, removed 2024-08-22: a reading after that, and nowhere current
+  u <- reading("21180078", NA_integer_, "2025-03-01 10:00", "water_level")
+  c <- classify_unattributed(u, deployment_windows(), load_known_unattributed())
+  expect_equal(c$category, "retired")
+  ep <- unattributed_episodes(c)
+  printed <- utils::capture.output(print_unattributed(ep, load_zentra_metadata(), load_known_unattributed(),
+                                                       now = at("2026-10-18 12:00")))
+  expect_true(any(grepl("AFTER RETIREMENT - 1 moments from 1 retired logger(s) still reporting: real HOBOlink",
+                        printed, fixed = TRUE)))
+})
+
+test_that("a logger still deployed somewhere is not 'after retirement'", {
+  local_test_root()
+  # 90000002 ended at Reef Bay (t-0003) but is current at bta2 (t-0002)
+  u <- reading("90000002", NA_integer_, "2024-11-01 10:00", "water_level")
+  c <- classify_unattributed(u, deployment_windows(), load_known_unattributed())
+  expect_false(c$category == "retired")
+})
+
+test_that("a build records what it left unexplained, and explaining it takes it off the list", {
+  local_test_root()
+  ep <- data.frame(category = "unexplained", device_serial = "z6-13368", ports = "2",
+                   episode = "open:z6-13368:1", first = at("2026-09-01 10:00"),
+                   last = at("2026-09-02 10:00"), moments = 5L, variables = "vwc",
+                   stringsAsFactors = FALSE)
+  save_unexplained(ep, "z6-13368 2026")
+  expect_equal(nrow(load_unexplained()), 1)
+  write_known(data.frame(device_serial = "z6-13368", device_name = "real ZL6", port = NA,
+                         from = "2026-09-01 10:00:00", to = "2026-09-02 10:01:00", reason = "test"))
+  expect_equal(nrow(load_unexplained()), 0)
+  # A later build of another year leaves this one's rows alone
+  save_unexplained(NULL, "z6-13368 2025")
+  expect_equal(nrow(read_table("unexplained")), 1)
+})
+
+test_that("an archive-only logger is explained whole, and stops being asked about", {
+  local_test_root()
+  dl <- read_table("download_log")
+  sn <- setdiff(unique(dl$device_serial), load_zentra_metadata()$device_serial)[1]
+  out <- with_inputs(c("1", "retired, dropped from ZentraCloud", "Y", "Y"), ui_explain_unattributed(devices = no_cloud_devices()))
+  expect_true(isTRUE(out$value))
+  k <- load_known_unattributed()
+  r <- k[k$device_serial == sn, ]
+  expect_true(is.na(r$port) && is.na(r$from) && is.na(r$to))
+  expect_true(r$archive)
+  expect_true(sn %in% known_unattributed_loggers())
+})
+
+test_that("an unexplained period is explained with the build's own dates", {
+  local_test_root()
+  dl <- read_table("download_log")
+  archive_only <- setdiff(unique(dl$device_serial), load_zentra_metadata()$device_serial)
+  write_known(data.frame(device_serial = archive_only, device_name = NA, port = NA, from = NA, to = NA,
+                         reason = "retired", archive = TRUE))
+  save_unexplained(data.frame(category = "unexplained", device_serial = "z6-13368", ports = "8",
+                              episode = "x", first = at("2021-09-10 10:00"), last = at("2021-09-10 10:15"),
+                              moments = 2L, variables = "logger_pressure", stringsAsFactors = FALSE),
+                   "z6-13368 2021")
+  out <- with_inputs(c("1", "two stray readings before deployment", "Y"), ui_explain_unattributed(devices = no_cloud_devices()))
+  expect_true(isTRUE(out$value))
+  k <- load_known_unattributed()
+  r <- k[k$device_serial == "z6-13368", ]
+  expect_equal(as.numeric(r$from), as.numeric(at("2021-09-10 10:00")))
+  expect_true(is.na(r$archive))
+  expect_equal(nrow(load_unexplained()), 0)
+})
+
+test_that("validation catches a known row with no reason, or an archive choice on a period", {
+  local_test_root()
+  write_known(data.frame(device_serial = c("z6-1", "z6-2"), device_name = NA, port = c(NA, 2),
+                         from = NA, to = NA, reason = c("", "a reason"), archive = c(NA, TRUE)))
+  v <- validate_metadata(verbose = FALSE)$violations$KNOWN_UNATTRIBUTED_MALFORMED
+  expect_equal(nrow(v$data), 2)
 })

@@ -158,7 +158,8 @@ INSTALL_AFTER  <- 24 * 3600    # seconds after it starts: a deployment's first d
 #'
 #' One row per explained period: device_serial, device_name (for the reader;
 #' not matched on), port (blank for the whole logger), from and to
-#' (project-local; blank for open-ended), reason.
+#' (project-local; blank for open-ended), reason, and archive - for a whole
+#' logger, whether the download job keeps archiving it.
 #'
 #' @return Data frame, datetimes as POSIXct
 load_known_unattributed <- function() {
@@ -167,13 +168,15 @@ load_known_unattributed <- function() {
   k
 }
 
-#' Sorts unattributed readings into unexplained, known and around installations
+#' Sorts unattributed readings: unexplained, known, around installations, or
+#' after retirement
 #'
 #' @param u Data frame: device_serial, port, variable, datetime
 #' @param windows Data frame from deployment_windows()
 #' @param known Data frame from load_known_unattributed()
-#' @return u, plus category ("unexplained", "known", "installation") and
-#'   episode - the known row, or the deployment start, the reading belongs to
+#' @return u, plus category ("unexplained", "known", "installation",
+#'   "retired") and episode - the known row, the deployment start, or the
+#'   retired logger the reading belongs to
 classify_unattributed <- function(u, windows, known) {
   u$category <- "unexplained"
   u$episode  <- NA_character_
@@ -199,6 +202,21 @@ classify_unattributed <- function(u, windows, known) {
       u$category[hit] <- "installation"
       u$episode[hit]  <- paste0("install:", dev, ":", s)
     }
+  }
+
+  #### After retirement ####
+  # A logger with no current deployment anywhere, reporting after its last
+  # one ended - in a shed, an office, on a desk waiting to go out again.
+  # Recognized by rule, like an installation; the report still names each
+  # one, so a logger redeployed before its new station was entered shows up
+  # by name where it should not be
+  for (dev in unique(u$device_serial[u$category == "unexplained"])) {
+    w <- windows[windows$device_serial == dev, , drop = FALSE]
+    if (nrow(w) == 0 || any(is.na(w$ends))) next
+    last_end <- max(as.numeric(w$ends))
+    hit <- u$category == "unexplained" & u$device_serial == dev & t > last_end
+    u$category[hit] <- "retired"
+    u$episode[hit]  <- paste0("retired:", dev)
   }
 
   #### Unexplained: per logger, runs split where a week passes with nothing ####
@@ -315,5 +333,65 @@ print_unattributed <- function(ep, metadata, known, now = Sys.time()) {
     cat(sprintf("  AROUND INSTALLATIONS - %s moments around %d installation(s), set aside as settling in\n",
                 format(sum(ep$moments[sel]), big.mark = ","), length(unique(ep$episode[sel]))))
   }
+  sel <- ep$category == "retired"
+  if (any(sel)) {
+    devs <- unique(ep$device_serial[sel])
+    cat(sprintf("  AFTER RETIREMENT - %s moments from %d retired logger(s) still reporting: %s\n",
+                format(sum(ep$moments[sel]), big.mark = ","), length(devs),
+                paste(device_short_name(devs, metadata), collapse = ", ")))
+  }
   invisible(NULL)
+}
+
+
+
+#### Unexplained, between builds ####
+
+#' Records the unexplained episodes a build found
+#'
+#' What "Explain unattributed readings" offers. A build replaces the rows of
+#' the loggers and years it read and leaves the rest, so the table holds the
+#' latest word on each, whichever station-years were built.
+#'
+#' @param episodes Data frame from unattributed_episodes(), or NULL
+#' @param read Character. "serial year" for every logger and year the build
+#'   read; their rows are replaced, every other row kept
+#' @return Invisibly TRUE
+save_unexplained <- function(episodes, read) {
+  old <- tryCatch(read_table("unexplained", remember = FALSE), error = function(e) NULL)
+  key <- function(d) paste(d$device_serial, format(d$first, "%Y", tz = PROJECT_TZ))
+  keep <- if (is.null(old)) NULL else old[!key(old) %in% read, , drop = FALSE]
+  new <- NULL
+  if (!is.null(episodes) && nrow(episodes) > 0) {
+    e <- episodes[episodes$category == "unexplained", , drop = FALSE]
+    if (nrow(e) > 0) {
+      new <- data.frame(
+        device_serial = e$device_serial, ports = e$ports,
+        first = as.POSIXct(e$first, tz = PROJECT_TZ), last = as.POSIXct(e$last, tz = PROJECT_TZ),
+        moments = as.integer(e$moments), variables = e$variables,
+        found_utc = Sys.time(), stringsAsFactors = FALSE)
+    }
+  }
+  all <- rbind(if (is.null(keep)) table_empty("unexplained") else keep,
+               if (is.null(new)) table_empty("unexplained") else new)
+  write_table("unexplained", all, guard = FALSE)
+  invisible(TRUE)
+}
+
+#' The unexplained episodes still waiting for an explanation
+#'
+#' As the last builds recorded them, less any a known_unattributed.csv row
+#' now covers - so one just explained is not offered again before the next
+#' build.
+#'
+#' @return Data frame of unexplained.csv rows
+load_unexplained <- function() {
+  e <- tryCatch(read_table("unexplained", remember = FALSE), error = function(e) NULL)
+  if (is.null(e) || nrow(e) == 0) return(table_empty("unexplained"))
+  known <- load_known_unattributed()
+  covered <- vapply(seq_len(nrow(e)), function(i) {
+    k <- known[known$device_serial == e$device_serial[i], , drop = FALSE]
+    any((is.na(k$from) | k$from <= e$first[i]) & (is.na(k$to) | k$to >= e$last[i]))
+  }, logical(1))
+  e[!covered, , drop = FALSE]
 }

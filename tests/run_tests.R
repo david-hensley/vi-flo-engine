@@ -34,12 +34,13 @@ local({
          "\nRestart R and run start.R before running the suite.", call. = FALSE)
   }
   old_option <- getOption("viflo.test_build")
+  old_offline <- getOption("viflo.offline")
   on.exit({
     if (!identical(Sys.getenv("VI_FLO_DATA_ROOT"), data_root)) {
       message("! A test left the data root changed - restored to ", data_root)
       Sys.setenv(VI_FLO_DATA_ROOT = data_root)
     }
-    options(viflo.test_build = old_option)
+    options(viflo.test_build = old_option, viflo.offline = old_offline)
   }, add = TRUE)
 
   # Load the functions fresh, so the suite tests the files on disk rather

@@ -92,7 +92,7 @@ test_that("a logger recorded as wholly unattributed is not asked about", {
   write_table("known_unattributed", data.frame(
     device_serial = "z6-77001", device_name = "near southeast", port = NA_integer_,
     from = as.POSIXct(NA), to = as.POSIXct(NA), reason = "not VI-FLO's",
-    stringsAsFactors = FALSE), guard = FALSE)
+    archive = FALSE, stringsAsFactors = FALSE), guard = FALSE)
   devices <- data.frame(device_id = "z6-77001", name = "near southeast", stringsAsFactors = FALSE,
                         last_measurement = as.POSIXct("2026-11-21 10:00", tz = "UTC"))
   todo <- get_network_todo(devices = devices)

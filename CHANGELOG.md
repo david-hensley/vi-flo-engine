@@ -99,6 +99,34 @@ All notable changes to the VI-FLO Engine project are documented here.
   problems by name. The download job writes the same to the run log's
   message. Neither ever holds anything back
 
+- **Explain unattributed readings**, a metadata manager entry on the main
+  menu. It offers what is waiting to be explained - loggers VI-FLO has no row
+  for, on the ZentraCloud account or only in the archive, and the unexplained
+  periods the last builds found, their logger, ports and dates filled in -
+  and records each in `known_unattributed.csv` with a reason, as a checked
+  save. A build now saves what it left unexplained in `unexplained.csv` (a
+  machine-written table) for this to offer. Whatever stays unexplained stays
+  on the to-do list and in the report, so the file keeps up rather than
+  drifting. `validate_metadata()` checks every row names a logger, gives a
+  reason and covers a sound period
+- **`known_unattributed.csv` gains `archive`**: for a whole logger, whether
+  the download job keeps archiving it. A logger on the account that is not
+  VI-FLO's, recorded with `archive` FALSE, is no longer downloaded.
+  `tools/migrations/migrate_known_unattributed_v2.9.R` adds the column,
+  TRUE on every existing whole-logger row
+- **Tests can no longer reach ZentraCloud.** Every call the engine makes to
+  the API now goes through one function, `zc_call()`, and the test suite
+  closes it for its whole run (`options(viflo.offline = TRUE)`), whatever
+  key the machine holds. A test fails if a `zentraR::` call appears anywhere
+  else in `code/` or `tools/`. Found when a new workflow test fetched the
+  real device list on a machine with a key, offering real loggers in place
+  of its own
+- **Readings after retirement are recognized by rule.** A logger with no
+  current deployment anywhere, reporting after its last one ended - in a
+  shed, an office - is AFTER RETIREMENT in the build's report: one line,
+  counting its readings and naming each logger, rather than UNEXPLAINED on
+  every build
+
 ### Changed
 - **Product 2 rebuilds only when the code it runs changes.** A station-year
   was stale whenever anything in `code/functions` had been committed since it

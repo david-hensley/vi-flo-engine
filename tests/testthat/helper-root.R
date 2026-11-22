@@ -83,6 +83,13 @@ with_inputs <- function(inputs, expr) {
   list(value = value, output = output)
 }
 
+#' An empty ZentraCloud device list, for workflows that take one
+no_cloud_devices <- function() {
+  data.frame(device_id = character(0), name = character(0),
+             last_measurement = as.POSIXct(character(0), tz = "UTC"),
+             stringsAsFactors = FALSE)
+}
+
 #' The fixture metadata as it now stands on disk
 meta_row <- function(unique_id) {
   m <- load_zentra_metadata()
@@ -110,3 +117,7 @@ place_p1 <- function(files) {
 # Tests build in throwaway roots without a commit. Set for the suite only:
 # run_tests.R restores the session's own value afterwards
 options(viflo.test_build = TRUE)
+# No test may reach the real ZentraCloud account, whatever key this machine
+# holds: zc_call() refuses while this is set, and callers read the refusal as
+# "could not be reached". Restored by run_tests.R like the option above
+options(viflo.offline = TRUE)

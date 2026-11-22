@@ -116,7 +116,17 @@ TABLE_SCHEMA <- list(
     file = "known_unattributed.csv", key = NULL, writer = "person",
     columns = c(
       device_serial = "text", device_name = "text", port = "integer",
-      from = "datetime_local", to = "datetime_local", reason = "text"
+      from = "datetime_local", to = "datetime_local", reason = "text",
+      archive = "logical"
+    )
+  ),
+
+  unexplained = list(
+    file = "unexplained.csv", key = NULL, writer = "machine",
+    columns = c(
+      device_serial = "text", ports = "text", first = "datetime_local",
+      last = "datetime_local", moments = "integer", variables = "text",
+      found_utc = "datetime_utc"
     )
   ),
 
@@ -212,7 +222,7 @@ SURVEY_METHODS <- c(
 # validate_metadata() finds - see validation_blocks_write(). The machine-written
 # logs are not: the job's record of what it archived is never held back
 VALIDATED_TABLES <- c("device_metadata", "zentra_ports", "maintenance_log",
-                      "surveys", "pending_ingest")
+                      "surveys", "pending_ingest", "known_unattributed")
 
 #' One table's schema, or an error naming the tables there are
 table_schema <- function(name) {

@@ -39,6 +39,24 @@
 ################################################################################
 
 
+#' The one door to ZentraCloud
+#'
+#' Every call the engine makes to the API goes through here, so one switch can
+#' close them all: the test suite sets options(viflo.offline = TRUE), and a test
+#' can then never reach the real account, whatever key the machine holds. A
+#' closed door is an error, which every caller already treats as "could not be
+#' reached". A test forbids zentraR:: calls anywhere else.
+#'
+#' @param fn Character. The zentraR function, e.g. "zc_list_devices"
+#' @param ... Its arguments
+#' @return Whatever the zentraR function returns
+zc_call <- function(fn, ...) {
+  if (isTRUE(getOption("viflo.offline"))) {
+    stop("ZentraCloud is off limits here (viflo.offline)", call. = FALSE)
+  }
+  getExportedValue("zentraR", fn)(...)
+}
+
 #' Timestamp of the newest reading already held for a device
 #'
 #' @param device_sn Character
@@ -127,7 +145,7 @@ zentra_download <- function(devices = NULL, end = NULL, max_active = 4L,
 
   #### Who exists ####
   known <- tryCatch(
-    zentraR::zc_list_devices(expand = "max_min_timestamp", key = key),
+    zc_call("zc_list_devices", expand = "max_min_timestamp", key = key),
     error = function(e) {
       cat("X Could not list devices: ", conditionMessage(e), "\n\n", sep = "")
       NULL
@@ -145,6 +163,19 @@ zentra_download <- function(devices = NULL, end = NULL, max_active = 4L,
   }
 
   if (!is.null(devices)) known <- known[known$device_id %in% devices, ]
+
+  # Loggers recorded as not to be archived - not VI-FLO's, on the account for
+  # someone else's work - are left alone. Recorded in known_unattributed.csv,
+  # whole-logger rows with archive FALSE; asked by name in the job's output
+  stop_archiving <- tryCatch({
+    k <- load_known_unattributed()
+    k$device_serial[is.na(k$port) & is.na(k$from) & is.na(k$to) & k$archive %in% FALSE]
+  }, error = function(e) character(0))
+  if (length(stop_archiving) > 0 && any(known$device_id %in% stop_archiving)) {
+    cat("Not archived, as recorded in known_unattributed.csv: ",
+        paste(known$name[known$device_id %in% stop_archiving], collapse = ", "), "\n", sep = "")
+    known <- known[!known$device_id %in% stop_archiving, ]
+  }
 
   cat("Devices reachable: ", nrow(known), "\n\n", sep = "")
 
@@ -224,7 +255,7 @@ zentra_download <- function(devices = NULL, end = NULL, max_active = 4L,
                        "%Y-%m-%d %H:%M:%S", tz = "UTC")
 
     data <- tryCatch(
-      zentraR::zc_get_readings(device_id = sn, start = from_str, end = end_str,
+      zc_call("zc_get_readings", device_id = sn, start = from_str, end = end_str,
                                key = key),
       error = function(e) {
         cat("  X ", sn, ": ", conditionMessage(e), "\n", sep = "")

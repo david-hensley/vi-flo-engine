@@ -1256,9 +1256,11 @@ build_p2 <- function(stations = NULL, years = NULL, quiet = FALSE, print_report 
   cache <- new.env()
   cache$.reads <- character(0)
 
+  read_pairs <- character(0)
   for (st in stations) {
     yrs <- if (is.null(years)) p2_years_for(st, windows) else years
     for (yr in yrs) {
+      read_pairs <- c(read_pairs, paste(station_year_devices(st, yr, windows), yr))
       files <- p1_files_for(st, yr, windows, logged)
       unlogged <- c(unlogged, attr(files, "unlogged"))
       written <- character(0)
@@ -1398,6 +1400,10 @@ build_p2 <- function(stations = NULL, years = NULL, quiet = FALSE, print_report 
     u <- u[!duplicated(u), , drop = FALSE]
     known <- load_known_unattributed()
     episodes <- unattributed_episodes(classify_unattributed(u, windows, known))
+  }
+  # The latest word on each logger read, for "Explain unattributed readings"
+  tryCatch(save_unexplained(episodes, unique(read_pairs)), error = function(e) NULL)
+  if (length(lost) > 0) {
     unattributed <- summarize_unattributed(u)
     unattributed <- unattributed[order(unattributed$device_serial, unattributed$port,
                                        unattributed$variable), , drop = FALSE]
@@ -1470,9 +1476,11 @@ print_p2_report <- function(out, u, unlogged, metadata, windows) {
 # Fingerprinted by meaning - comments and layout do not count - so an edit
 # that changes nothing Product 2 does changes nothing here.
 P2_ENTRY_POINTS <- c("build_p2")
-# Reached from a build, but deciding nothing it writes: the report printed at
-# the end. Changing how it reads rebuilds nothing
-P2_NOT_OUTPUT <- c("print_p2_report")
+# Reached from a build, but deciding nothing it writes to Product 2: the
+# report printed at the end, and the sorting of readings that belong to no
+# station. Changing either rebuilds nothing
+P2_NOT_OUTPUT <- c("print_p2_report", "classify_unattributed", "unattributed_episodes",
+                   "summarize_unattributed", "save_unexplained")
 P2_DATA_FILES <- c("data/variables.csv")
 
 #' Everything a Product 2 build runs, by name

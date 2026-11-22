@@ -303,6 +303,24 @@ test_that("the statuses are written once, in the data layer", {
   expect_equal(nrow(hits), 0, info = paste(paste0(hits$file, ":", hits$line), collapse = ", "))
 })
 
+test_that("every ZentraCloud call goes through zc_call, and tests cannot reach it", {
+  # zc_call() is the one door the test suite closes. A call around it would
+  # reach the real account from any machine that holds a key - as the first
+  # unattributed-workflow test did
+  engine <- Sys.getenv("VI_FLO_ENGINE_ROOT")
+  files <- list.files(file.path(engine, c("code", "tools")), pattern = "\\.R$",
+                      full.names = TRUE, recursive = TRUE)
+  hits <- unlist(lapply(files, function(f) {
+    x <- sub("#.*$", "", readLines(f, warn = FALSE))
+    w <- grep("zentraR::|\\bzc_(get_readings|list_devices)\\(", x)
+    w <- w[!grepl("zentraR::zc_set_key\\(", x[w])]   # setting the key sends nothing
+    if (length(w)) paste0(basename(f), ":", w)
+  }))
+  expect_length(hits, 0)
+  expect_true(isTRUE(getOption("viflo.offline")))
+  expect_error(zc_call("zc_list_devices"), "off limits")
+})
+
 test_that("a port window reaching outside its deployment is flagged, and the repair clips it", {
   local_test_root()
   p <- read_table("zentra_ports")

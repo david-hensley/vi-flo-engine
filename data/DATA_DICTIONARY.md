@@ -349,10 +349,34 @@ different case: its port is `excluded` in `zentra_ports.csv`.
 * `port`: One port, or blank for the whole logger. A port narrows a period so it cannot hide something new on the logger's other ports
 * `from`, `to`: Project-local, `YYYY-MM-DD HH:MM:SS`. Blank `from` is the start of the logger's record; blank `to` means still open
 * `reason`: Why these readings belong to no station
+* `archive`: For a row covering a whole logger - no port, no dates - whether the download job keeps archiving it. `FALSE` for a logger on the ZentraCloud account that is not VI-FLO's, which the job then leaves alone. Blank on a period: archiving is a question about a whole logger
 
-Readings up to 7 days before one of a logger's deployments, or in its first 2
-hours, are recognized without a row here, as AROUND INSTALLATIONS: a desk
-launch, a test, the settling hour before a port's window opens.
+Two kinds of reading are recognized without a row here. Readings up to 7 days
+before one of a logger's deployments, or in its first 24 hours, are AROUND
+INSTALLATIONS: a desk launch, a test, the settling hour before a port's window
+opens. Readings from a logger with no current deployment anywhere, after its
+last one ended, are AFTER RETIREMENT: a logger in a shed or an office, still
+reporting. The build's report counts both in a line, naming the retired
+loggers, so a logger redeployed before its new station was entered still shows
+up by name.
+
+Rows are added through the metadata manager's *Explain unattributed readings*,
+which offers what is waiting: loggers VI-FLO has no row for, and the
+unexplained periods the last builds found (`unexplained.csv`).
+
+### `unexplained.csv`
+
+The unexplained episodes the Product 2 builds found, for *Explain unattributed
+readings* to offer. Written only by the machine: a build replaces the rows of
+the loggers and years it read and keeps the rest. An episode a
+`known_unattributed.csv` row now covers is not offered again.
+
+* `device_serial`: The logger
+* `ports`: Its ports with readings in the episode, compact (`1-4, 8`)
+* `first`, `last`: The episode's first and last reading, project-local
+* `moments`: Distinct reading times in it
+* `variables`: What was read
+* `found_utc`: When the build found it
 
 ### `pending_ingest.csv`
 

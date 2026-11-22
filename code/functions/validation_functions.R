@@ -137,6 +137,13 @@ validate_metadata <- function(verbose = TRUE, stop_on_error = FALSE, tables = NU
     return(NULL)
   })
   
+  known_un <- tryCatch({
+    load_known_unattributed()
+  }, error = function(e) {
+    record_violation("LOAD_KNOWN", paste("Failed to load known_unattributed.csv:", e$message))
+    return(NULL)
+  })
+  
   surveys <- tryCatch({
     load_surveys()
   }, error = function(e) {
@@ -925,6 +932,33 @@ validate_metadata <- function(verbose = TRUE, stop_on_error = FALSE, tables = NU
       } else {
         record_pass("pending task stages known")
       }
+    }
+  }
+  
+  # ==========================================================================
+  # KNOWN UNATTRIBUTED CHECKS
+  # ==========================================================================
+  #
+  # Each row explains readings that belong to no station: a logger, and a
+  # period of it or the whole of it, with a reason. A row with no logger
+  # explains nothing; one with no reason is a decision nobody can read back;
+  # one that ends before it starts covers nothing. Whether to keep archiving
+  # is a question about a whole logger only
+  
+  if (!is.null(known_un) && nrow(known_un) > 0) {
+    if (verbose) cat("\nChecking known unattributed...\n")
+    whole <- is.na(known_un$port) & is.na(known_un$from) & is.na(known_un$to)
+    bad <- is.na(known_un$device_serial) | !nzchar(trimws(known_un$device_serial)) |
+      is.na(known_un$reason) | !nzchar(trimws(known_un$reason)) |
+      (!is.na(known_un$from) & !is.na(known_un$to) & known_un$to <= known_un$from) |
+      (!whole & !is.na(known_un$archive))
+    if (any(bad)) {
+      record_violation("KNOWN_UNATTRIBUTED_MALFORMED",
+                       paste(sum(bad), "known_unattributed row(s) with no logger, no reason,",
+                             "an end before the start, or an archive choice on a period"),
+                       known_un[bad, ])
+    } else {
+      record_pass("known unattributed rows each name a logger, a reason and a sound period")
     }
   }
   

@@ -100,7 +100,7 @@ get_network_todo <- function(devices = NULL) {
   api_error <- NA_character_
   if (is.null(devices)) {
     devices <- tryCatch(
-      zentraR::zc_list_devices(expand = "max_min_timestamp"),
+      zc_call("zc_list_devices", expand = "max_min_timestamp"),
       error = function(e) { api_error <<- conditionMessage(e); NULL })
   }
 
@@ -600,7 +600,7 @@ get_station_roster <- function(devices = NULL) {
   # last thing that wrote it
   reached <- TRUE
   if (is.null(devices)) {
-    devices <- tryCatch(zentraR::zc_list_devices(expand = "max_min_timestamp"),
+    devices <- tryCatch(zc_call("zc_list_devices", expand = "max_min_timestamp"),
                         error = function(e) { reached <<- FALSE; NULL })
   }
 

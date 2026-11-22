@@ -65,6 +65,7 @@ stay until the v2.9 tag, then join the table under *Applied*.
 | `migrate_surveys_v2.9.R` | 2026-11-21 | Step 4.5a: `surveys.csv` created - weather and pond sensor heights from the device table, and the field surveys as measured; each pair's chained fall checked against the log |
 | `migrate_device_surveys_v2.9.R` | 2026-11-21 | Step 4.5b: `sensor_height_cm` and `reach_length_m` leave the device table, each value checked to be in `surveys.csv` first; each secondary takes its primary's elevation |
 | `migrate_port_windows_v2.9.R` | 2026-11-21 | Step 7b: every port window clipped to its deployment's dates |
+| `migrate_known_unattributed_v2.9.R` | 2026-11-22 | Item (a): `known_unattributed.csv` gains `archive`, TRUE on every existing whole-logger row |
 
 ## Applied
 
