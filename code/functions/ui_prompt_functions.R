@@ -715,7 +715,7 @@ ui_prompt_sensor_height <- function(station_type) {
 #' @param device_serial Character
 #' @param devices ZentraCloud device list; fetched for a ZL6 serial if NULL
 #' @return Character name, or NA
-ui_ask_device_name <- function(device_serial, devices = NULL) {
+ui_ask_device_name <- function(device_serial, devices = NULL, known = NA) {
   cloud <- NA_character_
   if (grepl("^z6-", device_serial)) {
     if (is.null(devices)) {
@@ -727,7 +727,13 @@ ui_ask_device_name <- function(device_serial, devices = NULL) {
       if (!identical(n, device_serial)) cloud <- n
     }
   }
-  if (!is.na(cloud)) {
+  # A logger back in service keeps the name it had, unless the cloud says
+  # otherwise
+  if (is.na(cloud) && length(known) == 1 && !is.na(known) && nzchar(trimws(known))) {
+    cloud <- trimws(known)
+    cat("\nThis logger was last named '", cloud, "'.\n", sep = "")
+    cat("Press Enter to keep that name, or type another:\n")
+  } else if (!is.na(cloud)) {
     cat("\nZentraCloud calls this logger '", cloud, "'.\n", sep = "")
     cat("Press Enter to use that name, or type another:\n")
   } else {

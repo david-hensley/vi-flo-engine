@@ -767,3 +767,173 @@ test_that("both stations on a ZL6 moving onto a new logger are moved, logged, an
   expect_equal(sort(e$station_id), c("zzu_vwc1", "zzu_weather"))
   expect_true(all(e$action_type == "station_relocation"))
 })
+
+#### Reactivating a station ####
+
+decommission_zzs <- function() {
+  m <- load_zentra_metadata()
+  m$status[m$unique_id == "t-0008"] <- "decommissioned"
+  write_table("device_metadata", m, guard = FALSE)
+}
+
+test_that("5a: a station reactivated where it was takes its old place and elevation, logged as one change", {
+  local_test_root()
+  decommission_zzs()
+  answers <- c(
+    "2", "3", "1",                   # reactivate; zzs_hydro
+    "1",                             # DAH, asked first
+    "1",                             # at its previous location
+    "21180099", "1", "3", "N", "Test S2",
+    "8", "", "", "2026-11-21 09:00", "1",
+    "Y",
+    "Y", "N"
+  )
+  run <- with_inputs(answers, metadata_manager())
+
+  m <- load_zentra_metadata()
+  new <- m[m$device_serial == "21180099", ]
+  old <- meta_row("t-0008")
+  expect_equal(c(new$station_id, new$status, new$device_name), c("zzs_hydro", "manual", "Test S2"))
+  expect_equal(c(new$lat, new$lon, new$elev), c(old$lat, old$lon, old$elev))
+  expect_equal(new$elev_source, old$elev_source)
+  expect_equal(old$status, "decommissioned")
+
+  e <- read_log()
+  e <- e[e$unique_id == new$unique_id, ]
+  expect_equal(c(e$action_type, e$field_visit_date), c("station_reactivated", "2026-11-21"))
+  expect_equal(e$details, paste0("Station reactivated with Test S2 (21180099), at its previous ",
+                                 "location; last ran on real HOBOlink (21180078)"))
+})
+
+test_that("who is logging is asked again on a slip, rather than taken as DAH", {
+  run <- with_inputs(c("x", "2", "ab", "SJB"), ui_ask_whois_logging())
+  expect_equal(run$value, "SJB")
+})
+
+test_that("5b: a station reactivated somewhere new is shown and saved at its new place", {
+  local_test_root()
+  decommission_zzs()
+  answers <- c(
+    "2", "3", "1", "1",
+    "2", "17.73", "-64.79",          # a new location
+    "22", "1",                       # its elevation, typed: offline
+    "21180099", "1", "3", "N", "Test S2",
+    "8", "", "", "2026-11-21 09:00", "1",
+    "Y",
+    "Y", "N"
+  )
+  run <- with_inputs(answers, metadata_manager())
+  out <- paste(run$output, collapse = "\n")
+  expect_match(out, "Location for the reactivation:", fixed = TRUE)
+  expect_match(out, "  Location:  17.73, -64.79", fixed = TRUE)
+
+  m <- load_zentra_metadata()
+  new <- m[m$device_serial == "21180099", ]
+  expect_equal(c(new$lat, new$lon, new$elev), c(17.73, -64.79, 22))
+  expect_equal(new$elev_source, "dem_manual")
+  e <- read_log()
+  expect_match(e$details[e$unique_id == new$unique_id], "at a new location (17.73, -64.79)", fixed = TRUE)
+})
+
+test_that("5c: a soil station reactivated on its shared ZL6 gets its old sensors back on their ports", {
+  local_test_root()
+  m <- load_zentra_metadata()
+  i <- m$unique_id == "t-0010"
+  m$status[i] <- "decommissioned"
+  m$end_datetime[i] <- as.POSIXct("2026-06-01 12:00:00", tz = PROJECT_TZ)
+  p <- read_table("zentra_ports")
+  p$valid_to[p$unique_id == "t-0010"] <- as.POSIXct("2026-06-01 12:00:00", tz = PROJECT_TZ)
+  write_table("zentra_ports", p, guard = FALSE)
+  write_table("device_metadata", m, guard = FALSE)
+
+  answers <- c(
+    "2", "3", "1", "1", "1",         # zzu_vwc1; DAH; where it was
+    "z6-13368", "Y",                 # its old logger, still serving zzu_weather
+    "N", "2026-11-21 09:00",         # its sensors went in later than the logger
+    "Y", "1",                        # primary: it shares the weather logger
+    "Y",
+    "Y",                             # the same sensors back on the same ports
+    "Y", "Y",                        # both records match
+    "N"
+  )
+  run <- with_inputs(answers, metadata_manager())
+  expect_match(paste(run$output, collapse = "\n"), "Add it to zzu_vwc1 as well?", fixed = TRUE)
+
+  m <- load_zentra_metadata()
+  back <- m[m$station_id == "zzu_vwc1" & m$status == "online", ]
+  expect_equal(nrow(back), 1)
+  expect_equal(c(back$device_serial, back$device_role), c("z6-13368", "primary"))
+
+  p <- read_table("zentra_ports")
+  now <- p[p$unique_id == back$unique_id & is.na(p$valid_to), ]
+  expect_equal(sort(now$port), 2:6)
+  expect_equal(format(unique(now$valid_from), "%Y-%m-%d %H:%M"), "2026-11-21 09:00")
+  # The weather station's ATMOS untouched
+  expect_equal(sum(p$unique_id == "t-0009" & is.na(p$valid_to)), 1)
+})
+
+test_that("a vwc station reactivated on a fresh ZL6 is offered the sensors it last had", {
+  local_test_root()
+  m <- load_zentra_metadata()
+  i <- m$unique_id == "t-0011"
+  m$status[i] <- "decommissioned"
+  m$end_datetime[i] <- as.POSIXct("2026-06-01 12:00:00", tz = PROJECT_TZ)
+  p <- read_table("zentra_ports")
+  p$valid_to[p$unique_id == "t-0011"] <- as.POSIXct("2026-06-01 12:00:00", tz = PROJECT_TZ)
+  write_table("zentra_ports", p, guard = FALSE)
+  write_table("device_metadata", m, guard = FALSE)
+
+  answers <- c(
+    "2", "3", "1", "1",              # zzv_vwc1; DAH
+    "2", "17.73", "-64.79", "22", "1",
+    "z6-99994", "2", "1", "N", "V new",
+    "", "", "2026-11-21 09:00", "2",
+    "Y",
+    "Y",                             # the same sensors on the same ports
+    "Y", "N"
+  )
+  run <- with_inputs(answers, metadata_manager())
+  expect_match(paste(run$output, collapse = "\n"), "When it last ran, zzv_vwc1 had:", fixed = TRUE)
+  m <- load_zentra_metadata()
+  new <- m[m$device_serial == "z6-99994", ]
+  p <- read_table("zentra_ports")
+  now <- p[p$unique_id == new$unique_id & is.na(p$valid_to), ]
+  expect_equal(now$depth_cm[order(now$port)], c(10, 30, 50, 100))
+})
+
+test_that("a station reactivated on its own old logger keeps the logger's details and gets its sensors back", {
+  local_test_root()
+  m <- load_zentra_metadata()
+  i <- m$unique_id == "t-0011"
+  m$status[i] <- "decommissioned"
+  m$end_datetime[i] <- as.POSIXct("2026-06-01 12:00:00", tz = PROJECT_TZ)
+  m$elev[i] <- NA
+  m$elev_source[i] <- NA
+  p <- read_table("zentra_ports")
+  p$valid_to[p$unique_id == "t-0011"] <- as.POSIXct("2026-06-01 12:00:00", tz = PROJECT_TZ)
+  write_table("zentra_ports", p, guard = FALSE)
+  write_table("device_metadata", m, guard = FALSE)
+
+  answers <- c(
+    "2", "3", "1", "1", "1",         # zzv_vwc1; DAH; where it was
+    "21", "1",                       # no elevation on record: typed, offline
+    "z6-38175",                      # its own logger, back in service
+    "N",                             # no role
+    "",                              # keep the name it had
+    "", "", "2026-11-21 09:00", "2",
+    "Y",
+    "Y",                             # the same sensors on the same ports
+    "Y", "N"
+  )
+  run <- with_inputs(answers, metadata_manager())
+  out <- paste(run$output, collapse = "\n")
+  expect_match(out, "Manufacturer: Meter (as last recorded)", fixed = TRUE)
+  expect_match(out, "This logger was last named 'real vwc ZL6'", fixed = TRUE)
+  expect_match(out, "When it last ran, zzv_vwc1 had:", fixed = TRUE)
+
+  m <- load_zentra_metadata()
+  back <- m[m$station_id == "zzv_vwc1" & m$status == "online", ]
+  expect_equal(c(back$device_name, back$model, back$elev), c("real vwc ZL6", "ZL6", "21"))
+  p <- read_table("zentra_ports")
+  expect_equal(nrow(p[p$unique_id == back$unique_id & is.na(p$valid_to), ]), 4)
+})

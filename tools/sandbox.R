@@ -74,8 +74,8 @@ sandbox_changes <- function() {
   for (uid in union(was$unique_id, meta$unique_id)) {
     a <- was[was$unique_id == uid, , drop = FALSE]
     b <- meta[meta$unique_id == uid, , drop = FALSE]
-    label <- paste0(if (nrow(b) > 0) b$device_name else a$device_name, " (",
-                    if (nrow(b) > 0) b$station_id else a$station_id, ")")
+    r <- if (nrow(b) > 0) b else a
+    label <- paste0(device_label(r[1, ]), " (", r$station_id[1], ")")
     if (nrow(a) == 0) { cat("  + ", label, " - new row ", uid, "\n", sep = ""); n_dev <- n_dev + 1; next }
     if (nrow(b) == 0) { cat("  - ", label, " - row ", uid, " deleted\n", sep = ""); n_dev <- n_dev + 1; next }
     for (col in names(a)) {

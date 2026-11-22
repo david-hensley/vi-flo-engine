@@ -269,7 +269,31 @@ All notable changes to the VI-FLO Engine project are documented here.
   change.** A reactivation could add its device and fail to set its
   position, leaving a row at no location; a paired survey could assign roles
   and then fail to save the survey behind them. Either now keeps both or
-  neither
+  neither. A reactivation's log entry is part of the change too - who is
+  logging is asked first - and names the device it came back with, where,
+  and the one it last ran on. First end-to-end test of a reactivation
+- **A station reactivated somewhere new is shown there.** The device step
+  showed - and its confirmation summarized - the old position, inherited
+  from the station, before the new one was written over it. It now shows the
+  new position and elevation throughout. The new coordinates are checked
+  against the Virgin Islands as elsewhere
+- **A reactivated station on a shared ZL6 can take its old sensors back in
+  one answer.** The sensors it had when it was retired are listed, and if
+  they went back on the same ports - still free on the logger - they are
+  recorded from the moment the station came back - and offered the same way
+  when it comes back on a fresh logger. The shared-logger question
+  names the station rather than asking about "a new station". End-to-end
+  tests of all three reactivations
+- **A logger back in service keeps what it is.** Entering a serial whose
+  every row has ended takes its manufacturer and model from its last row,
+  and offers its last name on Enter, rather than asking for all three again
+  - a reactivation on its old logger had left it unnamed. A station
+  reactivated where it was, with no elevation on record, has one looked up
+  then. The sandbox's change list names a device by its serial when it has
+  no name, rather than "NA"
+- **Who is logging is asked again on a slip.** Anything but 1, 2 or Enter
+  was taken as DAH without a word, putting the wrong initials on the record;
+  initials must be three letters
 - **Replacing a device is one change**: the new device, the old one's
   retirement, the surveys carried over and the log entry are saved together,
   so a failure partway no longer leaves two devices active, or none, or a

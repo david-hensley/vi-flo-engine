@@ -450,23 +450,20 @@ ui_ask_whois_logging <- function() {
   cat("\nWho is logging this?\n")
   cat("  1. DAH\n")
   cat("  2. Enter custom initials (3 letters)\n")
-  cat("\nEnter selection: ")
-  logged_by_input <- trimws(readline())
-  
-  if (logged_by_input == "1" || logged_by_input == "") {
-    return("DAH")
-  } else if (logged_by_input == "2") {
-    repeat {
-      cat("Enter 3-letter initials: ")
-      custom_initials <- toupper(trimws(readline()))
-      if (nchar(custom_initials) == 3) {
-        return(custom_initials)
-      } else {
-        cat("⚠️  Please enter exactly 3 letters\n")
-      }
-    }
-  } else {
-    return("DAH")  # Default for any other input
+  # Asked again on anything else: a stray keystroke silently logged as DAH
+  # puts the wrong initials on the record
+  repeat {
+    cat("\nEnter selection: ")
+    logged_by_input <- trimws(readline())
+    if (logged_by_input == "1" || logged_by_input == "") return("DAH")
+    if (logged_by_input == "2") break
+    cat("⚠️  Enter 1 or 2\n")
+  }
+  repeat {
+    cat("Enter 3-letter initials: ")
+    custom_initials <- toupper(trimws(readline()))
+    if (grepl("^[A-Z]{3}$", custom_initials)) return(custom_initials)
+    cat("⚠️  Please enter exactly 3 letters\n")
   }
 }
 
