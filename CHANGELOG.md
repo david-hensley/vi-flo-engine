@@ -150,6 +150,20 @@ All notable changes to the VI-FLO Engine project are documented here.
   `list_raw_files()` and `check_raw_overlap()` - nothing called any of them.
   Comments that described the old behavior - deployment ends derived from
   the next row, station-named Product 1 files - now describe the current one
+- **An unknown maintenance action type is a validation problem.** It was a
+  note in the long printout and counted for nothing. An action type not in
+  `MAINTENANCE_ACTIONS` - a name a migration missed, a typo from editing the
+  file by hand, a workflow writing a type nobody added - is now
+  UNKNOWN_ACTION_TYPE
+- **Savepoints retired.** `save_metadata_state()` and `revert_metadata_state()`,
+  with `backup_restore_functions.R`, are gone, and with them the session
+  line comparing the metadata to its savepoint. The sandbox
+  (`tools/sandbox.R`) does what they were for - trying things on metadata
+  without keeping the result - on a copy, where a revert could not roll
+  back months of work. The per-table backups taken before every session's
+  first save remain, and keep history a savepoint never did
+- Two validation checks removed that could no longer fire: datetimes stored
+  as an epoch, or not in ISO form. The data layer refuses both on reading
 - **Tests can no longer reach ZentraCloud.** Every call the engine makes to
   the API now goes through one function, `zc_call()`, and the test suite
   closes it for its whole run (`options(viflo.offline = TRUE)`), whatever
@@ -463,6 +477,14 @@ All notable changes to the VI-FLO Engine project are documented here.
   `TERMINAL_STATUSES`
 
 ### Fixed
+- **A change of several saves that failed partway kept its first half.**
+  `with_metadata_change()` put the tables back only when the finished change
+  would add a validation problem; a step that failed left the steps before
+  it saved. Deleting a row could remove the row, its ports and surveys, fail
+  to log it, and report "Row NOT deleted"; a relocation could retire the old
+  rows and fail to create the new ones. A change is now all or nothing: any
+  failure puts every table back as it was. A change after which the metadata
+  cannot be checked at all is refused too, rather than let through
 - **A Product 2 build that wrote nothing lost its report.** A station-year
   with nothing attributed - a retired station whose logger sat in a shed -
   returned no result at all, so `build_p2_stale()`'s end-of-run report

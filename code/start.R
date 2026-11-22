@@ -15,7 +15,7 @@ source(file.path(Sys.getenv("VI_FLO_ENGINE_ROOT"), "code/functions/setup_functio
 
 load_all_functions()
 
-# Uncommitted work, a stale archive, metadata changed since the last savepoint.
+# Uncommitted work, a stale archive, a data root that differs from Box.
 # Silent when there is nothing to say, so that when it speaks it is read.
 if (exists("get_session_status")) {
   try(print_session_status(get_session_status()), silent = TRUE)
@@ -41,5 +41,4 @@ if (exists("print_validation_line")) {
 # spelling, so none of it has to be remembered or typed from scratch.
 cat("  print_network_status()  every station and how it is doing\n")
 cat("  print_network_todo()    the to-do list - field work, then desk work\n")
-cat("  save_metadata_state()   savepoint before editing\n")
-cat("  revert_metadata_state() undo back to the last savepoint\n\n")
+cat("  source(\"tools/sandbox.R\"); sandbox_start()   try a workflow on a copy\n\n")

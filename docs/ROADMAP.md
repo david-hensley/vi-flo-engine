@@ -312,7 +312,8 @@ Raised three times in September, parked each time.
 
 - Zentra cable export instructions are still a placeholder
 - A field-notes transcription helper, deferred and undesigned
-- Rename the `backup` named path, which means two things at once
+- Remove the `backup` named path from `default_datamap.csv` and setup:
+  nothing has used it since the savepoints were retired
 
 ---
 

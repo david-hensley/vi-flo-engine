@@ -99,3 +99,53 @@ test_that("the session line says valid, or names the problems", {
   expect_true(any(grepl("INVALID_STATUS", out)))
   expect_match(validation_summary_line(), "INVALID_STATUS")
 })
+
+test_that("a change that fails partway is put back whole", {
+  local_test_root()
+  before <- load_zentra_metadata()
+  log_before <- read_log()
+
+  # A first save lands, then the change reports failure: nothing is kept
+  res <- with_metadata_change("a test change", {
+    m <- load_zentra_metadata()
+    m$device_name[m$unique_id == "t-0004"] <- "renamed halfway"
+    save_device_metadata(m)
+    "Failed: the second step did not happen"
+  })
+  expect_equal(res, "Failed: the second step did not happen")
+  expect_equal(load_zentra_metadata(), before)
+
+  # The same when it fails by error, after a log entry was written
+  expect_error(with_metadata_change("a test change", {
+    m <- load_zentra_metadata()
+    m$device_name[m$unique_id == "t-0004"] <- "renamed halfway"
+    save_device_metadata(m)
+    create_maintenance_entry(field_visit_date = Sys.Date(), station_id = "srl1_pond",
+                             unique_id = "t-0004", action_type = "inspection",
+                             details = "x", logged_by = "TST")
+    stop("broke after the log")
+  }), "broke after the log")
+  expect_equal(load_zentra_metadata(), before)
+  expect_equal(nrow(read_log()), nrow(log_before))
+
+  # And a relocation-shaped failure, a list saying so
+  res <- with_metadata_change("a test change", {
+    m <- load_zentra_metadata()
+    m$device_name[m$unique_id == "t-0004"] <- "renamed halfway"
+    save_device_metadata(m)
+    list(success = FALSE, error = "no")
+  })
+  expect_false(res$success)
+  expect_equal(load_zentra_metadata(), before)
+})
+
+test_that("a maintenance entry with an action type not on the list is a problem", {
+  local_test_root()
+  expect_false("UNKNOWN_ACTION_TYPE" %in% names(validate_metadata(verbose = FALSE)$violations))
+  log <- read_table("maintenance_log")
+  log$action_type[1] <- "elevation_survey"          # an old name a migration missed
+  write_table("maintenance_log", log, guard = FALSE)
+  v <- validate_metadata(verbose = FALSE)
+  expect_true("UNKNOWN_ACTION_TYPE" %in% names(v$violations))
+  expect_match(v$violations$UNKNOWN_ACTION_TYPE$description, "elevation_survey")
+})

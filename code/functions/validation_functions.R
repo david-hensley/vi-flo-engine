@@ -529,83 +529,9 @@ validate_metadata <- function(verbose = TRUE, stop_on_error = FALSE, tables = NU
       }
     }
 
-    # CHECK: datetime fields hold formatted text, not an epoch
-    #
-    # R coerces a POSIXct into a character column as its numeric epoch -
-    # "1791468900" rather than "2026-10-08 10:15:00". The value is not wrong,
-    # but nothing downstream parses it, and it is invisible unless someone
-    # opens the file. The job once did this to eighteen rows by assigning a
-    # reading time without formatting it first.
-    #
-    # Any writer can make this mistake. This catches all of them.
-    dt_fields <- intersect(c("deploy_datetime", "end_datetime", "last_visit",
-                             "last_reviewed_utc"),
-                           names(metadata))
-
-    if (length(dt_fields) > 0) {
-      epochs <- data.frame()
-
-      for (field in dt_fields) {
-        v <- as.character(metadata[[field]])
-        bad <- which(!is.na(v) & nzchar(v) & grepl("^[0-9]{9,13}$", v))
-        if (length(bad) > 0) {
-          epochs <- rbind(epochs, data.frame(
-            unique_id     = metadata$unique_id[bad],
-            device_serial = metadata$device_serial[bad],
-            field         = field,
-            value         = v[bad],
-            reads_as      = format(as.POSIXct(as.numeric(v[bad]),
-                                              origin = "1970-01-01",
-                                              tz = PROJECT_TZ),
-                                   "%Y-%m-%d %H:%M:%S"),
-            stringsAsFactors = FALSE))
-        }
-      }
-
-      if (nrow(epochs) > 0) {
-        record_violation(
-          "EPOCH_IN_DATETIME_FIELD",
-          paste(nrow(epochs), "datetime value(s) stored as a UNIX epoch"),
-          epochs
-        )
-      } else {
-        record_pass("datetime fields are formatted")
-      }
-    }
-
-    # CHECK: datetime fields parse at all
-    #
-    # A spreadsheet rewrites 2026-03-23 as 3/23/2026 when a file is opened and
-    # saved. Nothing in the pipeline reads that, and it is easy to miss.
-    if (length(dt_fields) > 0) {
-      odd <- data.frame()
-
-      for (field in dt_fields) {
-        v <- as.character(metadata[[field]])
-        has <- !is.na(v) & nzchar(v) & v != "NA"
-        iso <- grepl("^[0-9]{4}-[0-9]{2}-[0-9]{2}( [0-9]{2}:[0-9]{2}(:[0-9]{2})?)?$", v)
-        epoch <- grepl("^[0-9]{9,13}$", v)        # reported by the check above
-        bad <- which(has & !iso & !epoch)
-        if (length(bad) > 0) {
-          odd <- rbind(odd, data.frame(
-            unique_id     = metadata$unique_id[bad],
-            device_serial = metadata$device_serial[bad],
-            field         = field,
-            value         = v[bad],
-            stringsAsFactors = FALSE))
-        }
-      }
-
-      if (nrow(odd) > 0) {
-        record_violation(
-          "UNPARSEABLE_DATETIME",
-          paste(nrow(odd), "datetime value(s) are not in ISO format"),
-          odd
-        )
-      } else {
-        record_pass("datetime fields are ISO")
-      }
-    }
+    # Datetime fields are not checked for format here: the data layer reads
+    # every one as its type, and refuses the table - LOAD_METADATA - if a
+    # value will not parse, an epoch or a spreadsheet's 3/23/2026 included
 
   # ==========================================================================
   # MAINTENANCE LOG CHECKS
@@ -688,15 +614,21 @@ validate_metadata <- function(verbose = TRUE, stop_on_error = FALSE, tables = NU
       }
     }
 
-    # Check action types are from the one list
+    # CHECK: action types are from the one list - an old name a migration
+    # missed, a typo from editing the file by hand, or a workflow writing a
+    # type nobody added to MAINTENANCE_ACTIONS
     known_actions <- MAINTENANCE_ACTIONS
 
     if ("action_type" %in% names(maint)) {
       unknown_actions <- unique(maint$action_type[!maint$action_type %in% known_actions & 
                                                    !is.na(maint$action_type)])
       if (length(unknown_actions) > 0) {
-        if (verbose) cat("  ⚠ Unknown action types (may be valid):", 
-                         paste(unknown_actions, collapse = ", "), "\n")
+        record_violation(
+          "UNKNOWN_ACTION_TYPE",
+          paste("Action type(s) not in MAINTENANCE_ACTIONS:", paste(unknown_actions, collapse = ", ")),
+          maint[maint$action_type %in% unknown_actions,
+                c("field_visit_date", "station_id", "unique_id", "action_type")]
+        )
       } else {
         record_pass("maintenance action_types known")
       }
@@ -1175,10 +1107,16 @@ report_new_problems <- function(new) {
 #' against the state before it began. If it would add a problem, every table
 #' is put back as it was and the change is refused.
 #'
+#' All or nothing, too: a change that fails partway - an error, or a failure
+#' it reports by returning a message - is put back whole, so a relocation
+#' that retired the old rows and then failed to create the new ones leaves
+#' nothing half done behind it.
+#'
 #' A change inside a change is part of the outer one.
 #'
 #' @param intent Character. What the change does, for the report
-#' @param expr The saves
+#' @param expr The saves. Success is TRUE, or a list with success TRUE;
+#'   anything else is a failure
 #' @return Whatever expr returns, or a message saying the change was refused
 with_metadata_change <- function(intent, expr) {
   if (isTRUE(getOption("viflo.in_change"))) return(expr)
@@ -1191,23 +1129,37 @@ with_metadata_change <- function(intent, expr) {
   dir.create(dirname(keep[1]), recursive = TRUE)
   file.copy(paths[had], keep[had])
   on.exit(unlink(dirname(keep[1]), recursive = TRUE), add = TRUE)
+  put_back <- function() {
+    for (i in seq_along(paths)) {
+      if (had[i]) file.copy(keep[i], paths[i], overwrite = TRUE) else unlink(paths[i])
+      if (had[i] && exists("remember_file_hash")) remember_file_hash(paths[i])
+    }
+  }
 
   old <- options(viflo.in_change = TRUE)
   result <- tryCatch(force(expr), error = function(e) e, finally = options(old))
 
-  after <- tryCatch(validate_metadata(verbose = FALSE, check_files = FALSE),
-                    error = function(e) NULL)
-  new <- if (is.null(before) || is.null(after)) list() else validation_new_problems(before, after)
-  if (length(new) == 0) {
+  # Failed partway: nothing of it is kept
+  succeeded <- isTRUE(result) || (is.list(result) && !inherits(result, "error") &&
+                                    isTRUE(result$success))
+  if (!succeeded) {
+    put_back()
     if (inherits(result, "error")) stop(result)
     return(result)
   }
 
-  # Put every table back as it was
-  for (i in seq_along(paths)) {
-    if (had[i]) file.copy(keep[i], paths[i], overwrite = TRUE) else unlink(paths[i])
-    if (had[i] && exists("remember_file_hash")) remember_file_hash(paths[i])
-  }
+  after <- tryCatch(validate_metadata(verbose = FALSE, check_files = FALSE),
+                    error = function(e) NULL)
+  # Metadata that could be checked before and cannot after is the worst
+  # problem a change can add, not a reason to wave it through
+  new <- if (is.null(before)) list()
+         else if (is.null(after)) list(list(name = "VALIDATION_FAILED",
+                                            description = "the metadata could not be checked after the change",
+                                            rows = NULL))
+         else validation_new_problems(before, after)
+  if (length(new) == 0) return(result)
+
+  put_back()
   cat("\n============================================\n")
   cat("  CHANGE REFUSED - it would add a problem\n")
   cat("============================================\n\n")

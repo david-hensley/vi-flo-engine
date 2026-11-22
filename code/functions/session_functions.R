@@ -2,9 +2,9 @@
 #                           SESSION STATUS                                     #
 #                                                                              #
 # What a person needs to know on opening a session, without having to ask:     #
-# whether work was left uncommitted on this machine or another, whether the    #
-# metadata has drifted from its last savepoint, when the archive last updated, #
-# and whether anything is unfinished.                                          #
+# whether work was left uncommitted on this machine or another, how the data   #
+# root differs from Box, when the archive last updated, and whether anything   #
+# is unfinished. Whether the metadata is valid follows, on its own line.       #
 #                                                                              #
 # Every one of those has been a real question. Working across two machines,    #
 # "which one did I last use, and did I commit?" is not answerable from memory  #
@@ -95,44 +95,6 @@ git_state <- function(repo, fetch = TRUE) {
 }
 
 
-#' How far the metadata has drifted from its last savepoint
-#'
-#' Not a backup check - a change check. A file differing from the savepoint
-#' means something was written since, which is normal after using the manager
-#' and worth knowing before running a migration.
-#'
-#' @return List with available, changed, added, savepoint_time
-metadata_drift <- function() {
-
-  none <- list(available = FALSE, changed = character(0), added = character(0),
-               savepoint_time = NA)
-
-  live <- tryCatch(wds("meta_internal"), error = function(e) NULL)
-  save <- tryCatch(wds("backup"), error = function(e) NULL)
-  if (is.null(live) || is.null(save) || !dir.exists(save)) return(none)
-
-  # Top-level CSVs only. The backups and photo folders are not state.
-  live_files <- list.files(live, pattern = "\\.csv$")
-  save_files <- list.files(save, pattern = "\\.csv$")
-
-  changed <- character(0)
-  for (f in intersect(live_files, save_files)) {
-    a <- tools::md5sum(file.path(live, f))
-    b <- tools::md5sum(file.path(save, f))
-    if (!identical(unname(a), unname(b))) changed <- c(changed, f)
-  }
-
-  stamp <- if (length(save_files) > 0) {
-    max(file.mtime(file.path(save, save_files)))
-  } else NA
-
-  list(available      = TRUE,
-       changed        = changed,
-       added          = setdiff(live_files, save_files),
-       savepoint_time = stamp)
-}
-
-
 #' The most recent scheduled download
 #'
 #' @return One row of run_log.csv, or NULL
@@ -167,7 +129,6 @@ get_session_status <- function(fetch = TRUE, box = TRUE, quiet = FALSE) {
 
   list(
     engine   = git_state(Sys.getenv("VI_FLO_ENGINE_ROOT"), fetch = fetch),
-    drift    = metadata_drift(),
     run      = last_run(),
     box      = if (box) box_data_state() else NULL
   )
@@ -230,30 +191,6 @@ print_session_status <- function(status) {
       if (!g$fetched) {
         cat("                   (could not reach the remote - the pull side is unchecked)\n")
       }
-    }
-  }
-
-  #### Metadata against its savepoint ####
-  d <- status$drift
-  if (!isTRUE(d$available)) {
-    label("Metadata:"); cat("no savepoint to compare against\n")
-  } else {
-    n <- length(d$changed) + length(d$added)
-    age <- ""
-    if (!is.na(d$savepoint_time)) {
-      age <- paste0("savepoint ", format(d$savepoint_time, "%Y-%m-%d %H:%M"))
-    }
-
-    if (n == 0) {
-      label("Metadata:")
-      cat("matches the savepoint", if (nzchar(age)) paste0("  (", age, ")") else "",
-          "\n", sep = "")
-    } else {
-      label("Metadata:")
-      cat(n, " file", if (n != 1) "s" else "",
-          " changed since the last savepoint: ",
-          paste(c(d$changed, d$added), collapse = ", "), "\n", sep = "")
-      if (nzchar(age)) cat("                   ", age, "\n", sep = "")
     }
   }
 

@@ -443,9 +443,9 @@ source(file.path(Sys.getenv("VI_FLO_ENGINE_ROOT"), "code/start.R"))
 ```
 
 This sources `setup_functions.R`, loads every other function file, connects to
-ZentraCloud, reports the state of the session - uncommitted work, metadata
-changed since the last savepoint, how the data root differs from Box, when the
-last download ran - and raises any unfinished data tasks.
+ZentraCloud, reports the state of the session - uncommitted work, how the data
+root differs from Box, when the last download ran, whether the metadata is
+valid - and raises any unfinished data tasks.
 
 **To see the network**, `print_network_status()` for every station and how it
 is doing, or `print_network_todo()` for what needs attention. Both are also in
@@ -515,13 +515,12 @@ deleting anything.
 │       ├── session_functions.R      # What to know at session start
 │       ├── guard_functions.R        # Refuses writes over a changed file
 │       ├── network_status_functions.R  # What needs attention across the network
-│       ├── attribution_functions.R  # Readings to stations, and regularisation
+│       ├── attribution_functions.R  # Readings to stations; HOBO export headers
 │       ├── orphan_functions.R       # Archived files with no log row
 │       ├── validate_product1_functions.R  # The archive against the log
 │       ├── survey_functions.R       # surveys.csv: heights, falls and reaches between named points
 │       ├── product2_functions.R     # Product 2: registry, readers, grid, build_p2()
-│       ├── inspect_functions.R      # Names for loggers; view_device() draws one's record
-│       └── backup_restore_functions.R
+│       └── inspect_functions.R      # Names for loggers; view_device() draws one's record
 │   └── jobs/
 │       └── download_job.R           # Pull, fetch, push - scheduled or on demand
 ├── .github/workflows/tests.yml  # Runs the suite on every push
