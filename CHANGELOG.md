@@ -133,6 +133,13 @@ All notable changes to the VI-FLO Engine project are documented here.
   exactly what `--list` found - a build or pull in between changes the token,
   and the delete refuses. Run by hand, it asks as before. Every check and
   deletion stays in this script
+- **The README, ROADMAP and contributor guide describe v2.9.** The README no
+  longer says Product 2 is unbuilt, and lists the packages the engine really
+  uses (`zentraR`, `jsonlite`; not `dplyr` or `ggplot2`). The ROADMAP drops
+  what v2.9 finished, points field work to the to-do list, and opens with
+  what remains before the tag. The contributor guide, a generic git tutorial,
+  is rewritten around how work here happens - VI-FLO Tools, `start.R`, the
+  sandbox, the tests, migrations - and the rules the code depends on
 - **Tests can no longer reach ZentraCloud.** Every call the engine makes to
   the API now goes through one function, `zc_call()`, and the test suite
   closes it for its whole run (`options(viflo.offline = TRUE)`), whatever

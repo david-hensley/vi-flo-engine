@@ -2,7 +2,7 @@
 
 Backend data and code engine for the Virgin Islands Freshwater and Landscapes Observatory (VI-FLO).
 
-**Status:** v2.8.0
+**Status:** v2.8.1 - v2.9 in progress
 
 ---
 
@@ -16,9 +16,11 @@ monitoring stations across the US Virgin Islands.
 
 **Metadata management.** An interactive manager records every station, device,
 field visit, and data download. Establishing a station, swapping a device,
-relocating or decommissioning one, reconfiguring sensor ports, surveying
-elevations - each has a workflow that writes both the current state and a
-maintenance log entry explaining it.
+relocating or decommissioning one, reconfiguring sensor ports, recording a
+field survey, explaining readings that belong to no station - each has a
+workflow that writes both the current state and a maintenance log entry
+explaining it. Devices are named everywhere by their own names, with the
+serial beside.
 
 **Data download and archiving.** Zentra loggers are pulled from ZentraCloud
 through its API. HOBO loggers are offloaded by hand in the field, and a guided
@@ -26,20 +28,25 @@ workflow walks the user through exporting and archiving them - verifying the
 logger's serial against the file, detecting the recording interval, and warning
 when a record ends before the visit that collected it.
 
-**Validation.** A single command checks the metadata for internal consistency:
-duplicate identifiers, orphaned references, port configurations on retired
-devices, download log entries pointing at files that no longer exist.
+**Validation.** `validate_metadata()` checks the metadata for internal
+consistency: duplicate identifiers, orphaned references, port configurations
+outside their deployment, paired loggers that disagree, malformed surveys,
+download log entries pointing at files that no longer exist. Every save runs
+it too, and refuses one that would add a problem - so the metadata cannot get
+worse than it was. Each session opens with a line saying whether it is valid.
+
+**Product 2.** Every station-year is built from its loggers' readings into
+one file per variable, on a regular grid, and kept current by the weekly job.
 
 ### What it does not do yet
 
 **Multi-user editing.** `device_metadata.csv` is a file, not a database, and
 nothing prevents two people editing it between syncs. Until that is addressed,
-one person at a time should be writing metadata. See CHANGELOG for the plan.
+one person at a time should be writing metadata. See `docs/ROADMAP.md`.
 
-**Processing.** The product scheme is defined and the folders exist, but
-nothing is written into them yet. Attribution resolves readings to stations
-and variables; writing Product 2, automatic quality control, the derived
-series and the published archive follow it.
+**Processing beyond Product 2.** Automatic quality control, gap filling, the
+derived series - level first, from pressure and the barometric pairing - and
+the published archive are Product 3 and up. See `docs/ROADMAP.md`.
 
 Product 1 itself is complete, including the 2021-2025 archive imported in
 October 2026. `validate_product1()` checks every file against the download log
@@ -79,7 +86,9 @@ fall and a reach describe a pair of loggers, not one instrument. Each is named
 `<station>_<quantity>_<method>_<date>` - `bta2_hydro_fall_rod_20261014.csv`
 holds the rod readings exactly as typed, in the units they were read in;
 `bta2_hydro_reach_trupulse_20261014.txt` is the TruPulse export as it came off
-the device. What was concluded from them goes in the maintenance log.
+the device. What was concluded from them - a fall, a reach, a height between
+two named points - is a row of `metadata/internal/surveys.csv`, with a
+maintenance log entry saying it was recorded.
 
 ### Product 1 - device-keyed readings
 
@@ -195,9 +204,11 @@ it is a moment nothing recorded at all.
 `build_p2()` builds a station-year from its devices' Product 1 files, writes
 every variable, and removes anything an earlier build made that the current
 inputs would not. Its summary sorts readings that belong to no station three
-ways - UNEXPLAINED, KNOWN (periods in `metadata/internal/known_unattributed.csv`)
-and AROUND INSTALLATIONS - each with the last 12 months first and newest
-first. Nothing is hidden; only what is new is set out for attention. `products/p2/manifest.csv` has a row per file - one row,
+ways: UNEXPLAINED, set out in detail with the last 12 months first; and in
+one line each, KNOWN (recorded in `metadata/internal/known_unattributed.csv`),
+AROUND INSTALLATIONS, and AFTER RETIREMENT. What is left unexplained is saved
+for the metadata manager's *Explain unattributed readings*, which records a
+reason for each so it stops being asked about. `products/p2/manifest.csv` has a row per file - one row,
 replaced when the file is rebuilt - saying what it holds (rows observed and
 missing, conflicts, repeats, any rain set aside in a repeat), how each logger
 was aligned and the interval it actually kept, every Product 1 file read for
@@ -468,10 +479,19 @@ source(file.path(Sys.getenv("VI_FLO_ENGINE_ROOT"), "tests/run_tests.R"))
 ```
 
 Each test builds its own throwaway data root, so real metadata is never in
-reach. Workflows are driven by scripted answers and checked by what they leave
-behind. The suite is run by hand - not on every push, not on every session -
-and takes a few seconds. A bug fixed should arrive with the test that would
-have caught it.
+reach, and no test can reach ZentraCloud. Workflows are driven by scripted
+answers and checked by what they leave behind. GitHub also runs the suite on
+every push (`.github/workflows/tests.yml`). A bug fixed should arrive with the
+test that would have caught it.
+
+**To try a workflow on a copy**, `source("tools/sandbox.R")`, then
+`sandbox_start()`: the metadata manager works on a temporary copy of the
+tables, `sandbox_changes()` shows what it did, and `sandbox_end()` returns to
+the real data.
+
+**To clear retired product files from Box**, push the engine with VI-FLO
+Tools: after the Box upload it runs `tools/orphan_sweep.R` and asks before
+deleting anything.
 
 ---
 
@@ -482,7 +502,8 @@ have caught it.
 │   ├── start.R              # One-line session setup
 │   └── functions/
 │       ├── setup_functions.R        # Paths, datamap, date parsing
-│       ├── metadata_functions.R     # Loaders and metadata operations
+│       ├── table_functions.R        # The data layer: every table's schema, reads and checked writes
+│       ├── metadata_functions.R     # Loaders, metadata operations, device names
 │       ├── ui_prompt_functions.R    # Shared interactive prompts
 │       ├── metadata_manager_functions.R  # Workflows and the menu
 │       ├── zentra_download_functions.R   # ZentraCloud v5 downloads
@@ -497,14 +518,15 @@ have caught it.
 │       ├── attribution_functions.R  # Readings to stations, and regularisation
 │       ├── orphan_functions.R       # Archived files with no log row
 │       ├── validate_product1_functions.R  # The archive against the log
-│       ├── survey_functions.R       # Paired-gauge survey arithmetic, Product 0 writers
+│       ├── survey_functions.R       # surveys.csv: heights, falls and reaches between named points
 │       ├── product2_functions.R     # Product 2: registry, readers, grid, build_p2()
 │       ├── inspect_functions.R      # Names for loggers; view_device() draws one's record
 │       └── backup_restore_functions.R
 │   └── jobs/
 │       └── download_job.R           # Pull, fetch, push - scheduled or on demand
+├── .github/workflows/tests.yml  # Runs the suite on every push
 ├── tests/
-│   ├── run_tests.R   # The suite, run by hand
+│   ├── run_tests.R   # The suite
 │   └── testthat/     # Tests, helpers and fixtures
 ├── data/         # Data dictionary, variable registry, sample metadata
 ├── docs/
@@ -517,6 +539,8 @@ have caught it.
 │   ├── migrations/   # One-off schema and data migrations, with a README
 │   ├── backfill/     # One-time ZentraCloud export parser, kept for audit
 │   ├── download/     # Double-click launcher, logon prompt, scheduling notes
+│   ├── sandbox.R     # Try metadata manager workflows on a copy of the tables
+│   ├── orphan_sweep.R  # Clears retired product files from Box; run by VI-FLO Tools
 │   ├── setup_win.py  # Setup routine, built to setup_win.exe
 │   └── datamapper.py
 ├── .gitignore    # Ignores api_tokens.csv for security, do not delete!
@@ -551,9 +575,9 @@ differ substantially in accuracy. See `data/DATA_DICTIONARY.md`.
 * R version 4 or higher
 * Required R packages:
 
-  * `dplyr`
-  * `ggplot2`
-  * `testthat`, for the test suite only
+  * `zentraR`, for ZentraCloud
+  * `jsonlite`, for elevation lookups
+  * `testthat` and `withr`, for the test suite only
 
 ---
 
