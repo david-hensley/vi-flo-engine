@@ -231,6 +231,9 @@ check_pending <- function(stale_days = 14, verbose = TRUE) {
   age   <- as.numeric(Sys.Date() - visit)
 
   if (verbose) {
+    # Named by device too: a paired gauge can have two offloads in flight
+    meta <- tryCatch(load_zentra_metadata(), error = function(e) NULL)
+    if (is.null(meta)) meta <- table_empty("device_metadata")
     cat("\n")
     cat("!! ", nrow(pending), " unfinished data task",
         ifelse(nrow(pending) == 1, "", "s"), ":\n", sep = "")
@@ -241,7 +244,10 @@ check_pending <- function(stale_days = 14, verbose = TRUE) {
 
       flag <- if (!is.na(age[i]) && age[i] > stale_days) "  <-- STALE" else ""
 
+      dev <- meta$device_serial[match(pending$unique_id[i], meta$unique_id)]
       cat("   ", format(pending$station_id[i], width = 14),
+          " ", format(if (is.na(dev)) "" else device_display_name(dev, meta, pending$station_id[i]),
+                      width = 20),
           " visited ", pending$field_visit_date[i],
           " (", age[i], " days ago)",
           " - ", label, flag, "\n", sep = "")

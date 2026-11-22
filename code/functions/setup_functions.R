@@ -243,3 +243,22 @@ parse_date_flexible <- function(date_vector) {
 
   return(result)
 }
+
+
+#' A path relative to a root folder
+#'
+#' Compared as text, not as a pattern: a folder whose name holds a character
+#' a pattern would read specially - ( + . - cannot break it. Backslashes are
+#' made forward slashes on both sides first, as Windows may give either.
+#'
+#' @param path Character vector of paths
+#' @param root Character. The root; the data root by default
+#' @return Character, relative to root - unchanged where a path is not under it
+path_relative_to <- function(path, root = Sys.getenv("VI_FLO_DATA_ROOT")) {
+  p <- gsub("\\\\", "/", path)
+  r <- sub("/+$", "", gsub("\\\\", "/", root))
+  under <- startsWith(p, paste0(r, "/"))
+  p[under] <- substring(p[under], nchar(r) + 2)
+  p
+}
+

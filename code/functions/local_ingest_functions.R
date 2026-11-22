@@ -243,15 +243,11 @@ find_recent_file_in_data_root <- function(since,
 #' way here, which rewrites datetimes into the local format.
 #'
 #' @param filepath Character. Path to the CSV
-#' @param tz Character. Timezone for parsing
+#' @param tz Character. Timezone for parsing, or NULL for the one the export
+#'   declares in its date column's name - the project's if it declares none
 #' @return List with data, start, end, n_records - or NULL with a message on
 #'   failure
 read_exported_csv <- function(filepath, tz = NULL, expected_serial = NULL) {
-
-  if (is.null(tz)) {
-    metadata <- load_zentra_metadata()
-    tz <- metadata$timezone[1]
-  }
 
   #### Find the header row ####
   # HOBOware writes a title line above the headers - "Plot Title: Backup" -
@@ -361,7 +357,17 @@ read_exported_csv <- function(filepath, tz = NULL, expected_serial = NULL) {
     return(NULL)
   }
 
-  #### Parse it ####
+  #### Parse it, in the zone the export declares ####
+  # The archived file keeps its text exactly as exported; the zone only
+  # decides which moments its first and last readings were, for the filename
+  # and the log. Read the same way Product 2 reads it
+  if (is.null(tz)) {
+    tz <- hobo_declared_tz(names(data)[datetime_col])
+    if (is.na(tz)) {
+      tz <- PROJECT_TZ
+      cat("  ! The date column declares no timezone - read as ", PROJECT_TZ, "\n", sep = "")
+    }
+  }
   parsed <- tryCatch(
     coerce_datetime_flexible(data[[datetime_col]], tz),
     error = function(e) {
@@ -654,7 +660,7 @@ ui_ingest_local_data <- function(station_id, device_serial, station_type,
         }
         if (after) {
           cat("     last record ", format(parsed$end, "%Y-%m-%d"),
-              " is after its last recorded visit (",
+              " is after its deployment ended (",
               format(ended, "%Y-%m-%d"), ")\n", sep = "")
         }
         cat("\n     Usually this means the wrong station or the wrong file.\n")
@@ -797,28 +803,47 @@ archive_local_data <- function(station_id, device_serial, csv_path, parsed,
   warnings <- character(0)
 
   final_path <- file.path(raw_dir, final_name)
+  filepath_relative <- path_relative_to(final_path)
+  already_logged <- tryCatch(filepath_relative %in% load_download_log()$filepath,
+                             error = function(e) FALSE)
 
-  #### Write the RDS ####
-  saved <- tryCatch({
-    saveRDS(parsed$data, final_path)
-    TRUE
-  }, error = function(e) {
-    conditionMessage(e)
-  })
+  #### Never over an archived file ####
+  # A manual offload's name carries no fetch stamp, so the same span offloaded
+  # twice - a re-export, a resumed task - lands on the same name. The archive
+  # is never overwritten: the same readings again are already archived, and
+  # different ones under that name need a person to look
+  if (file.exists(final_path)) {
+    same <- tryCatch(identical(readRDS(final_path), parsed$data), error = function(e) FALSE)
+    if (!same) {
+      return(list(success = FALSE,
+                  message = paste0(final_name, " is already archived, with different readings. ",
+                                   "Nothing was written - compare the two before going on"),
+                  messages = messages, warnings = warnings))
+    }
+    messages <- c(messages, paste0("Already archived, identical: ", final_name))
+  } else {
+    #### Write the RDS ####
+    saved <- tryCatch({
+      saveRDS(parsed$data, final_path)
+      TRUE
+    }, error = function(e) {
+      conditionMessage(e)
+    })
 
-  if (!isTRUE(saved)) {
-    return(list(success = FALSE,
-                message = paste0("Could not save the RDS file: ", saved),
-                messages = messages, warnings = warnings))
+    if (!isTRUE(saved)) {
+      return(list(success = FALSE,
+                  message = paste0("Could not save the RDS file: ", saved),
+                  messages = messages, warnings = warnings))
+    }
+
+    if (!file.exists(final_path)) {
+      return(list(success = FALSE,
+                  message = "RDS file was not found on disk after writing",
+                  messages = messages, warnings = warnings))
+    }
+
+    messages <- c(messages, paste0("Saved: ", final_name))
   }
-
-  if (!file.exists(final_path)) {
-    return(list(success = FALSE,
-                message = "RDS file was not found on disk after writing",
-                messages = messages, warnings = warnings))
-  }
-
-  messages <- c(messages, paste0("Saved: ", final_name))
 
   #### Only now is it safe to remove the CSV ####
   if (file.exists(csv_path)) {
@@ -827,10 +852,6 @@ archive_local_data <- function(station_id, device_serial, csv_path, parsed,
   }
 
   #### Archive-asserting writes ####
-  filepath_relative <- sub(paste0("^", Sys.getenv("VI_FLO_DATA_ROOT"), "/?"),
-                           "", final_path)
-  filepath_relative <- sub("^/", "", filepath_relative)
-
   log_entry <- data.frame(
     # UTC: a run timestamp could be recorded anywhere. start_date and end_date
     # below stay in the logger's own local time, which is what the .hobo file
@@ -850,16 +871,22 @@ archive_local_data <- function(station_id, device_serial, csv_path, parsed,
   # By column name, through the data layer: written by position, this row
   # once lacked run_id and device_serial, and its values landed two columns
   # early
-  logged <- tryCatch({
+  logged <- if (already_logged) TRUE else tryCatch({
     append_rows("download_log", log_entry)
     TRUE
   }, error = function(e) conditionMessage(e))
 
-  if (isTRUE(logged)) {
-    messages <- c(messages, "Logged to download_log.csv (manual)")
-  } else {
-    warnings <- c(warnings, paste0("Could not write download log: ", logged))
+  # Archived but not logged is not done: the file would sit in the archive
+  # with nothing recording it. The task stays open, and resuming it finds the
+  # file already there and logs it
+  if (!isTRUE(logged)) {
+    return(list(success = FALSE,
+                message = paste0("Archived as ", final_name, ", but the download log could not ",
+                                 "be written: ", logged),
+                messages = messages, warnings = warnings))
   }
+  messages <- c(messages, if (already_logged) "Already in download_log.csv"
+                          else "Logged to download_log.csv (manual)")
 
   #### Clear the pending row - the workflow is complete ####
   clear_pending_ingest(station_id, device_serial)

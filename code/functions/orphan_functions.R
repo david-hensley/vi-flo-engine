@@ -214,13 +214,10 @@ remove_duplicate_orphans <- function(dry_run = TRUE) {
   cat("+ Removed ", removed, " locally\n", sep = "")
 
   #### Box, or the next pull puts them back ####
-  data_root <- gsub("\\\\", "/", Sys.getenv("VI_FLO_DATA_ROOT"))
   box_removed <- 0
 
   for (i in seq_len(nrow(dupes))) {
-    rel <- sub(paste0("^", data_root, "/?"), "",
-               gsub("\\\\", "/", file.path(wds(dupes$directory[i]),
-                                           dupes$file[i])))
+    rel <- path_relative_to(file.path(wds(dupes$directory[i]), dupes$file[i]))
     remote <- paste0(sub("/$", "", BOX_DATA_PATH), "/", rel)
     out <- tryCatch(
       suppressWarnings(system2("rclone", c("deletefile", shQuote(remote)),

@@ -491,7 +491,7 @@ list_product_files <- function(product, station = NULL, variable = NULL,
 p2_unlisted_files <- function() {
   files <- list_product_files(2)
   if (length(files) == 0) return(character(0))
-  rel <- sub(paste0("^", wds("products"), "/?"), "", files)
+  rel <- path_relative_to(files, wds("products"))
   m <- read_manifest(2)
   if (is.null(m) || !"file" %in% names(m)) return(rel)
   rel[!rel %in% m$file]

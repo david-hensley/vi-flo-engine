@@ -59,8 +59,10 @@ load_all_functions(quiet = TRUE)
 #' Copies between the local data root and Box
 #'
 #' `copy`, never `sync` - additive, and cannot delete at the destination even
-#' if the source is missing files. The same verb and exclusions the sync tool
-#' uses, so the two cannot disagree about what a transfer means.
+#' if the source is missing files - the verb the sync tool uses. Its
+#' exclusions are wider than the tool's, which leaves out only the datamap:
+#' R's session files and the clutter Windows and Office leave behind stay
+#' off Box too.
 #'
 #' @param direction "pull" or "push"
 #' @return TRUE if rclone succeeded

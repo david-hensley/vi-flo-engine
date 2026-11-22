@@ -362,17 +362,16 @@ zentra_download <- function(devices = NULL, end = NULL, max_active = 4L,
 
 #' Appends a Product 1 download to download_log.csv
 #'
-#' station is left NA: a Product 1 download is not attributed to one, and
-#' guessing here would bake in exactly the kind of assumption that Product 1
-#' exists to avoid.
+#' The row names the device, never a station: a Product 1 download is not
+#' attributed to one, and guessing here would bake in exactly the kind of
+#' assumption that Product 1 exists to avoid.
 #'
 #' @param device_sn,first,last,n,fname,fetched_at Download details
 #' @return Invisible TRUE
 zentra_log_download <- function(device_sn, first, last, n, fname, fetched_at,
                                 run_id = NA_character_, battery = NA_real_) {
 
-  rel <- sub(paste0("^", gsub("\\\\", "/", Sys.getenv("VI_FLO_DATA_ROOT")), "/?"),
-             "", gsub("\\\\", "/", file.path(wds("device_zentra"), fname)))
+  rel <- path_relative_to(file.path(wds("device_zentra"), fname))
 
   # Two timezones, deliberately. A reading belongs to a place with a recorded
   # timezone, so start and end are project-local and match what the HOBO path

@@ -290,6 +290,22 @@ parse_hobo_header <- function(name) {
 }
 
 
+#' The timezone a HOBOware export declares for its timestamps
+#'
+#' "Date Time, GMT-04:00" says what the times mean - better evidence than any
+#' assumption, since a file exported on a laptop set to another zone would
+#' otherwise be read hours out, silently. As an Etc/GMT zone, whose signs run
+#' backwards: GMT-04:00 is Etc/GMT+4.
+#'
+#' @param header Character. The datetime column's name
+#' @return Character zone, or NA if the header declares none
+hobo_declared_tz <- function(header) {
+  offset <- regmatches(header, regexpr("GMT\\s*[+-]\\s*[0-9]{1,2}:?[0-9]{2}", header))
+  if (length(offset) != 1) return(NA_character_)
+  hours <- as.integer(sub(".*?([0-9]{1,2}):?[0-9]{2}.*", "\\1", offset))
+  paste0("Etc/GMT", if (grepl("-", offset)) "+" else "-", hours)
+}
+
 #' A HOBOware export, in the long shape attribution works with
 #'
 #' One row per reading per measurement, matching what the ZL6 path produces -
@@ -309,18 +325,9 @@ hobo_to_long <- function(data, device_serial = NULL) {
          paste(names(data), collapse = ", "), call. = FALSE)
   }
 
-  # "Date Time, GMT-04:00" says what the timestamps mean. Taking it is better
-  # than assuming the project timezone - a file exported on a laptop set to
-  # another zone would otherwise be read four hours out, silently.
-  offset <- regmatches(names(data)[dt_col],
-                       regexpr("GMT\\s*[+-]\\s*[0-9]{1,2}:?[0-9]{2}",
-                               names(data)[dt_col]))
-
-  tzspec <- if (length(offset) == 1) {
-    sign <- if (grepl("-", offset)) 1 else -1   # Etc/GMT signs are inverted
-    hours <- as.integer(sub(".*?([0-9]{1,2}):?[0-9]{2}.*", "\\1", offset))
-    paste0("Etc/GMT", if (sign > 0) "+" else "-", hours)
-  } else PROJECT_TZ
+  # The zone the export declares, or the project's if it declares none
+  tzspec <- hobo_declared_tz(names(data)[dt_col])
+  if (is.na(tzspec)) tzspec <- PROJECT_TZ
 
   when <- suppressWarnings(as.POSIXct(data[[dt_col]],
                                       format = "%m/%d/%y %I:%M:%S %p",

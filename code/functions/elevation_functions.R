@@ -41,6 +41,8 @@ build_elevation_url <- function(lat, lon) {
 #' @param url Character
 #' @return Character, or NULL on any failure
 fetch_url_text <- function(url) {
+  # Closed to the test suite, like ZentraCloud: no test reaches a real service
+  if (isTRUE(getOption("viflo.offline"))) return(NULL)
   tryCatch({
     con <- url(url, open = "r")
     on.exit(try(close(con), silent = TRUE), add = TRUE)
@@ -178,6 +180,9 @@ lookup_elevation <- function(lat, lon, allow_global = TRUE) {
   }
 
   global <- lookup_elevation_global(lat, lon)
+  # Why the fallback was used: outside coverage is expected, USGS unreachable
+  # is worth trying again
+  global$fallback <- if (outside_us) "outside_us" else "usgs_unreachable"
   if (isTRUE(global$ok)) return(global)
 
   fail(if (outside_us) {

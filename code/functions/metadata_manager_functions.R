@@ -5618,7 +5618,6 @@ ui_correct_device_details <- function() {
     }
 
     #### Write ####
-    backup_metadata()
 
     # Some of these describe the BOX, not the station it serves. One ZL6 can
     # carry a weather station and a vwc station at once, and its model, name,

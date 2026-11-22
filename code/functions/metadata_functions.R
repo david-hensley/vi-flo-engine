@@ -115,10 +115,6 @@ load_maintenance_log <- function() {
 
 ######################          BACK-UP FUNCTIONS         ######################
 
-#' Backs up all CSV files in metadata/internal directory
-#' Creates timestamped copies in backups subdirectory
-#' Automatically cleans up backups older than 1 year
-#' @return Invisible TRUE on success
 #' Appends one row to a log, by column name
 #'
 #' Through append_rows() in table_functions.R: each value under its own
@@ -137,84 +133,6 @@ append_log_row <- function(entry, log_file) {
     stop(basename(log_file), " is not a table the data layer knows", call. = FALSE)
   }
   append_rows(name, entry, path = log_file)
-}
-
-backup_metadata <- function() {
-  meta_dir <- wds("meta_internal")
-  backup_dir <- file.path(meta_dir, "backups")
-  
-  # Create backup directory if needed
-  if (!dir.exists(backup_dir)) {
-    dir.create(backup_dir, recursive = TRUE)
-  }
-  
-  # Get all CSV files in metadata directory (but not in subdirectories)
-  csv_files <- list.files(meta_dir, pattern = "\\.csv$", full.names = TRUE, recursive = FALSE)
-  
-  if (length(csv_files) == 0) {
-    message("No CSV files found to backup")
-    return(invisible(FALSE))
-  }
-  
-  # Create timestamp for this backup batch
-  timestamp <- format(Sys.time(), "%Y%m%d_%H%M%S", tz = PROJECT_TZ)
-  
-  # Backup each CSV file
-  files_backed_up <- 0
-  for (csv_file in csv_files) {
-    # Skip download_log.csv - don't backup log files
-    if (grepl("download_log", basename(csv_file))) {
-      next
-    }
-    # Check if file is identical to most recent backup
-    base_name <- tools::file_path_sans_ext(basename(csv_file))
-    existing_backups <- list.files(backup_dir, 
-                                   pattern = paste0("^", base_name, "_.*\\.csv$"), 
-                                   full.names = TRUE)
-    if (length(existing_backups) > 0) {
-      # Get most recent backup
-      most_recent <- existing_backups[which.max(file.info(existing_backups)$mtime)]
-      
-      # Compare file contents
-      if (tools::md5sum(csv_file) == tools::md5sum(most_recent)) {
-        # Files are identical - skip backup
-        next
-      }
-    }
-    # Generate backup filename
-    backup_name <- paste0(base_name, "_", timestamp, ".csv")
-    backup_path <- file.path(backup_dir, backup_name)
-    # Copy file
-    file.copy(csv_file, backup_path)
-    files_backed_up <- files_backed_up + 1
-  }
-  message("✓ Backed up ", files_backed_up, " metadata file(s)")
-  # Clean up old backups (older than 1 year)
-  cleanup_old_backups(backup_dir, days = 365)
-  invisible(TRUE)
-}
-
-#' Removes backup files older than specified number of days
-#' @param backup_dir Character. Path to backups directory
-#' @param days Numeric. Keep backups newer than this many days (default 365)
-#' @return Invisible number of files deleted
-cleanup_old_backups <- function(backup_dir, days = 365) {
-  # Get all backup files
-  all_backups <- list.files(backup_dir, pattern = "\\.csv$", full.names = TRUE)
-  
-  if (length(all_backups) == 0) {
-    return(invisible(0))
-  }
-  # Get file modification times
-  file_ages <- difftime(Sys.time(), file.info(all_backups)$mtime, units = "days")
-  # Find files older than threshold
-  old_files <- all_backups[file_ages > days]
-  if (length(old_files) > 0) {
-    file.remove(old_files)
-    message("Cleaned up ", length(old_files), " backup(s) older than ", days, " days")
-    return(invisible(length(old_files)))
-  }
-  invisible(0)
 }
 
 ######################          EDITING FUNCTIONS         ######################

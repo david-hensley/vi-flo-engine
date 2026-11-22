@@ -357,6 +357,19 @@ get_network_todo <- function(devices = NULL) {
     }
   }
 
+  #### 7b. Elevations from the global fallback ####
+  # Every VI-FLO station is inside USGS coverage, so a ground elevation from
+  # the coarse global model means USGS could not be reached when the station
+  # was entered. Kept, labeled - and listed here until it is looked up again
+  if ("elev_source" %in% names(active)) {
+    coarse <- which(active$elev_source %in% "open_meteo")
+    for (i in coarse) {
+      add(active$station_id[i], active$device_serial[i], "low",
+          "elevation from the coarse global model - 'Correct device details' looks it up again",
+          "metadata review")
+    }
+  }
+
   #### 8. Surveys outstanding ####
   # Everything each station type needs and its current deployment lacks -
   # the sensor heights as well as a pair's fall and reach - worked out from

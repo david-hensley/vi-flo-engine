@@ -563,8 +563,19 @@ ui_prompt_elevation <- function(lat, lon, station_type = NA, device_role = NA) {
   #### Try the lookup ####
   res <- NULL
   if (exists("lookup_elevation")) {
-    cat("Looking up...\n")
-    res <- lookup_elevation(lat, lon)
+    repeat {
+      cat("Looking up...\n")
+      res <- lookup_elevation(lat, lon)
+      # USGS could not be reached, and the coarse global model answered: kept
+      # if wanted, but USGS is worth another try - it covers every VI-FLO site
+      if (!isTRUE(res$ok) || !identical(res$fallback, "usgs_unreachable")) break
+      cat("  ! USGS could not be reached - this is the coarse global model (about 90 m)\n")
+      if (ui_yes_no("  Try USGS again?", allow_quit = FALSE) == "N") {
+        cat("  (Kept as the global value. 'Correct device details' can look it up\n")
+        cat("   again later, and the to-do list will remind you.)\n")
+        break
+      }
+    }
   }
 
   if (!is.null(res) && isTRUE(res$ok)) {

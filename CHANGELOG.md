@@ -164,6 +164,18 @@ All notable changes to the VI-FLO Engine project are documented here.
   first save remain, and keep history a savepoint never did
 - Two validation checks removed that could no longer fire: datetimes stored
   as an epoch, or not in ISO form. The data layer refuses both on reading
+- **An elevation from the global fallback is offered for a second try.**
+  When USGS cannot be reached, the coarse global model still answers, and is
+  still kept if wanted - but the prompt now says so and offers to try USGS
+  again, and the to-do list's METADATA REVIEW lists any current station
+  whose elevation came from it until it is looked up again. No test can
+  reach either elevation service
+- **Paths relative to the data root are cut as text, in one place.**
+  `path_relative_to()` replaces six copies that used the root folder as a
+  pattern - which a name holding `(` or `+`, or a Windows backslash, could
+  break, and one of which did not normalize slashes at all
+- The unfinished-tasks list names each task's device as well as its
+  station: a paired gauge can have two offloads in flight
 - **Tests can no longer reach ZentraCloud.** Every call the engine makes to
   the API now goes through one function, `zc_call()`, and the test suite
   closes it for its whole run (`options(viflo.offline = TRUE)`), whatever
@@ -477,6 +489,27 @@ All notable changes to the VI-FLO Engine project are documented here.
   `TERMINAL_STATUSES`
 
 ### Fixed
+- **Year-old backups were deleted whenever a detail was corrected.** An older
+  backup routine, `backup_metadata()`, still ran in *Correct device details*:
+  it copied every table a second time and then removed every backup more
+  than a year old from the shared folder, the data layer's own included. It
+  is gone with its pruning; the data layer backs up before every session's
+  first save, and nothing is pruned
+- **A HOBO offload could overwrite an archived file.** A manual offload's name
+  carries no fetch stamp, so the same span ingested twice - a re-export, a
+  resumed task - was saved over the archived file and logged a second time.
+  An identical file is now recognized as already archived and not logged
+  again; a different one under the same name is refused, untouched
+- **An offload archived but not logged counted as done.** If the download
+  log could not be written, the ingest reported success and cleared its
+  pending task, leaving an archived file nothing recorded. It now reports
+  the failure and keeps the task open; resuming finds the file and logs it
+- **HOBO exports are read in the zone they declare.** The ingest read an
+  export's timestamps in the zone of the first metadata row, while Product
+  2 read the same file in the zone its header declares (`Date Time,
+  GMT-04:00`). Both now read the declared zone, through one helper, and the
+  ingest says so when a file declares none. The archived file itself was
+  never altered, and is not now
 - **A change of several saves that failed partway kept its first half.**
   `with_metadata_change()` put the tables back only when the finished change
   would add a validation problem; a step that failed left the steps before

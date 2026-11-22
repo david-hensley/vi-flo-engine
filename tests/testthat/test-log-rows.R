@@ -95,3 +95,56 @@ test_that("the job's download and run rows go through the data layer", {
   expect_equal(run$devices_seen, 3L)
   expect_true(is.na(run$message))
 })
+
+test_that("an offload already archived is never overwritten, nor logged twice", {
+  local_test_root()
+  data <- data.frame(`Date Time, GMT-04:00` = c("03/23/26 10:00:00 AM", "03/23/26 10:15:00 AM"),
+                     `Abs Pres, kPa (LGR S/N: 21652379)` = c(101.2, 101.3), check.names = FALSE)
+  parsed <- list(data = data,
+                 start = as.POSIXct("2026-03-23 10:00:00", tz = PROJECT_TZ),
+                 end   = as.POSIXct("2026-03-23 10:15:00", tz = PROJECT_TZ), n_records = 2)
+  name <- "21652379_20260323_20260323_raw.rds"
+  csv <- function() { f <- tempfile(fileext = ".csv"); writeLines("x", f); f }
+  n_logged <- function() sum(basename(load_download_log()$filepath) == name)
+
+  expect_true(archive_local_data("zzb_hydro", "21652379", csv(), parsed, name, wds("device_hobo"))$success)
+  expect_equal(n_logged(), 1)
+
+  # The same readings again: already archived, not logged a second time
+  r <- archive_local_data("zzb_hydro", "21652379", csv(), parsed, name, wds("device_hobo"))
+  expect_true(r$success)
+  expect_true(any(grepl("Already archived", r$messages)))
+  expect_equal(n_logged(), 1)
+
+  # Different readings under the same name: refused, the archived file untouched
+  before <- readRDS(file.path(wds("device_hobo"), name))
+  other <- parsed; other$data[[2]] <- c(99, 99)
+  r <- archive_local_data("zzb_hydro", "21652379", csv(), other, name, wds("device_hobo"))
+  expect_false(r$success)
+  expect_match(r$message, "already archived, with different readings")
+  expect_identical(readRDS(file.path(wds("device_hobo"), name)), before)
+})
+
+test_that("a path is made relative to the data root as text, not as a pattern", {
+  expect_equal(path_relative_to(c("C:\\Data (1)\\a\\b.rds", "C:/Data (1)/c.rds", "/elsewhere/z"),
+                                "C:/Data (1)/"),
+               c("a/b.rds", "c.rds", "/elsewhere/z"))
+})
+
+test_that("a HOBO export is read in the zone it declares", {
+  expect_equal(hobo_declared_tz("Date Time, GMT-04:00"), "Etc/GMT+4")
+  expect_equal(hobo_declared_tz("Date Time, GMT+01:00"), "Etc/GMT-1")
+  expect_true(is.na(hobo_declared_tz("Date Time")))
+  f <- tempfile(fileext = ".csv")
+  writeLines(c('"Plot Title: test"',
+               '"#","Date Time, GMT-05:00","Abs Pres, kPa (LGR S/N: 21652379)"',
+               '1,03/23/26 10:00:00 AM,101.2', '2,03/23/26 10:15:00 AM,101.3',
+               '3,03/23/26 10:30:00 AM,101.4'), f)
+  p <- read_exported_csv(f, expected_serial = "21652379")
+  # 10:00 at GMT-05:00 is 11:00 in the project's zone, GMT-04:00
+  expect_equal(format(p$start, "%Y-%m-%d %H:%M", tz = PROJECT_TZ), "2026-03-23 11:00")
+})
+
+test_that("no test can reach the elevation services", {
+  expect_null(fetch_url_text("https://epqs.nationalmap.gov/v1/json"))
+})

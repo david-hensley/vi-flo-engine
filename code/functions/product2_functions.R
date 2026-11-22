@@ -1302,7 +1302,7 @@ build_p2 <- function(stations = NULL, years = NULL, quiet = FALSE, print_report 
           probs <- parts[[key]]$problems
           row <- data.frame(
             station_id   = st, variable = variable, year = as.character(yr),
-            file         = sub(paste0("^", wds("products"), "/?"), "", path),
+            file         = path_relative_to(path, wds("products")),
             rows         = nrow(s),
             observed     = sum(s$flag == "observed"),
             missing      = sum(s$flag == "missing"),
@@ -1359,7 +1359,7 @@ build_p2 <- function(stations = NULL, years = NULL, quiet = FALSE, print_report 
       # file had already gone would otherwise outlive it, and keep the
       # station-year stale forever
       if (!is.null(manifest)) {
-        made <- sub(paste0("^", wds("products"), "/?"), "", written)
+        made <- path_relative_to(written, wds("products"))
         manifest <- manifest[!(manifest$station_id == st & manifest$year == as.character(yr) &
                                  manifest$variable != P2_NOTHING & !manifest$file %in% made),
                              , drop = FALSE]
