@@ -15,6 +15,11 @@ source(file.path(Sys.getenv("VI_FLO_ENGINE_ROOT"), "code/functions/setup_functio
 
 load_all_functions()
 
+# The sandbox is loaded with everything else, so trying a workflow on a copy
+# is one call. It is in tools/ rather than code/functions because nothing in
+# the engine calls it - it only ever runs when asked for
+source(file.path(Sys.getenv("VI_FLO_ENGINE_ROOT"), "tools/sandbox.R"))
+
 # Uncommitted work, a stale archive, a data root that differs from Box.
 # Silent when there is nothing to say, so that when it speaks it is read.
 if (exists("get_session_status")) {
@@ -41,4 +46,4 @@ if (exists("print_validation_line")) {
 # spelling, so none of it has to be remembered or typed from scratch.
 cat("  print_network_status()  every station and how it is doing\n")
 cat("  print_network_todo()    the to-do list - field work, then desk work\n")
-cat("  source(\"tools/sandbox.R\"); sandbox_start()   try a workflow on a copy\n\n")
+cat("  sandbox_start()         try a workflow on a copy of the metadata\n\n")

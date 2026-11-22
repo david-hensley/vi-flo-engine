@@ -11,8 +11,7 @@
 # the workflows did to the copy; sandbox_end() puts the session back and
 # deletes the copy.
 #
-# Usage, after start.R:
-#   source(file.path(Sys.getenv("VI_FLO_ENGINE_ROOT"), "tools/sandbox.R"))
+# Usage, after start.R - which loads this file:
 #   sandbox_start()
 #   metadata_manager()          # or any workflow
 #   sandbox_changes()           # what changed in the copy

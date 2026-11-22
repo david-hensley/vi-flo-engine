@@ -277,10 +277,34 @@ All notable changes to the VI-FLO Engine project are documented here.
   its ports closed - recorded as still running on a logger that had left.
   The new logger now takes over at every station the old one served, each
   getting its own row and its own log entry, all in the one change
+- **Relocating a station is one change, and asks what changed at the new
+  spot.** The move, the old row's visit date and the log entries are saved
+  together - and every station that moved on the same logger gets its own
+  entry, not only the one named. The time of the move is checked like a
+  removal's: not in the future, not before the deployment it ends. The
+  sensor height at the new spot is asked and recorded against the new
+  deployment, since the old one's no longer holds. A replacement logger
+  brought in on the move is offered only its manufacturer's models, with
+  their ranges, and the summary shows the new elevation and height and no
+  ports for a HOBO. First end-to-end tests of a relocation
+- **A station left behind by a relocation is logged as removed**, at that
+  station, saying its logger moved and its sensors came out. Its row was
+  ended with nothing in the log to say why. Its sensors are listed as
+  staying behind rather than asked about again, and only the sensors moving
+  with the logger are in question
+- A relocation of stations sharing a logger asks for one metadata review,
+  which offers the others, rather than reviewing each twice
+- `start.R` loads the sandbox, so `sandbox_start()` needs no `source()`
+  first
+- **Coordinates outside the Virgin Islands are questioned.** Entering a
+  new station or a relocation, a latitude or longitude outside 17-19 N,
+  64-66 W - a dropped minus sign, the two swapped - is shown and asked again
+  unless confirmed, as corrections already did
 - **A replacement ZL6 can take the old one's sensors in one answer.** The
   old logger's ports as they were when it came out are listed, and if the
   same sensors went into the new one on the same ports they are recorded
-  without being typed again
+  without being typed again - after a replacement, and after a relocation
+  that brought in a new logger
 - A typed time zone for a new device is checked against the zones R knows,
   and a slip at the time zone menu asks again rather than abandoning the
   device

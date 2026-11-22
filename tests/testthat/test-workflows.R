@@ -606,3 +606,164 @@ test_that("2b: a shared ZL6 replaced takes over at both its stations, with the s
   expect_equal(sort(e$station_id), c("zzu_vwc1", "zzu_weather"))
   expect_true(all(e$action_type == "device_replacement"))
 })
+
+#### Relocating a station ####
+
+test_that("3a: a station moving with its logger ends the old row there and starts one at the new spot", {
+  local_test_root()
+  answers <- c(
+    "1", "6", "5", "Y",              # relocation; zzb_hydro
+    "1",                             # the same logger moves
+    "17.75", "-64.79", "20", "1",    # new position; elevation typed from a DEM
+    "11",                            # its sensor height there
+    "2026-11-21 09:00", "1",         # moved; manual
+    "Y", "1",                        # confirm; DAH
+    "Y", "N"
+  )
+  run <- with_inputs(answers, metadata_manager())
+  out <- paste(run$output, collapse = "\n")
+  expect_false(grepl("Ports:", out, fixed = TRUE))   # a HOBO has none
+
+  old <- meta_row("t-0007")
+  expect_equal(old$status, "relocated")
+  expect_equal(format(old$end_datetime, "%Y-%m-%d %H:%M"), "2026-11-21 09:00")
+  expect_equal(format(old$last_visit), "2026-11-21")
+
+  m <- load_zentra_metadata()
+  new <- m[m$station_id == "zzb_hydro" & m$status == "manual", ]
+  expect_equal(nrow(new), 1)
+  expect_equal(c(new$device_serial, new$lat, new$lon, new$elev),
+               c("21652379", "17.75", "-64.79", "20"))
+  expect_equal(format(new$deploy_datetime, "%Y-%m-%d %H:%M"), "2026-11-21 09:00")
+
+  s <- load_surveys()
+  h <- s[s$unique_id == new$unique_id, ]
+  expect_equal(c(h$point, h$relative_to, h$value), c("sensor", "bed", "11"))
+
+  log <- read_log()
+  e <- log[log$unique_id == new$unique_id, ]
+  expect_equal(c(e$action_type, e$field_visit_date), c("station_relocation", "2026-11-21"))
+  expect_equal(e$details, "Station relocated from (17.7, -64.8) to (17.75, -64.79)")
+})
+
+test_that("a move dated before the station's deployment began is asked again", {
+  local_test_root()
+  answers <- c("1", "6", "5", "Y", "1", "17.75", "-64.79", "20", "1", "",
+               "2020-01-01 09:00",            # before zzb_hydro began (2026-08-01)
+               "2026-11-21 09:00", "1",
+               "N",                           # not confirmed
+               "q", "q")                      # out of both menus
+  run <- with_inputs(answers, metadata_manager())
+  expect_match(paste(run$output, collapse = "\n"),
+               "That is before its current deployment began", fixed = TRUE)
+  expect_equal(meta_row("t-0007")$status, "manual")
+})
+
+test_that("3b: a ZL6 moving while its soil station stays behind removes that station, its sensors closing", {
+  local_test_root()
+  answers <- c(
+    "1", "6", "7", "Y",              # zzu_weather
+    "N",                             # zzu_vwc1 did not move
+    "1",                             # the same logger moves
+    "Y",                             # the ATMOS moved with it
+    "17.71", "-64.81", "30", "1", "",
+    "2026-11-21 09:00", "2",
+    "Y", "1", "Y", "N"
+  )
+  run <- with_inputs(answers, metadata_manager())
+  out <- paste(run$output, collapse = "\n")
+  expect_match(out, "Staying behind, closed at the move:", fixed = TRUE)
+  expect_match(out, "Moving with the logger:\n\n  Port 1: ATMOS 41", fixed = TRUE)
+
+  expect_equal(meta_row("t-0009")$status, "relocated")
+  stayed <- meta_row("t-0010")
+  expect_equal(stayed$status, "removed")
+  expect_equal(format(stayed$end_datetime, "%Y-%m-%d %H:%M"), "2026-11-21 09:00")
+
+  m <- load_zentra_metadata()
+  new <- m[m$station_id == "zzu_weather" & m$status == "online", ]
+  expect_equal(nrow(new), 1)
+  expect_false(any(m$station_id == "zzu_vwc1" & !m$status %in% TERMINAL_STATUSES))
+
+  # The ATMOS moved to the new row; the TEROS closed with the station left behind
+  p <- read_table("zentra_ports")
+  expect_equal(p$port[p$unique_id == new$unique_id & is.na(p$valid_to)], 1)
+  expect_equal(sum(p$unique_id == "t-0010" & is.na(p$valid_to)), 0)
+
+  log <- read_log()
+  r <- log[log$station_id == "zzu_vwc1" & log$action_type == "device_removal", ]
+  expect_equal(nrow(r), 1)
+  expect_equal(r$unique_id, "t-0010")
+  expect_match(r$details, "moved with zzu_weather and its sensors came out", fixed = TRUE)
+})
+
+test_that("a coordinate outside the Virgin Islands is shown and asked again unless confirmed", {
+  run <- with_inputs(c("2", "1", "N", "17.74", "-64.8"), ui_prompt_coordinates())
+  expect_equal(unname(run$value), c(17.74, -64.8))
+  expect_match(paste(run$output, collapse = "\n"), "is outside the Virgin Islands", fixed = TRUE)
+})
+
+test_that("3c: a station moving onto a new logger closes the old one's ports and takes its sensors across", {
+  local_test_root()
+  answers <- c(
+    "1", "6", "8", "Y",              # zzv_vwc1, a lone vwc ZL6
+    "2",                             # a different logger goes in
+    "z6-99997", "2", "1", "New vwc", # Meter; ZL6; its name
+    "17.72", "-64.82", "25", "1",
+    "2026-11-21 09:00", "2",
+    "Y", "1",
+    "Y",                             # the same sensors went into it
+    "Y", "N"
+  )
+  run <- with_inputs(answers, metadata_manager())
+
+  old <- meta_row("t-0011")
+  expect_equal(old$status, "relocated")
+  m <- load_zentra_metadata()
+  new <- m[m$device_serial == "z6-99997", ]
+  expect_equal(c(new$station_id, new$device_name, new$model, new$status),
+               c("zzv_vwc1", "New vwc", "ZL6", "online"))
+  expect_equal(c(new$lat, new$lon), c(17.72, -64.82))
+
+  p <- read_table("zentra_ports")
+  expect_equal(sum(p$unique_id == "t-0011" & is.na(p$valid_to)), 0)
+  now <- p[p$unique_id == new$unique_id & is.na(p$valid_to), ]
+  expect_equal(now$port[order(now$port)], 1:4)
+  expect_equal(now$depth_cm[order(now$port)], c(10, 30, 50, 100))
+  expect_equal(format(unique(now$valid_from), "%Y-%m-%d %H:%M"), "2026-11-21 09:00")
+
+  log <- read_log()
+  e <- log[log$unique_id == new$unique_id, ]
+  expect_equal(e$action_type, "station_relocation")
+  expect_match(e$details, "device changed from real vwc ZL6 (z6-38175) to New vwc (z6-99997)", fixed = TRUE)
+})
+
+test_that("both stations on a ZL6 moving onto a new logger are moved, logged, and reviewed once", {
+  local_test_root()
+  answers <- c(
+    "1", "6", "7", "Y",
+    "Y",                             # zzu_vwc1 moved too
+    "2", "z6-99996", "2", "1", "U new",
+    "17.71", "-64.81", "30", "1", "",
+    "2026-11-21 09:00", "2",
+    "Y", "1",
+    "Y",                             # same sensors, same ports
+    "Y", "Y",                        # zzu_weather; zzu_vwc1, same logger
+    "N"
+  )
+  run <- with_inputs(answers, metadata_manager())
+  out <- paste(run$output, collapse = "\n")
+  expect_equal(lengths(regmatches(out, gregexpr("--- METADATA REVIEW", out, fixed = TRUE))), 1)
+
+  m <- load_zentra_metadata()
+  new <- m[m$device_serial == "z6-99996", ]
+  expect_equal(sort(new$station_id), c("zzu_vwc1", "zzu_weather"))
+  expect_true(all(new$lat == 17.71))
+  p <- read_table("zentra_ports")
+  open <- p[is.na(p$valid_to) & p$unique_id %in% new$unique_id, ]
+  expect_equal(nrow(open), 6)
+  log <- read_log()
+  e <- log[log$unique_id %in% new$unique_id, ]
+  expect_equal(sort(e$station_id), c("zzu_vwc1", "zzu_weather"))
+  expect_true(all(e$action_type == "station_relocation"))
+})

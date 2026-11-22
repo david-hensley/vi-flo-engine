@@ -484,8 +484,8 @@ answers and checked by what they leave behind. GitHub also runs the suite on
 every push (`.github/workflows/tests.yml`). A bug fixed should arrive with the
 test that would have caught it.
 
-**To try a workflow on a copy**, `source("tools/sandbox.R")`, then
-`sandbox_start()`: the metadata manager works on a temporary copy of the
+**To try a workflow on a copy**, run `sandbox_start()` (start.R loads
+it): the metadata manager works on a temporary copy of the
 tables, `sandbox_changes()` shows what it did, and `sandbox_end()` returns to
 the real data.
 

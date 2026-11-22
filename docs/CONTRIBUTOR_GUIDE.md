@@ -34,7 +34,7 @@ Once per computer:
    including whether the metadata is valid
 3. **Make the change**, small and one thing at a time
 4. **Try it on a copy** if it touches a metadata manager workflow:
-   `source("tools/sandbox.R")`, `sandbox_start()`, run the workflow,
+   `sandbox_start()` (start.R loads it), run the workflow,
    `sandbox_changes()` to see what it did, `sandbox_end()`
 5. **Run the tests**: `source(file.path(Sys.getenv("VI_FLO_ENGINE_ROOT"),
    "tests/run_tests.R"))`. Every test must pass. A fixed bug arrives with the

@@ -2463,33 +2463,9 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL,
     if (is_new_station) {
       # New station - prompt for location
       
-      ## Latitude
-      repeat {
-        cat("Enter latitude (decimal degrees, e.g., 18.3456):\n")
-        lat_input <- trimws(readline())
-        lat <- suppressWarnings(as.numeric(lat_input))
-        
-        if (!is.na(lat) && lat >= -90 && lat <= 90) {
-          cat("✓ Latitude:", lat, "\n")
-          break
-        } else {
-          cat("⚠️  Invalid latitude. Must be between -90 and 90.\n")
-        }
-      }
-      
-      ## Longitude
-      repeat {
-        cat("Enter longitude (decimal degrees, e.g., -64.7890):\n")
-        lon_input <- trimws(readline())
-        lon <- suppressWarnings(as.numeric(lon_input))
-        
-        if (!is.na(lon) && lon >= -180 && lon <= 180) {
-          cat("✓ Longitude:", lon, "\n")
-          break
-        } else {
-          cat("⚠️  Invalid longitude. Must be between -180 and 180.\n")
-        }
-      }
+      coords <- ui_prompt_coordinates()
+      lat <- coords[["lat"]]
+      lon <- coords[["lon"]]
       
       ## Elevation
       # Looked up now, while the coordinates are on screen and correctable.
@@ -3104,12 +3080,17 @@ ui_relocate_station <- function() {
       return(NULL)
     }
     
-    existing_models <- get_metadata_unique_values("model")
-    nd_model <- ui_select_or_specify("Select model:", existing_models)
+    # Only this manufacturer's models, with their ranges, as when adding one
+    meta_models <- load_zentra_metadata()
+    existing_models <- sort(unique(meta_models$model[tolower(meta_models$mfger) == tolower(nd_mfger) &
+                                                      !is.na(meta_models$model)]))
+    shown <- model_label(existing_models)
+    nd_model <- ui_select_or_specify("Select model:", shown)
     if (is.null(nd_model)) {
       cat("\u274c Canceled\n")
       return(NULL)
     }
+    if (nd_model %in% shown) nd_model <- existing_models[match(nd_model, shown)]
     
     nd_name <- ui_ask_device_name(nd_serial)
     
@@ -3129,16 +3110,27 @@ ui_relocate_station <- function() {
     # are no longer on it.
     if (!is_hobo_device_serial(current_device$device_serial)) {
       existing_ports <- get_active_ports(current_device$device_serial)
+      # The sensors of a station staying behind stay with it - that was
+      # answered above, and they close with it at the move. Only the moving
+      # stations' sensors are in question
+      meta_p <- load_zentra_metadata()
+      port_station <- meta_p$station_id[match(existing_ports$unique_id, meta_p$unique_id)]
+      staying_ports <- existing_ports[port_station %in% staying_behind, , drop = FALSE]
+      existing_ports <- existing_ports[!port_station %in% staying_behind, , drop = FALSE]
+      port_line <- function(d, k) paste0("  Port ", d$port[k], ": ", d$sensor[k],
+                                         if (!is.na(d$depth_cm[k])) paste0(" @ ", d$depth_cm[k], "cm"),
+                                         "\n")
+      if (nrow(staying_ports) > 0) {
+        cat("\nStaying behind, closed at the move:\n\n")
+        for (k in seq_len(nrow(staying_ports))) cat(port_line(staying_ports, k), sep = "")
+      }
       if (nrow(existing_ports) > 0) {
-        cat("\nIts ports are currently:\n\n")
-        for (k in seq_len(nrow(existing_ports))) {
-          cat("  Port ", existing_ports$port[k], ": ", existing_ports$sensor[k],
-              if (!is.na(existing_ports$depth_cm[k]))
-                paste0(" @ ", existing_ports$depth_cm[k], "cm") else "",
-              "\n", sep = "")
-        }
+        cat("\n", if (nrow(staying_ports) > 0) "Moving with the logger" else "Its ports are currently",
+            ":\n\n", sep = "")
+        for (k in seq_len(nrow(existing_ports))) cat(port_line(existing_ports, k), sep = "")
         cat("\n")
-        ports_same <- ui_yes_no("Did every one of these sensors move with it?",
+        ports_same <- ui_yes_no(if (nrow(staying_ports) > 0) "Did all of these move with it?"
+                                else "Did every one of these sensors move with it?",
                                 allow_quit = FALSE)
         if (ports_same != "Y") {
           cat("\u2713 Noted - you will be taken through the ports after the move\n")
@@ -3162,39 +3154,19 @@ ui_relocate_station <- function() {
   
   cat("\n--- NEW LOCATION ---\n\n")
   
-  ## New latitude
-  repeat {
-    cat("Enter NEW latitude (decimal degrees, e.g., 18.3456):\n")
-    lat_input <- trimws(readline())
-    new_lat <- suppressWarnings(as.numeric(lat_input))
-    
-    if (!is.na(new_lat) && new_lat >= -90 && new_lat <= 90) {
-      cat("✓ New latitude:", new_lat, "\n")
-      break
-    } else {
-      cat("⚠️  Invalid latitude. Must be between -90 and 90.\n")
-    }
-  }
-  
-  ## New longitude
-  repeat {
-    cat("Enter NEW longitude (decimal degrees, e.g., -64.7890):\n")
-    lon_input <- trimws(readline())
-    new_lon <- suppressWarnings(as.numeric(lon_input))
-    
-    if (!is.na(new_lon) && new_lon >= -180 && new_lon <= 180) {
-      cat("✓ New longitude:", new_lon, "\n")
-      break
-    } else {
-      cat("⚠️  Invalid longitude. Must be between -180 and 180.\n")
-    }
-  }
+  coords <- ui_prompt_coordinates("NEW ")
+  new_lat <- coords[["lat"]]
+  new_lon <- coords[["lon"]]
 
   ## Elevation at the new location
   # The station has moved, so its old elevation describes a different place.
   station_type_now <- current_device$station_type
   role_now <- current_device$device_role
   reloc_elev <- ui_prompt_elevation(new_lat, new_lon, station_type_now, role_now)
+
+  # A logger in a new spot sits at a new height above the bed: the old
+  # height belongs to the old deployment, and is not carried
+  reloc_height <- ui_prompt_sensor_height(station_type_now)
   
   ################################################################################
   #### DEPLOYMENT AT NEW LOCATION ####
@@ -3203,10 +3175,11 @@ ui_relocate_station <- function() {
   cat("\n--- DEPLOYMENT AT NEW LOCATION ---\n\n")
   
   ## Deploy datetime at new location
-  deploy_datetime <- ui_prompt_datetime(
+  # Not in the future, and not before the deployment it ends began
+  deploy_datetime <- ui_prompt_event_time(
     "When was station deployed at new location?",
-    allow_now = TRUE,
-    timezone = current_device$timezone
+    current_device$timezone,
+    as.POSIXct(current_device$deploy_datetime, tz = PROJECT_TZ)
   )
   
   if (is.null(deploy_datetime)) {
@@ -3243,37 +3216,43 @@ ui_relocate_station <- function() {
   cat("\n============================================\n")
   cat("Station Relocation Summary:\n")
   cat("============================================\n")
-  cat("Station:", station_id, "(", current_device$site_full, ")\n")
+  cat("Station: ", station_id, " (", current_device$site_full, ")\n", sep = "")
   cat("\nOLD LOCATION:\n")
-  cat("  Device:", device_label(current_device), "\n")
-  cat("  Location:", current_device$lat, ",", current_device$lon, sep = " ")
-  if (!is.na(current_device$elev)) {
-    cat(" (", current_device$elev, "m)", sep = "")
-  }
-  cat("\n  Status: → 'relocated'\n")
+  cat("  Device:   ", device_label(current_device), "\n", sep = "")
+  cat("  Location: ", current_device$lat, ", ", current_device$lon,
+      if (!is.na(current_device$elev)) paste0(" (", current_device$elev, " m)"), "\n", sep = "")
+  cat("  Status:   \u2192 relocated\n")
   cat("\nNEW LOCATION:\n")
   if (is.null(new_device)) {
-    cat("  Device:", device_label(current_device), "(same logger, new row)\n")
+    cat("  Device:   ", device_label(current_device), " (same logger, new row)\n", sep = "")
   } else {
-    cat("  Device:", device_label(new_device), "(", new_device$mfger, ")\n")
-    cat("          replacing", device_label(current_device), "\n")
+    cat("  Device:   ", device_label(new_device), ", replacing ",
+        device_label(current_device), "\n", sep = "")
   }
-  cat("  Location:", new_lat, ",", new_lon, sep = " ")
-  cat("\n  Deploy:", format(deploy_datetime), "\n")
-  cat("  Status:", new_status, "\n")
+  cat("  Location: ", new_lat, ", ", new_lon,
+      if (!is.na(reloc_elev$elev)) paste0(" (", reloc_elev$elev, " m, ", reloc_elev$elev_source, ")"),
+      "\n", sep = "")
+  if (!is.na(reloc_height)) {
+    cat("  Sensor height: ", reloc_height, " cm above the ",
+        if (tolower(station_type_now) == "weather") "ground" else "bed", "\n", sep = "")
+  }
+  cat("  Deploy:   ", format(deploy_datetime, "%Y-%m-%d %H:%M"), "\n", sep = "")
+  cat("  Status:   ", new_status, "\n", sep = "")
   # Not shown - the review is asked after the move, once there is something
   # complete to confirm.
-  
-  if (is.null(new_device) && !isTRUE(reconfigure_ports)) {
-    cat("\n  Ports: unchanged - the same logger with the same sensors\n")
-    cat("         moved.\n")
-  } else if (is.null(new_device)) {
-    cat("\n  Ports: some sensors did not move. You will be taken through\n")
-    cat("         the port configuration after this.\n")
-  } else {
-    cat("\n  Ports: ", device_label(current_device),
-        "'s ports will be closed. The new\n", sep = "")
-    cat("         logger is configured after this.\n")
+
+  # A HOBO has no ports to speak of
+  if (grepl("^z", current_device$device_serial, ignore.case = TRUE) || !is.null(new_device)) {
+    if (is.null(new_device) && !isTRUE(reconfigure_ports)) {
+      cat("\n  Ports: unchanged - the same logger with the same sensors moved\n")
+    } else if (is.null(new_device)) {
+      cat("\n  Ports: some sensors did not move. You will be taken through\n")
+      cat("         the port configuration after this.\n")
+    } else if (grepl("^z", new_device$device_serial, ignore.case = TRUE)) {
+      cat("\n  Ports: ", device_label(current_device),
+          "'s ports will be closed. The new\n", sep = "")
+      cat("         logger is configured after this.\n")
+    }
   }
   
   if (length(also_moving) > 0) {
@@ -3296,82 +3275,122 @@ ui_relocate_station <- function() {
   #### CALL LOGIC FUNCTION ####
   ################################################################################
   
-  result <- relocate_station(
-    station_id = station_id,
-    new_lat = new_lat,
-    new_lon = new_lon,
-    deploy_datetime = deploy_datetime,
-    new_status = new_status,
-    metadata_approved = metadata_approved,
-    new_device = new_device,
-    also_moving = also_moving,
-    staying_behind = staying_behind,
-    new_elev = reloc_elev$elev,
-    new_elev_source = reloc_elev$elev_source
-  )
-  
-  if (!result$success) {
-    cat("❌ Error:", result$error, "\n")
+  # One change: the move itself, the old row's visit, and an entry at every
+  # station that moved. Saved separately, a failed log left a move nothing
+  # recorded, and a failed visit date left the old row looking unvisited
+  logged_by <- ui_ask_whois_logging()
+  relocation_date <- local_date(deploy_datetime)
+  # The rows of the stations staying behind, named before the move ends them
+  meta_before <- load_zentra_metadata()
+  staying_uid <- vapply(staying_behind, function(st) {
+    meta_before$unique_id[meta_before$station_id == st &
+                            meta_before$device_serial == current_device$device_serial &
+                            !tolower(meta_before$status) %in% TERMINAL_STATUSES][1]
+  }, character(1))
+  result <- tryCatch(with_metadata_change("relocating a station", local({
+    res <- relocate_station(
+      station_id = station_id,
+      new_lat = new_lat,
+      new_lon = new_lon,
+      deploy_datetime = deploy_datetime,
+      new_status = new_status,
+      metadata_approved = metadata_approved,
+      new_device = new_device,
+      also_moving = also_moving,
+      staying_behind = staying_behind,
+      new_elev = reloc_elev$elev,
+      new_elev_source = reloc_elev$elev_source
+    )
+    if (!isTRUE(res$success)) return(res$error)
+
+    # The sensor height at the new spot, against the new deployment
+    if (!is.na(reloc_height)) {
+      meta_new <- load_zentra_metadata()
+      new_uid <- meta_new$unique_id[meta_new$unique_id %in% res$new_unique_ids &
+                                      meta_new$station_id == station_id][1]
+      weather <- tolower(station_type_now) == "weather"
+      method <- attr(reloc_height, "method")
+      if (is.null(method)) method <- if (weather && reloc_height == 200) "nominal" else "tape"
+      out <- add_survey_rows(survey_row(
+        station_id = station_id, unique_id = new_uid, measured_on = relocation_date,
+        quantity = "height_cm", point = "sensor", value = as.numeric(reloc_height),
+        relative_to = if (weather) "ground" else "bed", method = method))
+      if (!isTRUE(out)) return(out)
+    }
+
+    # Somebody stood at that station on the day it was moved.
+    # update_last_visit() skips relocated rows - right for a routine visit,
+    # since a relocated row is closed - but the relocation itself IS the visit
+    # that closed it, so it is set here directly
+    meta_after <- load_zentra_metadata()
+    old_idx <- which(meta_after$unique_id == current_device$unique_id)
+    if (length(old_idx) > 0) {
+      lv <- format_datetime_safe(meta_after$last_visit)
+      lv[old_idx[1]] <- format(relocation_date, "%Y-%m-%d")
+      meta_after$last_visit <- lv
+      save_device_metadata(meta_after)
+    }
+
+    # The entry names the device that went IN, since that is what the new row
+    # describes - and says which came out, so the swap is not left to be
+    # inferred from two serials in the metadata
+    details <- paste0("Station relocated from (", current_device$lat, ", ",
+                      current_device$lon, ") to (", new_lat, ", ", new_lon, ")")
+    if (!is.null(new_device)) {
+      details <- paste0(details, "; device changed from ", device_label(current_device),
+                        " to ", device_label(new_device))
+    }
+    serial_in <- if (is.null(new_device)) current_device$device_serial else new_device$device_serial
+    for (st in unique(c(station_id, also_moving))) {
+      out <- create_maintenance_entry(
+        field_visit_date = relocation_date,
+        station_id = st,
+        device_serial = serial_in,
+        action_type = "station_relocation",
+        details = if (st == station_id) details else
+          paste0(details, " - moved with ", station_id, ", on the same logger"),
+        logged_by = logged_by
+      )
+      if (!isTRUE(out)) return(out)
+    }
+    # A station left behind had its sensors taken out: that is a removal,
+    # and it is logged at that station like any other
+    for (k in seq_along(staying_behind)) {
+      out <- create_maintenance_entry(
+        field_visit_date = relocation_date,
+        station_id = staying_behind[k],
+        unique_id = staying_uid[k],
+        action_type = "device_removal",
+        details = paste0("Removed - its logger, ", device_label(current_device),
+                         ", moved with ", station_id, " and its sensors came out"),
+        logged_by = logged_by
+      )
+      if (!isTRUE(out)) return(out)
+    }
+    TRUE
+  })), error = function(e) conditionMessage(e))
+
+  if (!isTRUE(result)) {
+    cat("❌ Not relocated - ", result, "\n   Nothing was changed.\n", sep = "")
     return(NULL)
   }
-  
-  cat("\n✓ Station relocation complete!\n")
-  cat("  Old device marked as 'relocated'\n")
-  cat("  New metadata row created at new location\n")
+
+  cat("\n✓ Station relocation complete, and logged to maintenance\n")
+  cat("  Old row ends at ", format(deploy_datetime, "%Y-%m-%d %H:%M"),
+      ", visited that day; a new row starts at the new location\n", sep = "")
+  if (length(also_moving) > 0) {
+    cat("  ", paste(also_moving, collapse = ", "), " moved with it\n", sep = "")
+  }
   if (!is.null(new_device)) {
     cat("  Device changed to ", device_label(new_device), "\n", sep = "")
     cat("  Ports on ", device_label(current_device), " closed\n", sep = "")
-  }
-
-  
-  #### The old row was visited too ####
-  # Somebody stood at that station on the day it was moved. update_last_visit()
-  # deliberately skips relocated rows - correct for a routine visit, since a
-  # relocated row is closed - but the relocation itself IS the visit that
-  # closed it, so it is set here directly.
-  relocation_date <- local_date(deploy_datetime)
-  meta_after <- load_zentra_metadata()
-  old_idx <- which(meta_after$unique_id == current_device$unique_id)
-  
-  if (length(old_idx) > 0) {
-    lv <- format_datetime_safe(meta_after$last_visit)
-    lv[old_idx[1]] <- format(relocation_date, "%Y-%m-%d")
-    meta_after$last_visit <- lv
-    
-    save_device_metadata(meta_after)
-    cat("  Old row's last_visit set to ", format(relocation_date, "%Y-%m-%d"),
-        "\n", sep = "")
-  }
-  
-  # Log to maintenance. The entry names the device that went IN, since that is
-  # what the new row describes - and says which came out, so the swap is not
-  # left to be inferred from two serials in the metadata.
-  reloc_details <- paste0("Station relocated from (", current_device$lat, ", ",
-                          current_device$lon, ") to (", new_lat, ", ", new_lon, ")")
-  if (!is.null(new_device)) {
-    reloc_details <- paste0(reloc_details, "; device changed from ",
-                            device_label(current_device), " to ",
-                            device_label(new_device))
-  }
-
-  log_result <- create_maintenance_entry(
-    field_visit_date = local_date(deploy_datetime),
-    station_id = station_id,
-    device_serial = if (is.null(new_device)) current_device$device_serial
-                    else new_device$device_serial,
-    action_type = "station_relocation",
-    details = reloc_details,
-    logged_by = ui_ask_whois_logging()
-  )
-  
-  if (isTRUE(log_result)) {
-    cat("✓ Relocation logged to maintenance\n")
   }
   
   # The caller needs the serial to offer port configuration when the logger
   # changed - a new box arrives with nothing configured.
   return(list(station_id     = station_id,
               station_type   = current_device$station_type,
+              old_device_serial = current_device$device_serial,
               device_serial  = if (is.null(new_device)) current_device$device_serial
                                else new_device$device_serial,
               device_changed = !is.null(new_device),
@@ -5813,6 +5832,37 @@ ui_prompt_device_role <- function(station_type, station_id = NULL, replacing_uid
   role
 }
 
+#' Asks for a latitude and longitude, checked against the Virgin Islands
+#'
+#' Every station is in the Virgin Islands, so a coordinate outside them is
+#' far more likely a slip - a dropped minus sign, the two swapped - than a
+#' place. It is shown and confirmed rather than refused.
+#'
+#' @param which Character. Put before the prompts - "NEW " for a relocation
+#' @return Named numeric: lat, lon
+ui_prompt_coordinates <- function(which = "") {
+  ask <- function(what, eg, limit) {
+    repeat {
+      cat("Enter ", which, what, " (decimal degrees, e.g., ", eg, "):\n", sep = "")
+      v <- suppressWarnings(as.numeric(trimws(readline())))
+      if (!is.na(v) && abs(v) <= limit) return(v)
+      cat("\u26a0\ufe0f  Invalid ", what, ". Must be between -", limit, " and ", limit, ".\n", sep = "")
+    }
+  }
+  repeat {
+    lat <- ask("latitude", "17.7456", 90)
+    cat("\u2713 Latitude: ", lat, "\n", sep = "")
+    lon <- ask("longitude", "-64.7890", 180)
+    cat("\u2713 Longitude: ", lon, "\n", sep = "")
+    if (lat >= 17 && lat <= 19 && lon >= -66 && lon <= -64) break
+    cat("\n\u26a0\ufe0f  ", lat, ", ", lon, " is outside the Virgin Islands (17 to 19 N, 64 to 66 W)\n",
+        sep = "")
+    if (ui_yes_no("Is that right?", allow_quit = FALSE) == "Y") break
+    cat("\n")
+  }
+  c(lat = lat, lon = lon)
+}
+
 #' A model with its depth range, for a menu or a summary
 #'
 #' The two U20 models look alike in a list, and which one went in decides
@@ -6371,16 +6421,12 @@ metadata_manager_menu <- function(entries_at_start) {
               ui_update_ports(preset_device_serial = result$device_serial)
             }
             
+            # A new logger brought in on the move: often the same sensors,
+            # carried to the new spot and plugged in port for port
             if (isTRUE(result$device_changed) &&
                 !is_hobo_device_serial(result$device_serial) &&
                 nrow(get_active_ports(result$device_serial)) == 0) {
-              init_ports <- ui_yes_no("\nInitialize port configuration for the new device?",
-                                      allow_quit = FALSE)
-              if (init_ports == "Y") {
-                ui_initialize_ports(result$device_serial)
-              } else {
-                cat("\u26a0\ufe0f  Remember to initialize ports later!\n")
-              }
+              ui_ports_after_replacement(result$old_device_serial, result$device_serial)
             }
             
             # A station left behind is recorded as removed. Said before the
@@ -6391,16 +6437,15 @@ metadata_manager_menu <- function(entries_at_start) {
                   paste(result$removed_stations, collapse = ", "), "\n", sep = "")
             }
             
-            #### Metadata review, last, once per station that moved ####
+            #### Metadata review, last ####
             # A companion that traveled has a changed record of its own, and
             # only now - after the move and any port work - is there something
             # complete to confirm.
-            for (ms in result$moved_stations) {
-              ui_prompt_metadata_approval(ms)
-            }
+            # One review: it offers every other station on the same logger,
+            # which is every station that moved with it
+            ui_prompt_metadata_approval(result$station_id)
             
             # Relocation is terminal - no more work at this location
-            cat("\n✓ Station relocation complete\n")
             break
           } else {
             next
