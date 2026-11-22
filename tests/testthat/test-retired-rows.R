@@ -231,3 +231,35 @@ test_that("a relocation moves the station's current loggers, not its retired one
   expect_equal(length(res$new_unique_ids), 2)                 # bta2a and bta2b, not the removed one
   expect_equal(meta_row("t-0097")$status, "removed")
 })
+
+test_that("decommissioning ends the station at the moment given, not when it is entered", {
+  local_test_root()
+  before <- validate_metadata(verbose = FALSE)
+  pick <- which(vapply(get_station_list(), function(s) s$station_id, "") == "zzu_vwc1")
+  # A time in the future and one before its deployment are refused, then a real one
+  out <- with_inputs(c(pick, "2099-01-01 10:00:00", "2022-06-01 10:00:00",
+                       "2026-11-03 14:30:00", "Y", "Y", "1"),
+                     ui_decommission_station())
+  expect_true(isTRUE(out$value))
+  expect_true(any(grepl("in the future", out$output)))
+  expect_true(any(grepl("before its current deployment began", out$output)))
+
+  # The station's row ends then, and its own ports close then
+  expect_equal(meta_row("t-0010")$status, "decommissioned")
+  expect_equal(ends_at("t-0010"), "2026-11-03 14:30")
+  p <- load_zentra_ports_data()
+  closed <- p$valid_to[p$unique_id == "t-0010"]
+  expect_false(any(is.na(closed)))
+  expect_true(all(format(closed, "%Y-%m-%d %H:%M", tz = PROJECT_TZ) == "2026-11-03 14:30"))
+
+  # The weather station on the same logger carries on, ports open
+  expect_equal(meta_row("t-0009")$status, "online")
+  expect_true(any(is.na(p$valid_to[p$unique_id == "t-0009"])))
+
+  # The log entry is dated the shutdown, not today
+  log <- read_log()
+  entry <- log[log$action_type == "station_decommissioned", ]
+  expect_equal(nrow(entry), 1)
+  expect_equal(as.character(entry$field_visit_date), "2026-11-03")
+  expect_length(validation_new_problems(before, validate_metadata(verbose = FALSE)), 0)
+})

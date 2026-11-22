@@ -3475,8 +3475,38 @@ ui_decommission_station <- function() {
   cat("instead. The difference is intent, not permanence:\n")
   cat("reactivation is possible, because nobody knows the future.\n\n")
   
+  #### WHEN ####
+  # The moment monitoring actually stopped, which may be long before it is
+  # entered here: the deployments end then, their ports close then, and the
+  # log entry is dated then. Not before the newest deployment began - a
+  # station cannot stop before it started - and not in the future
+  ending_rows <- decommissionable[tolower(decommissionable$status) %in% ACTIVE_STATUSES, , drop = FALSE]
+  earliest <- if (nrow(ending_rows) > 0) max(as.POSIXct(ending_rows$deploy_datetime, tz = PROJECT_TZ)) else NA
+  cat("When was the station shut down?\n")
+  cat("(The moment monitoring stopped - date AND time, as exact as possible)\n\n")
+  repeat {
+    when <- ui_prompt_datetime("Enter shutdown datetime", allow_now = TRUE,
+                               timezone = current_device$timezone)
+    if (is.null(when)) {
+      cat("❌ Canceled\n")
+      return(NULL)
+    }
+    if (when > Sys.time() + 60) {
+      cat("⚠️  That is in the future - enter when it actually stopped\n\n")
+      next
+    }
+    if (!is.na(earliest) && when < earliest) {
+      cat("⚠️  That is before its current deployment began (",
+          format(earliest, "%Y-%m-%d %H:%M", tz = PROJECT_TZ), ")\n\n", sep = "")
+      next
+    }
+    break
+  }
+  cat("✓ Shut down:", format(when, "%Y-%m-%d %H:%M"), "\n\n")
+
   confirm_decommission <- ui_yes_no(
-    paste0("Decommission station '", station_id, "'?"),
+    paste0("Decommission station '", station_id, "' as of ",
+           format(when, "%Y-%m-%d %H:%M"), "?"),
     allow_quit = FALSE
   )
   
@@ -3503,10 +3533,10 @@ ui_decommission_station <- function() {
   # port row belongs to one deployment, so a ZL6 that stays on site running
   # another station keeps that station's ports - nothing needs asking
   ports_now <- load_zentra_ports_data()
-  ending <- decommissionable$unique_id[tolower(decommissionable$status) %in% ACTIVE_STATUSES]
+  ending <- ending_rows$unique_id
   n_closing <- sum(ports_now$unique_id %in% ending & is.na(ports_now$valid_to))
 
-  result <- update_station_status(station_id, "decommissioned")
+  result <- update_station_status(station_id, "decommissioned", when = when)
 
   if (!isTRUE(result)) {
     cat("❌ Error:", result, "\n")
@@ -3519,11 +3549,12 @@ ui_decommission_station <- function() {
   cat("\n✓ Station decommissioned successfully\n")
   cat("  Station:", station_id, "\n")
   cat("  Status: → 'decommissioned'\n")
+  cat("  As of:", format(when, "%Y-%m-%d %H:%M"), "\n")
   cat("\n  Reactivation remains possible if circumstances change.\n")
   
-  # Log to maintenance
+  # Log to maintenance, dated when it happened rather than when it was entered
   log_result <- create_maintenance_entry(
-    field_visit_date = Sys.Date(),
+    field_visit_date = as.Date(format(when, "%Y-%m-%d")),
     station_id = station_id,
     device_serial = current_device$device_serial,
     action_type = "station_decommissioned",

@@ -42,12 +42,9 @@ pressing since v2.9, when unrelated code changes stopped triggering rebuilds.
 
 ### v2.9, before the tag
 
-- **Decommissioning asks when.** Today its ports close at the moment it is
-  entered, and its log entry is dated today. It should ask when the station
-  was shut down and use that moment for the ports, the rows and the log, as
-  removal and replacement already do
+- A careful read of the engine for bugs, before the tests below are written
 - End-to-end workflow tests for establishing, relocating, replacing,
-  correcting details, decommissioning and reactivating - each walked through
+  correcting details and reactivating - each walked through
   in the sandbox as its test is written
 - The Product 2 rebuild, a manual check of it, and tests designed from that
   check
@@ -287,12 +284,12 @@ be the constraint now that the job runs on a desktop.
 
 The suite drives workflows with scripted answers and checks what they leave
 in the metadata and logs, and GitHub runs it on every push. Removing a
-device, deleting a row, every survey and explaining unattributed readings are
-tested this way, end to end. Relocation, replacement, port changes and
+device, decommissioning, deleting a row, every survey and explaining
+unattributed readings are tested this way, end to end. Relocation, replacement, port changes and
 corrections are tested underneath, at the functions that save them, but not
-through their prompts. Establishing, relocating, replacing, correcting
-details, decommissioning and reactivating still want end-to-end tests -
-listed under v2.9 above.
+through their prompts. Establishing, relocating, replacing,
+correcting details and reactivating still want end-to-end tests - listed
+under v2.9 above.
 
 ### Multi-user
 

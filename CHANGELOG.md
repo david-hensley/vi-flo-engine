@@ -453,6 +453,12 @@ All notable changes to the VI-FLO Engine project are documented here.
   `TERMINAL_STATUSES`
 
 ### Fixed
+- **Decommissioning asks when the station was shut down.** It used the
+  moment it was entered: its deployments ended then, its ports closed then,
+  and its log entry was dated that day, however long before monitoring had
+  actually stopped. It now asks, as removal and replacement do, refuses a
+  moment in the future or before the station's current deployment began, and
+  uses the answer for all three. First end-to-end test of the workflow
 - The metadata manager's exit no longer asks about station photos after a
   session that logged no visit
 - Explaining a logger that is only in the archive no longer says recording
