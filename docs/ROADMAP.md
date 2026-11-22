@@ -7,7 +7,7 @@ recollection, which meant rediscovering it each time — and carrying at least
 one item that had never existed. Anything genuinely finished is deleted rather
 than struck through; `CHANGELOG.md` is the record of what was done.
 
-Last reviewed: **2026-10-18**
+Last reviewed: **2026-11-22**
 
 ---
 
@@ -17,9 +17,13 @@ Engine versions follow the product ladder. The dataset release that gets
 cited - a DOI, its own station list - is numbered separately, on its own
 clock.
 
-- **v2.8** - current, released 2026-10-19: Product 2 built for the whole
-  archive and kept up to date by the weekly job
-- **v2.9** - the metadata in git, so every version is a commit and any
+- **v2.8.1** - current, released 2026-11-19
+- **v2.9** - in progress: the structural work. One data layer for every
+  table, saves that refuse new validation problems, surveys as their own
+  table, deployments that close their ports, one device naming rule, the
+  unattributed-readings workflow, and the Box orphan sweep in the sync tool.
+  Tagged after one Product 2 rebuild and a manual check of it
+- **v2.10** - the metadata in git, so every version is a commit and any
   product can be rebuilt exactly as it was. Before Product 3, whose decisions
   rest on the metadata (see *Metadata into git* below)
 - **v3** - Product 3 automatic and unattended: QC under declared parameters,
@@ -29,34 +33,33 @@ clock.
   the rest), and v4, Product 4: the workflow for human decisions. Discharge
   sits here, resting on rating curves that are partly experimental
 
-**Pin the weekly job to a release** once the engine settles. Today the job
-pulls the newest commit, so any change under `code/functions/` makes every
-Product 2 file stale and the next run rebuilds the archive - about twenty
-unattended minutes. Pinned to a tag, day-to-day engine work stops touching the
-products, bumping the release is the deliberate rebuild, and the manifest's
-`engine` names a release rather than a passing commit.
+**Run the weekly job from a release.** Today it runs the newest engine code,
+so a change to Product 2's code means the next run rebuilds the affected files
+on its own. Run from a tagged release instead, rebuilds happen only when the
+job is moved to the next release, and each file records which release built
+it. Planned once Product 2 reaches a settled milestone, for stability. Less
+pressing since v2.9, when unrelated code changes stopped triggering rebuilds.
+
+### v2.9, before the tag
+
+- **Decommissioning asks when.** Today its ports close at the moment it is
+  entered, and its log entry is dated today. It should ask when the station
+  was shut down and use that moment for the ports, the rows and the log, as
+  removal and replacement already do
+- End-to-end workflow tests for establishing, relocating, replacing,
+  correcting details, decommissioning and reactivating - each walked through
+  in the sandbox as its test is written
+- The Product 2 rebuild, a manual check of it, and tests designed from that
+  check
 
 ---
 
-## Before the next St Thomas trip
+## Field work
 
-### The paired-logger survey
-
-**The most time-critical item here, and it has been open since September.**
-
-Three stations have a logger pair with no surveyed separation: Turpentine Run 1,
-Dorothea, and Reef Bay's rebuilt pair - where RB-c, the tertiary, also wants
-surveying against the primary. Without a reach length and a fall, a pair
-produces no hydraulic slope, which is the whole reason the second logger is
-there.
-
-The method and the workflow now exist (v2.6.0): a builder's level and rod for
-the fall, at two or more independent setups agreeing within 10 mm, and the
-TruPulse in horizontal-distance legs for the reach. Bethlehem Adventure 2 was
-the first surveyed this way, on 14 October.
-
-The loggers at Turpentine Run and Fish Bay also fill their memory around
-3 November, so the trip has its own deadline.
+What needs a visit - loggers not reporting, low batteries, memory filling,
+surveys outstanding, known broken boxes - is on the to-do list
+(`print_network_todo()`), worked out from the metadata each time rather than
+written down here, where it would go stale.
 
 ### Turning points, if a reach ever needs them
 
@@ -73,7 +76,7 @@ only when a real survey needs it.
 Windsor (`srl1_pond`) and Hermitage (`bt1_pond`) were registered on 17
 October 2026: U20-001-01 loggers, launched 13 May at 15 minutes, which fill
 their memory around **Christmas Eve**. The first download is the deadline for
-everything here except the last item.
+the first two items. Their surveys are on the to-do list.
 
 - **The ingest path.** Product 0 and 1 are keyed by device, so a pond logger
   should go through the HOBO import like any U20 - but nothing has ever sent
@@ -82,10 +85,6 @@ everything here except the last item.
 - **Barometric pairing.** Both ponds are on St Croix, so in the STX zone. They
   need declared sources like any gauge, and the pairing table has only ever
   held hydro stations
-- **Hermitage's survey.** Its elevation is a 3DEP lookup at coordinates taken
-  before the RS4, and if the pond held water when the lidar was flown in late
-  2018, it is the water surface rather than the bed. Survey it and record it
-  through the single-device survey, as Windsor was
 - **Stage to volume.** A water level becomes stored volume through a
   stage-volume curve from the bathymetry - a parameter set, as a rating curve
   is for discharge. Product 2 and beyond; the bathymetry is still being
@@ -108,14 +107,10 @@ deployment, not role, so roles only matter to whatever later combines
 deployments into a station's level or discharge - and that work is still
 experimental. A role history file was built and withdrawn the same day. If a
 derived product needs past roles, the maintenance log and the dossiers hold
-them. Barometric pairing and reach length have the same shape.
+them. Barometric pairing has the same shape.
 
-Survey geometry is the clearest case. A survey describes a pair at a moment,
-and a re-survey overwrites the metadata. For now that is deliberate: the
-maintenance log records every survey with its old and new values, and the raw
-readings sit in Product 0, so the history is complete - it is just not
-queryable from metadata. Decided 14 October 2026; revisit if a product ever
-needs the geometry that applied on a past date.
+Survey geometry no longer has this problem: since v2.9 every survey is its
+own dated row in `surveys.csv`, and nothing overwrites an earlier one.
 
 ### Barometric pairing
 
@@ -127,20 +122,13 @@ What does not exist is the file itself, or a prompt in the metadata manager
 asking for a pairing when a station is established. `site.correspondence.csv`
 in the prototype archive recorded this; nothing in VI-FLO does yet.
 
-### Decommissioning has no date
-
-The decommission workflow never asks when the station was shut down: its
-ports close at `Sys.time()`, when it is entered, and its maintenance entry is
-dated today. Removal and replacement now date a retired row to the moment its
-logger left (`retire_row()`, November 2026); decommissioning should ask for
-that moment too, and use it for the ports, the rows' `last_visit` and the log.
-
 ### `decommissioned` and `removed` overlap in practice
 
-Both describe a station or device that has stopped. The dictionary separates
-them — `removed` is a device out of the field with the station standing,
-`decommissioned` is the station itself ending — but the usage drifts. Worth
-either tightening the definitions or collapsing them.
+Both describe a station or device that has stopped. Since v2.9 each status's
+meaning is written once, in the data layer, and shown wherever a status is
+chosen — `removed` is the logger taken out with the station continuing,
+`decommissioned` the station itself shut down. Whether the older rows follow
+those meanings has not been checked.
 
 ### `archive/` versus `device-data/`
 
@@ -153,8 +141,6 @@ carefully, what is versioned, and what a migration has to preserve.
 that it is vaguer about what is inside, which `device-data` tells you at a
 glance. Raised, not decided — and worth settling before the move to Hugging
 Face rather than after, since the layout travels with it.
-
----
 
 ---
 
@@ -212,7 +198,7 @@ wrapper, it moves to a Cloudflare Worker unchanged — which is what makes
 
 ## Product 2
 
-### Metadata into git - v2.9, before Product 3
+### Metadata into git - v2.10, before Product 3
 
 Product 2's manifest says whether a file was built from the current metadata
 - each row holds fingerprints of what decided it - but cannot recover the
@@ -269,9 +255,6 @@ A wishlist from September, with the cheap items already folded in.
 
 - **`port_note`** for experiment ports, where depth does not identify a
   sensor. Schema, migration and a prompt.
-- **Relocate-and-replace as one event.** Relocation should ask whether the
-  same device is going to the new position.
-- **A path for co-located stations** on an existing logger.
 - **Establishing an already-decommissioned station.** Turpentine Run 2 was
   entered by migration in October 2026 precisely because no such path exists.
 - **Sensor serial in `zentra_ports.csv`**, from what the API already reports.
@@ -290,24 +273,6 @@ a judgement without fabricating history. Designed in September, never built.
 
 ## Operations
 
-### Automatic status for an unreachable logger
-
-A ZL6 that has not been contacted for some threshold should move to
-`nonresponsive` on its own, and back to `online` when it reports. The
-downloader already knows which devices it failed to reach, and
-`print_network_todo()` already computes days since last reading. At present
-this is noticed by eye and changed by hand.
-
-### A download that finds nothing still writes a file
-
-Raised in the September audit. Worth confirming whether it is still true.
-
-### Subscription expiry is typed by hand
-
-`expiry_date` is entered manually. Whether the ZentraCloud API exposes it was
-never established — `exempt_reason` is a column that was never looked at and
-might carry the free trial.
-
 ### Email before a logger fills its memory
 
 The memory check computes the date. Sending a reminder was blocked on GitHub
@@ -318,15 +283,16 @@ be the constraint now that the job runs on a desktop.
 
 ## Engineering
 
-### Workflow tests for the rest of the metadata manager
+### Workflow tests
 
-The suite (October 2026, `tests/`) drives workflows with scripted answers and
-checks what they leave in the metadata and logs. So far it covers the paired
-and single-device surveys. Still walked by hand, and so still the gap raised
-on 7 October: establish, relocate, replace, remove, decommission, reactivate,
-correct details, port changes, and the co-located cases that have caused the
-most trouble historically. Each one becomes a test the next time it is
-touched, rather than all at once.
+The suite drives workflows with scripted answers and checks what they leave
+in the metadata and logs, and GitHub runs it on every push. Removing a
+device, deleting a row, every survey and explaining unattributed readings are
+tested this way, end to end. Relocation, replacement, port changes and
+corrections are tested underneath, at the functions that save them, but not
+through their prompts. Establishing, relocating, replacing, correcting
+details, decommissioning and reactivating still want end-to-end tests -
+listed under v2.9 above.
 
 ### Multi-user
 
@@ -355,18 +321,11 @@ Raised three times in September, parked each time.
 
 ## Field and QA
 
-### Streambed to measuring point at every gauge
+### Old sensor heights
 
-When this is done, read `docs/backfill/LEVEL_CORRECTIONS.md` first: the
-prototype's level offsets at SR1, SR2, Fish Bay and Dorothea, and the only old
-sensor heights on record.
-
-`sensor_height_cm` exists (October 2026) and is blank on every stream gauge.
-`elev` is the ground, and a water level becomes a water-surface elevation only
-once the height of the logger's measuring point above the bed is added. On a
-gut that is a few centimeters and has been ignored - but measure it at each
-gauge on its next visit and record it with 'Correct device details', so
-Product 2 does not have to keep ignoring it.
+When recording sensor heights, read `docs/backfill/LEVEL_CORRECTIONS.md`
+first: the prototype's level offsets at SR1, SR2, Fish Bay and Dorothea, and
+the only old sensor heights on record.
 
 ### The flat 10 cm sensor at `sr1_vwc2`
 
@@ -382,11 +341,3 @@ water past the sensor. Needs a visit.
 
 Whether dry soil at several sites is shedding water past the sensors rather
 than wetting. Bears on how soil moisture is interpreted across the drought.
-
-### Four soil moisture boxes are dead and unvisited
-
-`uvi_vwc3`, `bta2_vwc1`, `bta2_vwc2` and `fb2_vwc1`. All stopped between June
-2024 and April 2025 and were found nonresponsive in March 2026. All on St
-Croix and reachable. `fb2_vwc1`'s pit and sensors were in good order — only
-the logger failed — so a replacement box would revive a four-year
-installation.
