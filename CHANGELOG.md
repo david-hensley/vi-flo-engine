@@ -127,6 +127,12 @@ All notable changes to the VI-FLO Engine project are documented here.
   relocation brings, offers the name ZentraCloud already has for it: Enter
   takes it. `tools/migrations/migrate_device_names_v2.9.R` fills blank names
   in existing rows the same way, and lists the rows it cannot name
+- **The sync tool runs the Box orphan sweep.** `tools/orphan_sweep.R` gains
+  two modes for VI-FLO Tools (v2.2.0) to call after an engine push: `--list`
+  looks and deletes nothing, and `--delete <token>` deletes only if it finds
+  exactly what `--list` found - a build or pull in between changes the token,
+  and the delete refuses. Run by hand, it asks as before. Every check and
+  deletion stays in this script
 - **Tests can no longer reach ZentraCloud.** Every call the engine makes to
   the API now goes through one function, `zc_call()`, and the test suite
   closes it for its whole run (`options(viflo.offline = TRUE)`), whatever
