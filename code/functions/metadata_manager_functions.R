@@ -123,7 +123,7 @@ ui_log_maintenance <- function(prefill_station = NULL, prefill_device = NULL,
     return(NULL)
   }
   device_serial <- station_devices$device_serial[match(selected_device, device_options)]
-  cat("✓ Device:", device_serial, "\n")
+  cat("✓ Device:", device_label(device_serial), "\n")
 
   }  # end of the non-prefilled path
   
@@ -231,7 +231,7 @@ ui_log_maintenance <- function(prefill_station = NULL, prefill_device = NULL,
   cat("Ready to log this maintenance entry:\n")
   cat("  Date:", field_visit_date, "\n")
   cat("  Station:", station_id, "\n")
-  cat("  Device:", device_serial, "\n")
+  cat("  Device:", device_label(device_serial), "\n")
   cat("  Action:", action_type, "\n")
   cat("  Details:", details, "\n")
   cat("  Logged by:", logged_by, "\n")
@@ -442,7 +442,7 @@ ui_log_download <- function() {
     return(NULL)
   }
   device_serial <- station_devices$device_serial[match(selected_device, device_options)]
-  cat("✓ Device:", device_serial, "\n")
+  cat("✓ Device:", device_label(device_serial), "\n")
   
   #### 4 - Download details
   # A default offered on Enter, shown explicitly so it cannot be given by
@@ -501,7 +501,7 @@ ui_log_download <- function() {
   cat("Ready to log this download:\n")
   cat("  Date:", field_visit_date, "\n")
   cat("  Station:", station_id, "\n")
-  cat("  Device:", device_serial, "\n")
+  cat("  Device:", device_label(device_serial), "\n")
   cat("  Details:", details, "\n")
   cat("  Logged by:", logged_by, "\n")
   cat("============================================\n\n")
@@ -657,8 +657,8 @@ ui_explain_unattributed <- function(devices = NULL) {
 
   opts <- character(0); what <- list()
   for (sn in on_cloud) {
-    opts <- c(opts, paste0(zc_display_name(devices, sn), " (", sn, ") - on ZentraCloud, no metadata row"))
-    what[[length(what) + 1]] <- list(kind = "logger", serial = sn, name = zc_display_name(devices, sn))
+    opts <- c(opts, paste0(device_label(sn, meta = meta[0, ], devices = devices), " - on ZentraCloud, no metadata row"))
+    what[[length(what) + 1]] <- list(kind = "logger", serial = sn, name = device_display_name(sn, meta = meta[0, ], devices = devices))
   }
   for (sn in sort(archive_only)) {
     opts <- c(opts, paste0(sn, " - in the archive only, no metadata row"))
@@ -667,8 +667,8 @@ ui_explain_unattributed <- function(devices = NULL) {
   d <- function(x) format(x, "%Y-%m-%d", tz = PROJECT_TZ)
   for (i in seq_len(nrow(periods))) {
     p <- periods[i, ]
-    nm <- device_short_name(p$device_serial, meta)
-    opts <- c(opts, sprintf("%s (%s) %s - %s to %s, %s moments", nm, p$device_serial,
+    nm <- device_display_name(p$device_serial, meta)
+    opts <- c(opts, sprintf("%s %s - %s to %s, %s moments", device_label(p$device_serial, meta = meta),
                             if (nzchar(p$ports)) paste("ports", p$ports) else "",
                             d(p$first), d(p$last), format(p$moments, big.mark = ",")))
     what[[length(what) + 1]] <- list(kind = "period", serial = p$device_serial, name = nm,
@@ -712,7 +712,10 @@ ui_explain_unattributed <- function(devices = NULL) {
   cat("\n============================================\n")
   cat("  ", pick, "\n", sep = "")
   cat("  Reason: ", reason, "\n", sep = "")
-  if (w$kind == "logger") cat("  Archive it: ", if (archive) "yes" else "no - the job stops downloading it", "\n", sep = "")
+  if (w$kind == "logger") {
+    cat("  Archive it: ", if (archive) "yes" else if (w$serial %in% on_cloud)
+      "no - the job stops downloading it" else "no", "\n", sep = "")
+  }
   cat("============================================\n\n")
   if (ui_yes_no("Record this?", allow_quit = FALSE) != "Y") return(cancel())
 
@@ -1978,7 +1981,7 @@ ui_survey_gut_pair <- function() {
 review_shared_ports <- function(device_serial, station_type) {
   p <- get_active_ports(device_serial)
   p <- p[order(as.integer(p$port)), , drop = FALSE]
-  cat("\n", device_serial, " already has ports configured - shared with its other station:\n",
+  cat("\n", device_label(device_serial), " already has ports configured - shared with its other station:\n",
       sep = "")
   for (i in seq_len(nrow(p))) {
     depth <- if ("depth_cm" %in% names(p) && !is.na(p$depth_cm[i]) && nzchar(p$depth_cm[i]))
@@ -2291,7 +2294,7 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL,
       # The whole point of a companion station is that it is on the SAME
       # logger. Typing the serial again is a chance to mistype it.
       device_serial <- companion_of$device_serial
-      cat("Device: ", device_serial, " (the logger just configured)\n", sep = "")
+      cat("Device: ", device_label(device_serial), " (the logger just configured)\n", sep = "")
     } else {
       cat("Enter device serial number:\n")
       cat("  For Zentra ZL6: format 'z6-12345'\n")
@@ -2524,14 +2527,7 @@ ui_add_device <- function(is_new_station = TRUE, preset_station_id = NULL,
     }
     
     ## Device name (optional)
-    cat("\nEnter device name (optional, press Enter to skip) - this is how the device was named in its own software:\n")
-    device_name <- trimws(readline())
-    if (device_name == "") {
-      device_name <- NA
-      cat("✓ No device name\n")
-    } else {
-      cat("✓ Device name:", device_name, "\n")
-    }
+    device_name <- ui_ask_device_name(device_serial)
     
     ################################################################################
     #### SECTION C: LOCATION ####
@@ -2872,9 +2868,9 @@ ui_replace_device <- function() {
   # Show devices at this station
   cat("Devices at this station:\n")
   for (i in 1:nrow(station_devices)) {
-    cat("  ", i, ". ", station_devices$device_serial[i], 
-        " (", station_devices$mfger[i], " - ", 
-        station_devices$status[i], ")\n", sep = "")
+    cat("  ", i, ". ", device_label(station_devices[i, ]),
+        " - ", station_devices$mfger[i], ", ",
+        station_devices$status[i], "\n", sep = "")
   }
   
   # Select device to replace
@@ -2892,13 +2888,13 @@ ui_replace_device <- function() {
   old_device_row <- station_devices[match(selected_device, device_options), ]
   old_device_serial <- old_device_row$device_serial
   
-  cat("✓ Replacing device:", old_device_serial, "\n")
+  cat("✓ Replacing device:", device_label(old_device_row), "\n")
   cat("  Manufacturer:", old_device_row$mfger, "\n")
   cat("  Current status:", old_device_row$status, "\n\n")
   
   # Confirm replacement
   confirm_replace <- ui_yes_no(
-    paste0("Mark '", old_device_serial, "' as replaced and add new device?"),
+    paste0("Mark '", device_label(old_device_row), "' as replaced and add new device?"),
     allow_quit = FALSE
   )
   
@@ -2941,7 +2937,7 @@ ui_replace_device <- function() {
   retired <- retire_row(old_device_row$unique_id, when, status = "replaced")
   result <- retired
   if (isTRUE(retired)) {
-    cat("\u2713 ", old_device_serial, " retired at ", format(when, "%Y-%m-%d %H:%M"),
+    cat("\u2713 ", device_label(old_device_row), " retired at ", format(when, "%Y-%m-%d %H:%M"),
         if (n_open > 0) paste0(", its ", n_open, " port configuration(s) closed") else "",
         "\n", sep = "")
   }
@@ -2955,8 +2951,8 @@ ui_replace_device <- function() {
   }
   
   cat("\n✓ Device replacement complete!\n")
-  cat("  Old:", old_device_serial, "(replaced)\n")
-  cat("  New:", new_device_serial, "\n")
+  cat("  Old:", device_label(old_device_row), "(replaced)\n")
+  cat("  New:", device_label(new_device_serial), "\n")
 
   #### Surveys that still hold ####
   # Surveys belong to the deployment they were measured on, so the new logger
@@ -2972,7 +2968,7 @@ ui_replace_device <- function() {
     station_id = station_id,
     device_serial = new_device_serial,
     action_type = "device_replacement",
-    details = paste0("Replaced device ", old_device_serial, " with ", new_device_serial),
+    details = paste0("Replaced device ", device_label(old_device_row), " with ", device_label(new_device_serial)),
     logged_by = ui_ask_whois_logging()
   )
   
@@ -3029,7 +3025,7 @@ ui_relocate_station <- function() {
   
   cat("✓ Station:", station_id, "\n")
   cat("  Site:", current_device$site_full, "\n")
-  cat("  Current device:", current_device$device_serial, "\n")
+  cat("  Current device:", device_label(current_device), "\n")
   cat("  Current location:", current_device$lat, ",", current_device$lon, sep = " ")
   if (!is.na(current_device$elev)) {
     cat(" (", current_device$elev, "m)", sep = "")
@@ -3077,7 +3073,7 @@ ui_relocate_station <- function() {
   
   if (length(companions) > 0) {
     cat("\n--- OTHER STATIONS ON THIS LOGGER ---\n\n")
-    cat(current_device$device_serial, " also serves:\n\n", sep = "")
+    cat(device_label(current_device), " also serves:\n\n", sep = "")
     for (cs in companions) cat("  ", cs, "\n", sep = "")
     cat("\nThe logger is one physical box, so it cannot be in two places.\n")
     cat("For each, say whether that station moved with it.\n")
@@ -3143,18 +3139,15 @@ ui_relocate_station <- function() {
       return(NULL)
     }
     
-    cat("\nEnter device name (optional, press Enter to skip) - this is how\n")
-    cat("the device was named in its own software:\n")
-    nd_name <- trimws(readline())
-    if (!nzchar(nd_name)) nd_name <- NA_character_
+    nd_name <- ui_ask_device_name(nd_serial)
     
     new_device <- list(device_serial = nd_serial,
                        mfger         = nd_mfger,
                        model         = nd_model,
                        device_name   = nd_name)
     
-    cat("\n\u2713 ", nd_serial, " will be recorded at the new position.\n", sep = "")
-    cat("  ", current_device$device_serial, " comes out with the station.\n", sep = "")
+    cat("\n\u2713 ", device_label(new_device), " will be recorded at the new position.\n", sep = "")
+    cat("  ", device_label(current_device), " comes out with the station.\n", sep = "")
   } else {
     cat("\n\u2713 The same logger moves with the station\n")
     
@@ -3281,7 +3274,7 @@ ui_relocate_station <- function() {
   cat("============================================\n")
   cat("Station:", station_id, "(", current_device$site_full, ")\n")
   cat("\nOLD LOCATION:\n")
-  cat("  Device:", current_device$device_serial, "\n")
+  cat("  Device:", device_label(current_device), "\n")
   cat("  Location:", current_device$lat, ",", current_device$lon, sep = " ")
   if (!is.na(current_device$elev)) {
     cat(" (", current_device$elev, "m)", sep = "")
@@ -3289,10 +3282,10 @@ ui_relocate_station <- function() {
   cat("\n  Status: → 'relocated'\n")
   cat("\nNEW LOCATION:\n")
   if (is.null(new_device)) {
-    cat("  Device:", current_device$device_serial, "(same logger, new row)\n")
+    cat("  Device:", device_label(current_device), "(same logger, new row)\n")
   } else {
-    cat("  Device:", new_device$device_serial, "(", new_device$mfger, ")\n")
-    cat("          replacing", current_device$device_serial, "\n")
+    cat("  Device:", device_label(new_device), "(", new_device$mfger, ")\n")
+    cat("          replacing", device_label(current_device), "\n")
   }
   cat("  Location:", new_lat, ",", new_lon, sep = " ")
   cat("\n  Deploy:", format(deploy_datetime), "\n")
@@ -3307,7 +3300,7 @@ ui_relocate_station <- function() {
     cat("\n  Ports: some sensors did not move. You will be taken through\n")
     cat("         the port configuration after this.\n")
   } else {
-    cat("\n  Ports: ", current_device$device_serial,
+    cat("\n  Ports: ", device_label(current_device),
         "'s ports will be closed. The new\n", sep = "")
     cat("         logger is configured after this.\n")
   }
@@ -3355,8 +3348,8 @@ ui_relocate_station <- function() {
   cat("  Old device marked as 'relocated'\n")
   cat("  New metadata row created at new location\n")
   if (!is.null(new_device)) {
-    cat("  Device changed to ", new_device$device_serial, "\n", sep = "")
-    cat("  Ports on ", current_device$device_serial, " closed\n", sep = "")
+    cat("  Device changed to ", device_label(new_device), "\n", sep = "")
+    cat("  Ports on ", device_label(current_device), " closed\n", sep = "")
   }
 
   
@@ -3467,7 +3460,7 @@ ui_decommission_station <- function() {
   
   cat("✓ Station:", station_id, "\n")
   cat("  Site:", current_device$site_full, "\n")
-  cat("  Device:", current_device$device_serial, "\n")
+  cat("  Device:", device_label(current_device), "\n")
   cat("  Current status:", current_device$status, "\n")
   cat("  Location:", current_device$lat, ",", current_device$lon, "\n\n")
   
@@ -3617,7 +3610,7 @@ ui_reactivate_station <- function() {
   
   cat("✓ Station:", station_id, "\n")
   cat("  Site:", old_device$site_full, "\n")
-  cat("  Last device:", old_device$device_serial, "\n")
+  cat("  Last device:", device_label(old_device), "\n")
   cat("  Last location:", old_device$lat, ",", old_device$lon, "\n")
   cat("  Decommissioned status:", old_device$status, "\n\n")
   
@@ -3754,7 +3747,7 @@ ui_reactivate_station <- function() {
   
   cat("\n✓ Station reactivated successfully!\n")
   cat("  Station:", station_id, "\n")
-  cat("  New device:", new_device_serial, "\n")
+  cat("  New device:", device_label(new_device_serial), "\n")
   
   # Log to maintenance
   log_result <- create_maintenance_entry(
@@ -3796,7 +3789,7 @@ ui_initialize_ports <- function(device_serial) {
     cat("\n============================================\n")
     cat("  Ports Already Configured\n")
     cat("============================================\n\n")
-    cat("Device ", device_serial, " already has an active port configuration:\n\n",
+    cat("Device ", device_label(device_serial), " already has an active port configuration:\n\n",
         sep = "")
 
     for (i in order(existing_ports$port)) {
@@ -3839,7 +3832,7 @@ ui_initialize_ports <- function(device_serial) {
     return(NULL)
   }
   
-  cat("Configuring ports for device:", device_serial, "\n\n")
+  cat("Configuring ports for device:", device_label(device_serial), "\n\n")
 
   # One ZL6 can serve a weather station and a vwc station at once, and this
   # workflow runs inside a question about ONE of them. Without saying so, a
@@ -4038,7 +4031,7 @@ ui_update_ports <- function(preset_device_serial = NULL) {
   # Called from a workflow that already knows the device? Don't ask again.
   if (!is.null(preset_device_serial)) {
     device_serial <- preset_device_serial
-    cat("Device: ", device_serial, "\n\n", sep = "")
+    cat("Device: ", device_label(device_serial), "\n\n", sep = "")
     
   } else {
     # Ports belong to the DEVICE, so the list is one entry per SERIAL - not one
@@ -4071,7 +4064,7 @@ ui_update_ports <- function(preset_device_serial = NULL) {
     }
     
     device_serial <- serials[match(selected, device_options)]
-    cat("✓ Device:", device_serial, "\n\n")
+    cat("✓ Device:", device_label(device_serial), "\n\n")
   }
   
   ################################################################################
@@ -4799,7 +4792,7 @@ ui_view_maintenance_log <- function() {
     cat("Date:         ", format(as.Date(entry$field_visit_date), "%Y-%m-%d"), "\n", sep = "")
     cat("Station:      ", entry$station_id, "\n", sep = "")
     dev <- meta_for_log[match(entry$unique_id, meta_for_log$unique_id), ]
-    cat("Device:       ", if (nrow(dev) == 1 && !is.na(dev$device_name)) paste0(dev$device_name, " (", dev$device_serial, ")")
+    cat("Device:       ", if (nrow(dev) == 1 && !is.na(dev$device_serial)) device_label(dev)
                           else "(row no longer in metadata)",
         "  [", entry$unique_id, "]\n", sep = "")
     cat("Action:       ", entry$action_type, "\n", sep = "")
@@ -4994,9 +4987,9 @@ ui_remove_device <- function() {
   # Show devices at this station
   cat("Devices at this station:\n")
   for (i in 1:nrow(station_devices)) {
-    cat("  ", i, ". ", station_devices$device_serial[i], 
-        " (", station_devices$mfger[i], " - ", 
-        station_devices$status[i], ")\n", sep = "")
+    cat("  ", i, ". ", device_label(station_devices[i, ]),
+        " - ", station_devices$mfger[i], ", ",
+        station_devices$status[i], "\n", sep = "")
   }
   
   # Select device to remove
@@ -5058,7 +5051,7 @@ ui_remove_device <- function() {
     cat("\n⚠️  Proceeding with device removal despite recommendation...\n\n")
   }
   
-  cat("✓ Device:", device_serial, "\n")
+  cat("✓ Device:", device_label(device_serial), "\n")
   cat("  Manufacturer:", device_row$mfger, "\n")
   cat("  Current status:", device_row$status, "\n\n")
   
@@ -5127,7 +5120,7 @@ ui_remove_device <- function() {
   
   cat("\n============================================\n")
   cat("Ready to remove device:\n")
-  cat("  Device:", device_serial, "\n")
+  cat("  Device:", device_label(device_serial), "\n")
   cat("  Station:", station_id, "\n")
   cat("  Removal datetime:", format(removal_datetime), "\n")
   cat("  Details:", details, "\n\n")
@@ -5180,7 +5173,7 @@ ui_remove_device <- function() {
   }
   
   cat("\n✓ Device removal complete!\n")
-  cat("  Device ", device_serial, " has been removed from service\n", sep = "")
+  cat("  Device ", device_label(device_serial), " has been removed from service\n", sep = "")
 
   return(TRUE)
 }
@@ -5320,7 +5313,7 @@ ui_delete_metadata_row <- function() {
   cat("\u2713 Row deleted, with its ports and surveys, and the deletion logged\n")
 
   cat("\n✓ Metadata row deletion complete\n")
-  cat("  Deleted: ", unique_id, " (", row_to_delete$device_serial, ")\n", sep = "")
+  cat("  Deleted: ", unique_id, " (", device_label(row_to_delete), ")\n", sep = "")
   
   return(TRUE)
 }
@@ -5797,10 +5790,12 @@ ui_exit_metadata_manager <- function(entries_at_start = NA) {
   # A last look before walking away. Everything here is already saved - this
   # is a chance to notice a wrong date or a misfiled station while it is still
   # fresh, not an opportunity to undo anything.
+  wrote <- FALSE
   if (!is.na(entries_at_start)) {
     mlog <- tryCatch(load_maintenance_log(), error = function(e) NULL)
 
     if (!is.null(mlog) && nrow(mlog) > entries_at_start) {
+      wrote <- TRUE
       new_rows <- mlog[(entries_at_start + 1):nrow(mlog), , drop = FALSE]
 
       cat("\n--- LOGGED THIS SESSION ---\n\n")
@@ -5820,11 +5815,14 @@ ui_exit_metadata_manager <- function(entries_at_start = NA) {
 
   #### Station photos ####
   # Filed by hand, and nothing else in the system asks for them, so they are
-  # quietly forgotten.
-  photo_dir <- file.path(wds("meta_internal"), "station_photos")
-  cat("\nIf you took station photos on this visit, file them here:\n\n")
-  cat("     ", photo_dir, "\n\n", sep = "")
-  cat("  Named station_id_YYYY-MM-DD, e.g. sr1_hydro_2026-03-02.jpeg\n")
+  # quietly forgotten. Asked only after a session that logged a visit - a
+  # desk session has no photos to file
+  if (wrote) {
+    photo_dir <- file.path(wds("meta_internal"), "station_photos")
+    cat("\nIf you took station photos on this visit, file them here:\n\n")
+    cat("     ", photo_dir, "\n\n", sep = "")
+    cat("  Named station_id_YYYY-MM-DD, e.g. sr1_hydro_2026-03-02.jpeg\n")
+  }
 
   cat("\n\u2713 Exiting Metadata Manager\n")
   invisible(TRUE)
@@ -6269,7 +6267,7 @@ metadata_manager <- function() {
             } else if (nrow(get_active_ports(result$device_serial)) > 0) {
               # The logger has active ports, but none of this station's type -
               # its sensor was taken off when the station was last retired.
-              cat("\n⚠️  ", result$device_serial, " has active ports, but none\n",
+              cat("\n⚠️  ", device_label(result$device_serial), " has active ports, but none\n",
                   sep = "")
               cat("   of type '", device_station_type, "'. Its sensor was\n", sep = "")
               cat("   removed when this station was last retired.\n\n")

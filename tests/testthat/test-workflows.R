@@ -60,7 +60,7 @@ test_that("the BTA2 paired survey of 14 October records what the rod measured", 
   expect_equal(entry$action_type, "survey")
   expect_equal(entry$unique_id, "t-0002")
   expect_match(entry$details, "accepted 2+3", fixed = TRUE)
-  expect_match(entry$details, "upstream 90000002", fixed = TRUE)
+  expect_match(entry$details, "upstream testb (90000002", fixed = TRUE)
   expect_match(entry$details, "slope 0.00536", fixed = TRUE)
 })
 

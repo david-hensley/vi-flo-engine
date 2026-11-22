@@ -700,3 +700,40 @@ ui_prompt_sensor_height <- function(station_type) {
     return(with_method(value, "tape"))
   }
 }
+
+
+#' Asks for a device's name, offering ZentraCloud's
+#'
+#' A ZL6 is already named on ZentraCloud, and typing it again is a chance to
+#' type it differently. When the serial is on the account with a name, Enter
+#' takes that name; otherwise Enter leaves the device unnamed. One question
+#' either way.
+#'
+#' @param device_serial Character
+#' @param devices ZentraCloud device list; fetched for a ZL6 serial if NULL
+#' @return Character name, or NA
+ui_ask_device_name <- function(device_serial, devices = NULL) {
+  cloud <- NA_character_
+  if (grepl("^z6-", device_serial)) {
+    if (is.null(devices)) {
+      devices <- tryCatch(zc_call("zc_list_devices"), error = function(e) NULL)
+    }
+    if (!is.null(devices)) {
+      n <- device_display_name(device_serial, meta = data.frame(device_serial = character(0)),
+                               devices = devices)
+      if (!identical(n, device_serial)) cloud <- n
+    }
+  }
+  if (!is.na(cloud)) {
+    cat("\nZentraCloud calls this logger '", cloud, "'.\n", sep = "")
+    cat("Press Enter to use that name, or type another:\n")
+  } else {
+    cat("\nEnter device name (optional, press Enter to skip) - this is how\n")
+    cat("the device was named in its own software:\n")
+  }
+  name <- trimws(readline())
+  if (!nzchar(name)) name <- cloud
+  if (is.na(name)) cat("\u2713 No device name\n") else cat("\u2713 Device name: ", name, "\n", sep = "")
+  name
+}
+

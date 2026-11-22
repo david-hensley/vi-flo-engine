@@ -1751,28 +1751,67 @@ blank_or_value <- function(value) {
   as_text
 }
 
+#' The name a device goes by
+#'
+#' The one rule for naming a logger anywhere the engine shows one. A name
+#' means something to the person standing at the station; a serial does not.
+#'
+#'   1. its metadata name - the current row at `station` if given, otherwise
+#'      its current row anywhere, otherwise its newest
+#'   2. its ZentraCloud name, when `devices` (zc_list_devices) is given
+#'   3. its serial
+#'
+#' @param serial Character vector of device serials
+#' @param meta Device metadata; loaded if NULL
+#' @param station Character. The station the name is wanted at, or NULL
+#' @param devices ZentraCloud device list, or NULL
+#' @return Character, one name per serial
+device_display_name <- function(serial, meta = NULL, station = NULL, devices = NULL) {
+  if (is.null(meta)) meta <- tryCatch(load_zentra_metadata(), error = function(e) NULL)
+  has <- function(x) length(x) == 1 && !is.na(x) && nzchar(trimws(x))
+  vapply(as.character(serial), function(sn) {
+    if (!has(sn)) return("")
+    if (!is.null(meta)) {
+      r <- meta[meta$device_serial %in% sn, , drop = FALSE]
+      if (!is.null(station) && any(r$station_id %in% station)) r <- r[r$station_id %in% station, , drop = FALSE]
+      if (nrow(r) > 0) {
+        cur <- r[!tolower(r$status) %in% TERMINAL_STATUSES, , drop = FALSE]
+        r <- if (nrow(cur) > 0) cur else r[order(r$deploy_datetime, decreasing = TRUE), , drop = FALSE]
+        named <- r$device_name[vapply(r$device_name, has, logical(1))]
+        if (length(named) > 0) return(trimws(named[1]))
+      }
+    }
+    if (!is.null(devices) && all(c("device_id", "name") %in% names(devices))) {
+      n <- devices$name[match(sn, devices$device_id)]
+      if (has(n)) return(trimws(n))
+    }
+    sn
+  }, character(1), USE.NAMES = FALSE)
+}
+
 #' Names a device for display: its own name first, serial as the qualifier
 #'
-#' A HOBOware name means something to the person standing at the station; an
-#' eight-digit serial does not. Fall back to the serial alone when unnamed.
+#' "Glynn weather (z6-12866)". The serial is left off when the name already
+#' carries it ("z6-35228 - ET2"), and stands alone when there is no name.
 #'
-#' @param device_row One row of device metadata
+#' @param x One row of device metadata, or a device serial
+#' @param with_role Logical. Add the row's device_role (rows only)
+#' @param meta,station,devices For a serial: as device_display_name()
 #' @return Character
-device_label <- function(device_row, with_role = FALSE) {
-  nm <- device_row$device_name
-  rl <- if (with_role) device_row$device_role else NA
-
-  parts <- character(0)
-  if (!is.null(nm) && length(nm) > 0 && !is.na(nm) && nzchar(trimws(nm))) {
-    parts <- c(parts, trimws(nm))
+device_label <- function(x, with_role = FALSE, meta = NULL, station = NULL, devices = NULL) {
+  has <- function(v) !is.null(v) && length(v) > 0 && !is.na(v[1]) && nzchar(trimws(v[1]))
+  if (is.character(x)) {
+    sn <- x[1]
+    nm <- device_display_name(sn, meta, station, devices)
+    rl <- NA
+  } else {
+    sn <- as.character(x$device_serial)
+    nm <- if (has(x$device_name)) trimws(x$device_name) else sn
+    rl <- if (with_role && has(x$device_role)) trimws(x$device_role) else NA
   }
-  if (!is.null(rl) && length(rl) > 0 && !is.na(rl) && nzchar(trimws(rl))) {
-    parts <- c(parts, trimws(rl))
-  }
-
-  if (length(parts) == 0) return(as.character(device_row$device_serial))
-
-  paste0(device_row$device_serial, " (", paste(parts, collapse = ", "), ")")
+  if (!has(sn)) return("")
+  qual <- c(if (!grepl(sn, nm, fixed = TRUE)) sn, if (!is.na(rl)) rl)
+  if (length(qual) == 0) nm else paste0(nm, " (", paste(qual, collapse = ", "), ")")
 }
 
 

@@ -268,16 +268,6 @@ unattributed_episodes <- function(u) {
   ep[order(-as.numeric(ep$last)), , drop = FALSE]
 }
 
-#' A logger's most recent name
-device_short_name <- function(device_serial, metadata) {
-  vapply(device_serial, function(sn) {
-    m <- metadata[metadata$device_serial == sn, , drop = FALSE]
-    if (nrow(m) == 0) return(sn)
-    m <- m[order(m$deploy_datetime, decreasing = TRUE), , drop = FALSE]
-    if (is.na(m$device_name[1])) sn else m$device_name[1]
-  }, character(1), USE.NAMES = FALSE)
-}
-
 #' Prints the build summary's unattributed section
 #'
 #' @param ep Data frame from unattributed_episodes()
@@ -289,8 +279,7 @@ print_unattributed <- function(ep, metadata, known, now = Sys.time()) {
   tz <- "America/Puerto_Rico"
   d <- function(x) format(x, "%Y-%m-%d", tz = tz)
   recent <- as.numeric(ep$last) >= as.numeric(now) - 365 * 86400
-  who <- function(i) paste0(device_short_name(ep$device_serial[i], metadata),
-                            " (", ep$device_serial[i], ")")
+  who <- function(i) device_label(ep$device_serial[i], meta = metadata)
   port_of <- function(i) {
     p <- ep$ports[i]
     if (is.na(p) || !nzchar(p)) "" else paste0(if (grepl("[-,]", p)) "ports " else "port ", p)
@@ -338,7 +327,7 @@ print_unattributed <- function(ep, metadata, known, now = Sys.time()) {
     devs <- unique(ep$device_serial[sel])
     cat(sprintf("  AFTER RETIREMENT - %s moments from %d retired logger(s) still reporting: %s\n",
                 format(sum(ep$moments[sel]), big.mark = ","), length(devs),
-                paste(device_short_name(devs, metadata), collapse = ", ")))
+                paste(device_display_name(devs, metadata), collapse = ", ")))
   }
   invisible(NULL)
 }

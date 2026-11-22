@@ -152,7 +152,7 @@ get_network_todo <- function(devices = NULL) {
         paste0("last reading ", if (h < 48) paste0(round(h), " hours") else
           paste0(round(h / 24), " days"), " ago")
       }
-      shown <- zc_display_name(devices, devices$device_id[i])
+      shown <- device_display_name(devices$device_id[i], meta = meta[0, ], devices = devices)
       add("(none)", shown, "medium",
           paste0(if (shown != devices$device_id[i]) paste0(devices$device_id[i], " - ") else "",
                  "on ZentraCloud, ", when), "not in metadata")
@@ -464,19 +464,6 @@ known_unattributed_loggers <- function() {
 }
 
 
-#' A ZentraCloud device's name, else its serial
-#'
-#' @param devices Data frame from zc_list_devices(), or NULL
-#' @param serial Character
-#' @return Character
-zc_display_name <- function(devices, serial) {
-  n <- if (!is.null(devices) && "name" %in% names(devices)) {
-    devices$name[match(serial, devices$device_id)]
-  } else NA_character_
-  if (length(n) == 0 || is.na(n) || !nzchar(trimws(n))) serial else trimws(n)
-}
-
-
 #' Renders the to-do list
 #'
 #' @param status Data frame from get_network_todo()
@@ -551,10 +538,10 @@ print_network_todo <- function(status = NULL, quiet_if_clean = FALSE) {
           next
         }
         dev <- if (ty %in% c("product 2", "not in metadata")) rows$device[i]
-               else todo_device_name(rows$station[i], rows$device[i], meta)
-        if (nchar(dev) > 19) dev <- paste0(substr(dev, 1, 18), "\u2026")
+               else device_display_name(rows$device[i], meta, station = rows$station[i])
+        if (nchar(dev) > 23) dev <- paste0(substr(dev, 1, 22), "\u2026")
         cat(" ", mark, " ", format(rows$station[i], width = 14),
-            format(dev, width = 20), rows$issue[i], "\n", sep = "")
+            format(dev, width = 24), rows$issue[i], "\n", sep = "")
       }
     }
   }
@@ -708,31 +695,6 @@ print_station_roster <- function(roster = NULL) {
   cat("\n  print_network_todo() for what needs attention\n\n")
 
   invisible(TRUE)
-}
-
-
-#' A to-do row's device, by the name it carries at that station
-#'
-#' The name of the logger's current deployment there, else its latest; the
-#' serial only where it has no name, or no row at all.
-#'
-#' @param station,serial Character
-#' @param meta Data frame of device rows, or NULL
-#' @return Character, at most 19 characters
-todo_device_name <- function(station, serial, meta) {
-  if (is.na(serial) || !nzchar(serial)) return("")
-  name <- NA_character_
-  if (!is.null(meta)) {
-    r <- meta[meta$device_serial %in% serial & meta$station_id %in% station, , drop = FALSE]
-    if (nrow(r) > 0) {
-      cur <- r[!tolower(r$status) %in% TERMINAL_STATUSES, , drop = FALSE]
-      r <- if (nrow(cur) > 0) cur else r[order(r$deploy_datetime, decreasing = TRUE), , drop = FALSE]
-      name <- r$device_name[1]
-    }
-  }
-  if (is.na(name) || !nzchar(trimws(name))) name <- serial
-  if (nchar(name) > 19) name <- paste0(substr(name, 1, 18), "\u2026")
-  name
 }
 
 

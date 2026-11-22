@@ -114,6 +114,19 @@ All notable changes to the VI-FLO Engine project are documented here.
   VI-FLO's, recorded with `archive` FALSE, is no longer downloaded.
   `tools/migrations/migrate_known_unattributed_v2.9.R` adds the column,
   TRUE on every existing whole-logger row
+- **A device goes by one name everywhere.** Four helpers each chose a
+  logger's name a little differently; `device_display_name()` now does it
+  by one rule - its metadata name (its current row, or the row at the station
+  asked about), else its ZentraCloud name, else its serial - and
+  `device_label()` shows it as "Glynn weather (z6-12866)", leaving the serial
+  off a name that already carries it. The metadata manager and HOBO archiving
+  name devices this way in the fifty-odd places that printed a bare serial,
+  maintenance-log text included; prompts about a serial being typed, and
+  filenames, keep the serial alone. The to-do list's name column is wider
+- **New devices take their ZentraCloud name.** Adding a ZL6, or the logger a
+  relocation brings, offers the name ZentraCloud already has for it: Enter
+  takes it. `tools/migrations/migrate_device_names_v2.9.R` fills blank names
+  in existing rows the same way, and lists the rows it cannot name
 - **Tests can no longer reach ZentraCloud.** Every call the engine makes to
   the API now goes through one function, `zc_call()`, and the test suite
   closes it for its whole run (`options(viflo.offline = TRUE)`), whatever
@@ -427,6 +440,12 @@ All notable changes to the VI-FLO Engine project are documented here.
   `TERMINAL_STATUSES`
 
 ### Fixed
+- The metadata manager's exit no longer asks about station photos after a
+  session that logged no visit
+- Explaining a logger that is only in the archive no longer says recording
+  it unarchived "stops the job downloading it" - the job never did
+- The test workflow uses actions/checkout v5, on the Node 24 runtime GitHub
+  now requires
 - `validate_metadata()` would have failed every run on loggers the download
   log names and the metadata does not - the colleague's loggers on the
   ZentraCloud account, and pre-VI-FLO loggers in the exports. They are now

@@ -43,3 +43,27 @@ test_that("the build summary puts a desk launch under installations, by name", {
   expect_true(any(grepl("UNEXPLAINED", printed, fixed = TRUE)))
   expect_true(any(grepl("none", printed, fixed = TRUE)))
 })
+
+test_that("a device goes by one name everywhere, by one rule", {
+  local_test_root()
+  m <- load_zentra_metadata()
+  cloud <- data.frame(device_id = c("z6-77777", "z6-90001"), name = c("Someone's box", "Cloud name"),
+                      stringsAsFactors = FALSE)
+  # Its current row, wherever it is - not the removed one it had before
+  expect_equal(device_display_name("90000002", m), "testb")
+  # At a named station, that station's row, even a removed one
+  expect_equal(device_display_name("90000002", m, station = "rb2_hydro"), "testb-old")
+  # Metadata wins over ZentraCloud; ZentraCloud over the serial; the serial last
+  expect_equal(device_display_name(c("z6-90001", "z6-77777", "z6-00000"), m, devices = cloud),
+               c("Test weather", "Someone's box", "z6-00000"))
+  # A blank metadata name falls through to the cloud
+  m$device_name[m$device_serial == "z6-90001"] <- NA
+  expect_equal(device_display_name("z6-90001", m, devices = cloud), "Cloud name")
+
+  expect_equal(device_label("90000001"), "testa (90000001)")
+  expect_equal(device_label(m[m$unique_id == "t-0001", ], with_role = TRUE), "testa (90000001, primary)")
+  expect_equal(device_label("z6-00000"), "z6-00000")
+  # A name that already carries its serial is not given it twice
+  expect_equal(device_label(data.frame(device_serial = "z6-35228", device_name = "z6-35228 - ET2")),
+               "z6-35228 - ET2")
+})

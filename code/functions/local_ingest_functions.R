@@ -423,7 +423,7 @@ ui_ingest_local_data <- function(station_id, device_serial, station_type,
   cat("  Archive Downloaded Data\n")
   cat("============================================\n\n")
   cat("Station: ", station_id, "\n", sep = "")
-  cat("Device:  ", device_serial, "\n\n", sep = "")
+  cat("Device:  ", device_label(device_serial, station = station_id), "\n\n", sep = "")
 
   #### Resolve paths ####
   raw_dir     <- get_raw_dir(mfger)
