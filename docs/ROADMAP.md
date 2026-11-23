@@ -24,13 +24,27 @@ clock.
   tested end to end, and the Box orphan sweep in the sync tool
 - **v2.10** - the metadata in git, so every version is a commit and any
   product can be rebuilt exactly as it was. Before Product 3, whose decisions
-  rest on the metadata (see *Metadata into git* below)
+  rest on the metadata (see *Metadata into git* below). And coordinates on
+  every Product 2 row (see *Where each reading was taken* below), so one
+  rebuild covers both
 - **v3** - Product 3 automatic and unattended: QC under declared parameters,
   gap filling by declared rules, and the first derived series, level, from
   Product 2 pressure and the barometric pairing table
 - **After v3** - the computed variables beyond level (discharge, storage and
   the rest), and v4, Product 4: the workflow for human decisions. Discharge
   sits here, resting on rating curves that are partly experimental
+
+**Where each reading was taken.** A station that moves keeps its name - fb1
+is a site, and the network's history runs through it - but a reading taken
+before a move and one taken after are from different places, and someone
+downloading by location needs to tell them apart. Every Product 2 row will
+carry `lat`, `lon` and `elev` from the deployment in place at that moment,
+missing rows included, so a gap never reads as a move. A move is then visible
+in the data itself, with no second naming scheme to keep in step; a future
+downloader can offer a multi-location station's locations to choose from by
+reading them there. A Product 2 format change, so every file is rebuilt once:
+done in v2.10, alongside the metadata move, rather than as a rebuild of its
+own.
 
 **Run the weekly job from a release.** Today it runs the newest engine code,
 so a change to Product 2's code means the next run rebuilds the affected files

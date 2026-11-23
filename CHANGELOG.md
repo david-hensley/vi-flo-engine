@@ -6,6 +6,8 @@ All notable changes to the VI-FLO Engine project are documented here.
 ## [Unreleased]
 
 ### Changed
+- The ROADMAP plans coordinates on every Product 2 row for v2.10, so a
+  relocated station's readings say where each was taken
 - `run_tests()` runs the test suite: `start.R` defines it, so `start.R` is
   the one line to remember. The long `source()` still works, and GitHub's run
   is unchanged
