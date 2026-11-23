@@ -284,6 +284,17 @@ All notable changes to the VI-FLO Engine project are documented here.
   when it comes back on a fresh logger. The shared-logger question
   names the station rather than asking about "a new station". End-to-end
   tests of all three reactivations
+- `tools/migrations/migrate_day_end_placeholders_v2.9.R`: retired rows that
+  were replaced or relocated and ended at 23:59:59 - "sometime that day", as
+  those workflows recorded it before v2.9 - on the day their successor went
+  in, end at the successor's deploy time instead. Until then the two
+  overlapped for the rest of that day, the old logger reading as still
+  deployed after it had come out: its readings were attributed to the
+  station, or belonged to nothing (Dorothea Weather, 29 October, corrected by
+  hand when the rebuild reported it). Ports that closed later that day -
+  stamped when they were entered, not when the sensors came out - close then
+  too. Removals are left alone: a logger going in elsewhere that day is not
+  when the removed one came out. Each row is logged as a correction
 - **A logger back in service keeps what it is.** Entering a serial whose
   every row has ended takes its manufacturer and model from its last row,
   and offers its last name on Enter, rather than asking for all three again

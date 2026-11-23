@@ -67,6 +67,7 @@ stay until the v2.9 tag, then join the table under *Applied*.
 | `migrate_port_windows_v2.9.R` | 2026-11-21 | Step 7b: every port window clipped to its deployment's dates |
 | `migrate_known_unattributed_v2.9.R` | 2026-11-22 | Item (a): `known_unattributed.csv` gains `archive`, TRUE on every existing whole-logger row |
 | `migrate_device_names_v2.9.R` | 2026-11-22 | Item (c): blank device names filled from ZentraCloud; rows it cannot name are listed |
+| `migrate_day_end_placeholders_v2.9.R` | 2026-11-22 | Retired rows that ended at 23:59:59 on the day their successor went in end at the successor's deploy time instead, their ports with them; each logged |
 
 ## Applied
 
