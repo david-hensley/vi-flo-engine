@@ -182,6 +182,8 @@ MAINTENANCE_ACTIONS <- c(MAINTENANCE_ACTIONS_BY_HAND, MAINTENANCE_ACTIONS_BY_WOR
 # deployment ended, each set by its own workflow and each with an end
 ACTIVE_STATUSES <- c("manual", "online", "local", "defunct")
 TERMINAL_STATUSES <- c("removed", "replaced", "relocated", "decommissioned")
+# The terminal statuses that leave a successor in the old logger's place
+SUCCEEDED_STATUSES <- c("replaced", "relocated")
 STATUS_MEANINGS <- c(
   manual         = "no cloud at all - data comes off by shuttle or cable",
   online         = "reports to the cloud over a cellular connection",

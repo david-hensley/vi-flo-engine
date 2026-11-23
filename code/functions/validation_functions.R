@@ -816,6 +816,37 @@ validate_metadata <- function(verbose = TRUE, stop_on_error = FALSE, tables = NU
     } else {
       record_pass("every retired deployment has an end, and no current one does")
     }
+
+    # CHECK: a logger replaced or moved ends when its successor began
+    #
+    # A replaced or relocated row was followed by another in its place - same
+    # station, same role. If it ends after its successor began, the station
+    # has two loggers in one place for the overlap, and the old one's
+    # readings from the truck or the office count as field data. Before
+    # v2.9 the old row ended at 23:59:59 on the day of the swap: nine did.
+    # Paired gauges, with two roles, overlap by design
+    swapped <- which(tolower(metadata$status) %in% SUCCEEDED_STATUSES &
+                       !is.na(metadata$end_datetime))
+    role_of <- function(r) ifelse(is.na(r), "", tolower(r))
+    overlap <- vapply(swapped, function(i) {
+      succ <- metadata$station_id == metadata$station_id[i] &
+        metadata$unique_id != metadata$unique_id[i] &
+        role_of(metadata$device_role) == role_of(metadata$device_role[i]) &
+        !is.na(metadata$deploy_datetime) &
+        metadata$deploy_datetime > metadata$deploy_datetime[i] &
+        metadata$deploy_datetime < metadata$end_datetime[i]
+      any(succ)
+    }, logical(1))
+    if (any(overlap)) {
+      bad <- swapped[overlap]
+      record_violation(
+        "SWAP_OVERLAP",
+        paste(length(bad), "replaced or relocated row(s) ending after their successor began"),
+        metadata[bad, c("unique_id", "station_id", "device_serial", "status", "end_datetime")]
+      )
+    } else {
+      record_pass("every replaced or relocated row ends by the time its successor began")
+    }
   }
 
   # ==========================================================================

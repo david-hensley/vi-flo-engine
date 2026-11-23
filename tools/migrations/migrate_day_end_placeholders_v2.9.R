@@ -40,7 +40,7 @@ migrate_day_end_placeholders <- function(dry_run = TRUE, logged_by = "DAH") {
   # (rb2_hydro, November 2025: ReefBay_slope came out of its spot while
   # another went into a new one) is not when the removed one came out
   cand <- which(ends_at(meta$end_datetime) &
-                  tolower(meta$status) %in% c("replaced", "relocated"))
+                  tolower(meta$status) %in% SUCCEEDED_STATUSES)
 
   fixes <- data.frame(i = integer(0), new_end = as.POSIXct(character(0), tz = PROJECT_TZ))
   for (i in cand) {

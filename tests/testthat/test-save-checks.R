@@ -164,3 +164,26 @@ test_that("a field time can be typed without seconds", {
   out <- with_inputs("2026-11-03 14:30", ui_prompt_datetime("When?", allow_now = TRUE))
   expect_equal(format(out$value, "%Y-%m-%d %H:%M:%S"), "2026-11-03 14:30:00")
 })
+
+test_that("a replaced row ending after its successor began is refused", {
+  local_test_root()
+  m <- load_zentra_metadata()
+  old <- m[m$unique_id == "t-0007", ]
+  old$unique_id <- "t-0099"
+  old$device_serial <- "21652300"
+  old$status <- "replaced"
+  old$deploy_datetime <- as.POSIXct("2025-01-01 12:00:00", tz = PROJECT_TZ)
+  # The midnight placeholder: zzb_hydro's successor went in at noon that day
+  old$end_datetime <- as.POSIXct("2026-08-01 23:59:59", tz = PROJECT_TZ)
+  write_table("device_metadata", rbind(m, old), guard = FALSE)
+  res <- validate_metadata(verbose = FALSE, check_files = FALSE)
+  expect_true("SWAP_OVERLAP" %in% names(res$violations))
+
+  # Ending at the swap is fine - and a paired gauge's two loggers, with two
+  # roles, may overlap as they do at bta2
+  m2 <- read_table("device_metadata")
+  m2$end_datetime[m2$unique_id == "t-0099"] <- as.POSIXct("2026-08-01 12:00:00", tz = PROJECT_TZ)
+  write_table("device_metadata", m2, guard = FALSE)
+  res <- validate_metadata(verbose = FALSE, check_files = FALSE)
+  expect_false("SWAP_OVERLAP" %in% names(res$violations))
+})

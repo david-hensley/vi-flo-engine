@@ -284,6 +284,12 @@ All notable changes to the VI-FLO Engine project are documented here.
   when it comes back on a fresh logger. The shared-logger question
   names the station rather than asking about "a new station". End-to-end
   tests of all three reactivations
+- **`validate_metadata()` refuses a swap that overlaps its successor**
+  (`SWAP_OVERLAP`): a replaced or relocated row ending after the row that
+  took its place - same station, same role - began. The migration below
+  corrected the nine there were; this keeps a tenth from being saved. A
+  paired gauge's two loggers, with two roles, overlap as they should.
+  `SUCCEEDED_STATUSES` names the statuses that leave a successor
 - **A reading stamped exactly at a swap is no longer reported as
   unexplained.** A deployment's window runs up to its end and not through
   it, while the report's "after retirement" began just after the end - so
