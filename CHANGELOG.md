@@ -284,6 +284,16 @@ All notable changes to the VI-FLO Engine project are documented here.
   when it comes back on a fresh logger. The shared-logger question
   names the station rather than asking about "a new station". End-to-end
   tests of all three reactivations
+- **A reading stamped exactly at a swap is no longer reported as
+  unexplained.** A deployment's window runs up to its end and not through
+  it, while the report's "after retirement" began just after the end - so
+  the old logger's reading at the moment it came out belonged to neither,
+  and was listed on its own (Dorothea Weather and R2R Farm, one moment each,
+  after the correction below). The category is now "out of the field": a
+  logger's readings from the moment a deployment ends until its next one
+  begins, or for good after its last - the shed, the office, the desk
+  between stations, which the old rule left unexplained for any logger
+  deployed again later
 - `tools/migrations/migrate_day_end_placeholders_v2.9.R`: retired rows that
   were replaced or relocated and ended at 23:59:59 - "sometime that day", as
   those workflows recorded it before v2.9 - on the day their successor went

@@ -204,19 +204,28 @@ classify_unattributed <- function(u, windows, known) {
     }
   }
 
-  #### After retirement ####
-  # A logger with no current deployment anywhere, reporting after its last
-  # one ended - in a shed, an office, on a desk waiting to go out again.
-  # Recognized by rule, like an installation; the report still names each
-  # one, so a logger redeployed before its new station was entered shows up
-  # by name where it should not be
+  #### Out of the field ####
+  # A logger reporting between deployments - after one ended and before its
+  # next began, or after its last - is in a shed, an office, on a desk
+  # waiting to go out again. Recognized by rule, like an installation; the
+  # report still names each one, so a logger redeployed before its new
+  # station was entered shows up by name where it should not be.
+  #
+  # From the moment a deployment ends, that moment included: a window runs up
+  # to its end and not through it, so a reading stamped exactly at a swap
+  # belonged to neither the deployment nor this, and was reported as
+  # unexplained on its own
   for (dev in unique(u$device_serial[u$category == "unexplained"])) {
     w <- windows[windows$device_serial == dev, , drop = FALSE]
-    if (nrow(w) == 0 || any(is.na(w$ends))) next
-    last_end <- max(as.numeric(w$ends))
-    hit <- u$category == "unexplained" & u$device_serial == dev & t > last_end
-    u$category[hit] <- "retired"
-    u$episode[hit]  <- paste0("retired:", dev)
+    if (nrow(w) == 0) next
+    starts <- as.numeric(w$starts)
+    for (e in as.numeric(w$ends[!is.na(w$ends)])) {
+      after <- starts[starts >= e]
+      next_start <- if (length(after) > 0) min(after) else Inf
+      hit <- u$category == "unexplained" & u$device_serial == dev & t >= e & t < next_start
+      u$category[hit] <- "retired"
+      u$episode[hit]  <- paste0("retired:", dev)
+    }
   }
 
   #### Unexplained: per logger, runs split where a week passes with nothing ####
@@ -334,7 +343,7 @@ print_unattributed <- function(ep, metadata, known, now = Sys.time()) {
   sel <- ep$category == "retired"
   if (any(sel)) {
     devs <- unique(ep$device_serial[sel])
-    cat(sprintf("  AFTER RETIREMENT - %s moments from %d retired logger(s) still reporting: %s\n",
+    cat(sprintf("  OUT OF THE FIELD - %s moments from %d logger(s) between deployments or retired: %s\n",
                 format(sum(ep$moments[sel]), big.mark = ","), length(devs),
                 paste(device_display_name(devs, metadata), collapse = ", ")))
   }

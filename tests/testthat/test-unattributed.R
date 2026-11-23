@@ -187,7 +187,7 @@ test_that("readings after a logger's last deployment ended are 'after retirement
   ep <- unattributed_episodes(c)
   printed <- utils::capture.output(print_unattributed(ep, load_zentra_metadata(), load_known_unattributed(),
                                                        now = at("2026-10-18 12:00")))
-  expect_true(any(grepl("AFTER RETIREMENT - 1 moments from 1 retired logger(s) still reporting: real HOBOlink",
+  expect_true(any(grepl("OUT OF THE FIELD - 1 moments from 1 logger(s) between deployments or retired: real HOBOlink",
                         printed, fixed = TRUE)))
 })
 
@@ -272,4 +272,17 @@ test_that("a known period on one port does not explain an episode on others", {
   write_table("known_unattributed", rbind(k, row[, names(k)]), guard = FALSE)
   expect_equal(nrow(load_unexplained()), 0)
   expect_equal(expand_ports("1-4, 6, 8"), c(1L, 2L, 3L, 4L, 6L, 8L))
+})
+
+test_that("a reading stamped exactly at a swap is out of the field, not unexplained", {
+  local_test_root()
+  # 90000002 left Reef Bay (t-0003) at 2024-11-05 10:00; it went in at bta2 weeks later
+  m <- load_zentra_metadata()
+  m$deploy_datetime[m$unique_id == "t-0002"] <- as.POSIXct("2024-12-01 14:00:00", tz = PROJECT_TZ)
+  write_table("device_metadata", m, guard = FALSE)
+  at_end <- reading("90000002", NA_integer_, "2024-11-05 10:00", "water_level")
+  between <- reading("90000002", NA_integer_, "2024-11-15 12:00", "water_level")
+  w <- deployment_windows()
+  expect_equal(classify_unattributed(at_end, w, load_known_unattributed())$category, "retired")
+  expect_equal(classify_unattributed(between, w, load_known_unattributed())$category, "retired")
 })
