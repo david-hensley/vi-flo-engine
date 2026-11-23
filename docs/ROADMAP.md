@@ -17,12 +17,11 @@ Engine versions follow the product ladder. The dataset release that gets
 cited - a DOI, its own station list - is numbered separately, on its own
 clock.
 
-- **v2.8.1** - current, released 2026-11-19
-- **v2.9** - in progress: the structural work. One data layer for every
-  table, saves that refuse new validation problems, surveys as their own
-  table, deployments that close their ports, one device naming rule, the
-  unattributed-readings workflow, and the Box orphan sweep in the sync tool.
-  Tagged after one Product 2 rebuild and a manual check of it
+- **v2.9.0** - current, released 2026-11-22: the structural work. One data
+  layer for every table, saves that refuse new validation problems, surveys
+  as their own table, deployments that close their ports, one device naming
+  rule, the unattributed-readings workflow, every metadata manager workflow
+  tested end to end, and the Box orphan sweep in the sync tool
 - **v2.10** - the metadata in git, so every version is a commit and any
   product can be rebuilt exactly as it was. Before Product 3, whose decisions
   rest on the metadata (see *Metadata into git* below)
@@ -39,15 +38,6 @@ on its own. Run from a tagged release instead, rebuilds happen only when the
 job is moved to the next release, and each file records which release built
 it. Planned once Product 2 reaches a settled milestone, for stability. Less
 pressing since v2.9, when unrelated code changes stopped triggering rebuilds.
-
-### v2.9, before the tag
-
-- A careful read of the engine for bugs, before the tests below are written
-- End-to-end workflow tests for establishing, relocating, replacing,
-  correcting details and reactivating - each walked through
-  in the sandbox as its test is written
-- The Product 2 rebuild, a manual check of it, and tests designed from that
-  check
 
 ---
 

@@ -3,7 +3,20 @@ All notable changes to the VI-FLO Engine project are documented here.
 
 ---
 
-## [Unreleased]
+## [v2.9.0] - 2026-11-22
+
+The structural release. Every table is read and written through one data
+layer, and a change of several saves is kept whole or not at all, refused if
+it would leave the metadata with a problem it did not have. Surveys are their
+own table, each a distance between two named points. Deployments end, and
+close their ports, when their loggers leave. One rule names a device
+everywhere. Unattributed readings are explained once and stay explained.
+Every metadata manager workflow was walked through on a copy of the real
+metadata and is now an end-to-end test, and Product 2 was rebuilt and checked
+by hand once all of it was in.
+
+The spent v2.9 migrations, and the two left from v2.8.1, are deleted; the
+migrations README lists what each did.
 
 ### Added
 - **A data layer: one way into and out of the metadata tables.** Until now

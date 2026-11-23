@@ -338,7 +338,7 @@ test_that("every ZentraCloud call goes through zc_call, and tests cannot reach i
   expect_error(zc_call("zc_list_devices"), "off limits")
 })
 
-test_that("a port window reaching outside its deployment is flagged, and the repair clips it", {
+test_that("a port window reaching outside its deployment is flagged", {
   local_test_root()
   p <- read_table("zentra_ports")
   m <- read_table("device_metadata")
@@ -348,12 +348,6 @@ test_that("a port window reaching outside its deployment is flagged, and the rep
   write_table("zentra_ports", p, guard = FALSE)
   v <- validate_metadata(verbose = FALSE)$violations$PORT_OUTSIDE_DEPLOYMENT
   expect_equal(nrow(v$data), 1)
-
-  source(file.path(Sys.getenv("VI_FLO_ENGINE_ROOT"), "tools/migrations/migrate_port_windows_v2.9.R"))
-  utils::capture.output(migrate_port_windows(dry_run = FALSE))
-  p2 <- read_table("zentra_ports")
-  expect_equal(p2$valid_from[i], start)
-  expect_null(validate_metadata(verbose = FALSE)$violations$PORT_OUTSIDE_DEPLOYMENT)
 })
 
 test_that("a save that would put a port outside its deployment is refused", {

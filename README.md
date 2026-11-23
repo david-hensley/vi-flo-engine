@@ -2,7 +2,7 @@
 
 Backend data and code engine for the Virgin Islands Freshwater and Landscapes Observatory (VI-FLO).
 
-**Status:** v2.8.1 - v2.9 in progress
+**Status:** v2.9.0, released 2026-11-22
 
 ---
 

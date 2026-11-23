@@ -5,7 +5,8 @@ separate from `/tools/` so that live utilities and spent scripts are never
 confused for each other.
 
 A script here has already been run. It is retained only so the change it made
-is legible, and it will be deleted at the next version tag.
+is legible, and it will be deleted at the next version tag. Between tags,
+those waiting are listed under *In progress*; none are, as of v2.9.0.
 
 ## The rule
 
@@ -49,26 +50,6 @@ Every script here follows the same shape, and new ones should too:
 Where a migration is risky enough to want a preview, give it a `dry_run`
 argument defaulting to `TRUE`, as `migrate_fb1_to_fb2.R` does.
 
-## In progress: v2.9
-
-v2.9 moves the tables to their new shape one at a time, each by its own
-script below, alongside a check that the data layer changed nothing. They
-stay until the v2.9 tag, then join the table under *Applied*.
-
-| Script | Applied | What it does |
-|---|---|---|
-| `check_layer_v2.9.R` | 2026-11-20 (before), 2026-11-20 (after: pass) | Not a migration: a record of every table and Product 2 file taken before the data layer, and the comparison that showed the layer changed nothing |
-| `migrate_maintenance_log_v2.9.R` | 2026-11-21 | Step 4.1: entries name their deployment; `logged_utc`; `station_type` and `ports_updated` dropped; `elevation_survey` becomes `survey` |
-| `migrate_logs_v2.9.R` | 2026-11-21 | Step 4.2: the download log drops `station` and gains `battery`; pending tasks name their deployment, with UTC stamps |
-| `migrate_ports_v2.9.R` | 2026-11-21 | Step 4.3: port rows name their deployment; empty-port placeholders dropped; rain gauges excluded; a row spanning a move split in two |
-| `migrate_device_metadata_v2.9.R` | 2026-11-21 | Step 4.4: `end_datetime` added - Product 2's ends, three by decision; machine-written columns and `expiry_date` dropped; `nonresponsive` retired |
-| `migrate_surveys_v2.9.R` | 2026-11-21 | Step 4.5a: `surveys.csv` created - weather and pond sensor heights from the device table, and the field surveys as measured; each pair's chained fall checked against the log |
-| `migrate_device_surveys_v2.9.R` | 2026-11-21 | Step 4.5b: `sensor_height_cm` and `reach_length_m` leave the device table, each value checked to be in `surveys.csv` first; each secondary takes its primary's elevation |
-| `migrate_port_windows_v2.9.R` | 2026-11-21 | Step 7b: every port window clipped to its deployment's dates |
-| `migrate_known_unattributed_v2.9.R` | 2026-11-22 | Item (a): `known_unattributed.csv` gains `archive`, TRUE on every existing whole-logger row |
-| `migrate_device_names_v2.9.R` | 2026-11-22 | Item (c): blank device names filled from ZentraCloud; rows it cannot name are listed |
-| `migrate_day_end_placeholders_v2.9.R` | 2026-11-22 | Retired rows that ended at 23:59:59 on the day their successor went in end at the successor's deploy time instead, their ports with them; each logged |
-
 ## Applied
 
 Every script below has been run and released. The scripts themselves are gone -
@@ -110,4 +91,15 @@ a second machine already has the result through Box and never needs to run one.
 | `migrate_known_unattributed.R` | 2026-10-18 | Created `known_unattributed.csv` with the eleven verified periods of readings that belong to no station - the plantain loggers, DiscoveryG's orchard year, R2R Farm in its shed and the rest - then, run again, added SR2 Hillside's weeks in storage |
 | `migrate_hobo_log_rows.R` | 2026-11-03 | Repaired eight download-log rows the HOBO ingest had appended by position, two columns short, so the October 2026 offloads were never seen as logged and Product 2 skipped them |
 | `migrate_retired_dates.R` | 2026-11-03 | Re-dated 13 retired rows and 12 port windows that routine visits and replacements had moved, so their Product 2 deployments ended when their loggers actually left; recorded three known unattributed periods |
+| `check_layer_v2.9.R` | 2026-11-20 (before), 2026-11-20 (after: pass) | Not a migration: a record of every table and Product 2 file taken before the data layer, and the comparison that showed the layer changed nothing |
+| `migrate_maintenance_log_v2.9.R` | 2026-11-21 | Step 4.1: entries name their deployment; `logged_utc`; `station_type` and `ports_updated` dropped; `elevation_survey` becomes `survey` |
+| `migrate_logs_v2.9.R` | 2026-11-21 | Step 4.2: the download log drops `station` and gains `battery`; pending tasks name their deployment, with UTC stamps |
+| `migrate_ports_v2.9.R` | 2026-11-21 | Step 4.3: port rows name their deployment; empty-port placeholders dropped; rain gauges excluded; a row spanning a move split in two |
+| `migrate_device_metadata_v2.9.R` | 2026-11-21 | Step 4.4: `end_datetime` added - Product 2's ends, three by decision; machine-written columns and `expiry_date` dropped; `nonresponsive` retired |
+| `migrate_surveys_v2.9.R` | 2026-11-21 | Step 4.5a: `surveys.csv` created - weather and pond sensor heights from the device table, and the field surveys as measured; each pair's chained fall checked against the log |
+| `migrate_device_surveys_v2.9.R` | 2026-11-21 | Step 4.5b: `sensor_height_cm` and `reach_length_m` leave the device table, each value checked to be in `surveys.csv` first; each secondary takes its primary's elevation |
+| `migrate_port_windows_v2.9.R` | 2026-11-21 | Step 7b: every port window clipped to its deployment's dates |
+| `migrate_known_unattributed_v2.9.R` | 2026-11-22 | Item (a): `known_unattributed.csv` gains `archive`, TRUE on every existing whole-logger row |
+| `migrate_device_names_v2.9.R` | 2026-11-22 | Item (c): blank device names filled from ZentraCloud; rows it cannot name are listed |
+| `migrate_day_end_placeholders_v2.9.R` | 2026-11-22 | Retired rows that ended at 23:59:59 on the day their successor went in end at the successor's deploy time instead, their ports with them; each logged |
 
