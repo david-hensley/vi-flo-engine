@@ -475,7 +475,7 @@ storeroom looks nothing like one in soil.
 **To run the tests**, before calling a change good, after `start.R`:
 
 ```r
-source(file.path(Sys.getenv("VI_FLO_ENGINE_ROOT"), "tests/run_tests.R"))
+run_tests()
 ```
 
 Each test builds its own throwaway data root, so real metadata is never in

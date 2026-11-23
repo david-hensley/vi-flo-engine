@@ -4,6 +4,7 @@
 # Run by hand before calling a change good, after start.R - and by GitHub on
 # every push, through .github/workflows/tests.yml:
 #
+#   run_tests()                 # start.R defines it
 #   source(file.path(Sys.getenv("VI_FLO_ENGINE_ROOT"), "tests/run_tests.R"))
 #
 # Every test builds its own throwaway data root and points VI_FLO_DATA_ROOT

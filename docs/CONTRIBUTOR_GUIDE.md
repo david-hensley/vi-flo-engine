@@ -36,8 +36,8 @@ Once per computer:
 4. **Try it on a copy** if it touches a metadata manager workflow:
    `sandbox_start()` (start.R loads it), run the workflow,
    `sandbox_changes()` to see what it did, `sandbox_end()`
-5. **Run the tests**: `source(file.path(Sys.getenv("VI_FLO_ENGINE_ROOT"),
-   "tests/run_tests.R"))`. Every test must pass. A fixed bug arrives with the
+5. **Run the tests**: `run_tests()`, which start.R loads. Every test must
+   pass. A fixed bug arrives with the
    test that would have caught it
 6. **Write the CHANGELOG entry** under `## [Unreleased]` - what changed and
    why, for someone with no context. Group it under Added, Changed or Fixed

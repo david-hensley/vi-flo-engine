@@ -3,6 +3,13 @@ All notable changes to the VI-FLO Engine project are documented here.
 
 ---
 
+## [Unreleased]
+
+### Changed
+- `run_tests()` runs the test suite: `start.R` defines it, so `start.R` is
+  the one line to remember. The long `source()` still works, and GitHub's run
+  is unchanged
+
 ## [v2.9.0] - 2026-11-22
 
 The structural release. Every table is read and written through one data
