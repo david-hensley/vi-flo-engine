@@ -472,6 +472,18 @@ lines, labeled by station. Readings outside them are the ones Product 2 leaves
 unattributed, and the picture usually says why: a sensor reading air in a
 storeroom looks nothing like one in soil.
 
+**To look over a product**, `browse_product()` steps through Product 2 one
+station and variable at a time, each over its full span: gaps as breaks,
+every deployment start marked with its device, disagreements between
+downloads in red, a paired gauge's loggers on one plot. Every value is
+plotted; where one wild value flattens the rest, `z` switches to the middle
+99.8%, with anything beyond shown as an orange triangle at the edge and
+counted in the title. Enter for the next, `b` back, `n` next station, `z` to
+switch the scale, `q` to stop; `browse_product("sr2_hydro")` for
+one station, `browse_product(pdf = "p2_review.pdf")` for every plot in one
+file. `read_product("sr2_hydro", "abs_pressure")` returns the data itself,
+every year joined.
+
 **To run the tests**, before calling a change good, after `start.R`:
 
 ```r

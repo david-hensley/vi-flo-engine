@@ -52,5 +52,6 @@ if (exists("print_validation_line")) {
 # spelling, so none of it has to be remembered or typed from scratch.
 cat("  print_network_status()  every station and how it is doing\n")
 cat("  print_network_todo()    the to-do list - field work, then desk work\n")
+cat("  browse_product()        step through Product 2, one plot at a time\n")
 cat("  sandbox_start()         try a workflow on a copy of the metadata\n")
 cat("  run_tests()             the test suite\n\n")

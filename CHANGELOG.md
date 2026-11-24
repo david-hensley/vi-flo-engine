@@ -5,9 +5,36 @@ All notable changes to the VI-FLO Engine project are documented here.
 
 ## [Unreleased]
 
+### Added
+- **`read_product()` and `browse_product()`: reading the products back, and
+  looking at them.** `read_product(station, variable, from, to)` returns a
+  station's variable across every year built, as one table; asked for
+  `abs_pressure` at a hydro station, it returns every deployment's series
+  together, each named by its device, so nobody need know a row id.
+  `browse_product()` steps through a product one station and variable at a
+  time, each over its full span - gaps as breaks, every deployment start
+  marked with its device (loggers that went in on the same day sharing one
+  line and one label), disagreements between downloads in red, a paired
+  gauge's loggers on one plot, each slightly see-through so neither hides the
+  other - with Enter, `b`ack, `n`ext station and `q`; or writes every plot to
+  one PDF. Every value is plotted, the extremes included: they are Product 2
+  as it stands, for Product 3 to deal with. Where one wild value flattens the
+  rest, `z` switches to the bulk of the data - the middle 99.8%, anything
+  beyond drawn as an orange triangle at the edge it passed and counted in the
+  title - and `z` again switches back. Both take a product number, so Product 3
+  will read and browse the same way. Four years of a paired gauge read and
+  draw in about a second and a half. In a file of their own, outside what a
+  Product 2 build reaches, so adding them rebuilt nothing
+
 ### Changed
+- The ROADMAP notes that ZentraCloud's v5 API reports subscription status
+  and expiry, which the to-do list could use in place of the typed date
+  dropped in v2.9 - and that ZentraCloud keeps only 914 days of
+  measurements, so the archive is the only copy of anything older
 - The ROADMAP plans coordinates on every Product 2 row for v2.10, so a
-  relocated station's readings say where each was taken
+  relocated station's readings say where each was taken - and, in the same
+  rebuild, `pressure` renamed `air_pressure`, so the barometer's reading is
+  never mistaken for a water-level logger's `abs_pressure`
 - `run_tests()` runs the test suite: `start.R` defines it, so `start.R` is
   the one line to remember. The long `source()` still works, and GitHub's run
   is unchanged

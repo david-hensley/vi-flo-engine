@@ -22,11 +22,20 @@ clock.
   as their own table, deployments that close their ports, one device naming
   rule, the unattributed-readings workflow, every metadata manager workflow
   tested end to end, and the Box orphan sweep in the sync tool
-- **v2.10** - the metadata in git, so every version is a commit and any
-  product can be rebuilt exactly as it was. Before Product 3, whose decisions
-  rest on the metadata (see *Metadata into git* below). And coordinates on
-  every Product 2 row (see *Where each reading was taken* below), so one
-  rebuild covers both
+- **v2.10** - in progress, in this order:
+  1. Reading the products back and looking at them - `read_product()` and
+     `browse_product()` (done)
+  2. The metadata in git, so every version is a commit and any product can
+     be rebuilt exactly as it was. Every writer commits its own changes - the
+     metadata manager on exit, the weekly job after each run, a migration
+     when applied - and `start.R` catches anything left uncommitted. The
+     metadata leaves the Box sync. Before Product 3, whose decisions rest on
+     the metadata (see *Metadata into git* below)
+  3. The weekly job run from tagged releases (see below)
+  4. Coordinates on every Product 2 row (see *Where each reading was taken*
+     below), and `pressure` renamed `air_pressure`, then one rebuild, looked
+     over with `browse_product()`
+  5. An offline snapshot (see below)
 - **v3** - Product 3 automatic and unattended: QC under declared parameters,
   gap filling by declared rules, and the first derived series, level, from
   Product 2 pressure and the barometric pairing table
@@ -46,12 +55,43 @@ reading them there. A Product 2 format change, so every file is rebuilt once:
 done in v2.10, alongside the metadata move, rather than as a rebuild of its
 own.
 
+The same rebuild renames the variable `pressure` to `air_pressure`: the
+barometer's reading, from an ATMOS 41 or a HOBOlink MX2001's own sensor, sat
+beside the water-level loggers' `abs_pressure` under a name that told the two
+apart only by habit. Three rows of `data/variables.csv`, the data dictionary,
+and whatever reads the barometric series for level.
+
+**Subscription expiry from ZentraCloud.** Version 5 of the ZentraCloud API
+reports each logger's subscription on `GET /v5/devices`: `subscription.status`
+(`active`, `exempt`, or `inactive` - expired or never subscribed),
+`expiration_date` (UTC epoch seconds, the date it is paid through) and
+`auto_renew`. The device table's typed `expiry_date` was dropped in v2.9
+because it went stale; fetched instead, an expiry can go on the to-do list a
+month ahead - and an `inactive` logger flagged at once - with nothing to keep
+up by hand. The same endpoint offers `expand=settings` (logging interval and
+upload frequency, confirmed and pending) and `expand=location` (the cloud's
+coordinates and elevation), both worth checking against the metadata. Not
+yet scheduled.
+
+**ZentraCloud keeps 914 days.** Measurements older than about two and a half
+years cannot be fetched again: the archive here is the only copy of anything
+earlier. One more reason for the offline snapshot below.
+
+**An offline snapshot.** A copy no cloud mistake or sync can reach, made by
+hand at a release and kept on an external drive. `save_snapshot()` writes one
+new folder, named for the release and the date - the engine code at that
+release, the metadata with its full history, the raw archive, and Product 2
+for convenience - with a list of every file and its checksum, the release
+tag and the metadata commit. It refuses an existing folder and never
+overwrites anything, and checks the copy before calling it done;
+`check_snapshot()` confirms an old one is still intact. Needs the metadata in
+git and the releases, so it comes last in v2.10.
+
 **Run the weekly job from a release.** Today it runs the newest engine code,
 so a change to Product 2's code means the next run rebuilds the affected files
 on its own. Run from a tagged release instead, rebuilds happen only when the
 job is moved to the next release, and each file records which release built
-it. Planned once Product 2 reaches a settled milestone, for stability. Less
-pressing since v2.9, when unrelated code changes stopped triggering rebuilds.
+it. Done in v2.10, now that ingest has settled.
 
 ---
 
@@ -215,12 +255,6 @@ A HOBOlink export holds the station's own computed water level alongside the
 raw pressures. VI-FLO recomputes level from pressure so every station derives
 the same way. Product 2 carries HOBOlink's own as `hobolink_level`, a check;
 the derived `level` waits on the barometric pairing table.
-
-### A query tool for `products/`
-
-A function taking station, variable and period and returning the data. It
-removes the objection to storing `.csv.gz`, and it is the same function a web
-request would call later.
 
 ---
 
