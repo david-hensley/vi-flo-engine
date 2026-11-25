@@ -25,23 +25,68 @@ clock.
 - **v2.10** - in progress, in this order:
   1. Reading the products back and looking at them - `read_product()` and
      `browse_product()` (done)
-  2. The metadata in git, so every version is a commit and any product can
+  2. Metadata manager: local stations that reach the cloud on their own,
+     a shared logger's downloads and status changes logged at both its
+     stations, surveys in the view menu, and a sensor below the bed counted
+     as surveyed (see
+     *Local stations* below)
+  3. The metadata in git, so every version is a commit and any product can
      be rebuilt exactly as it was. Every writer commits its own changes - the
      metadata manager on exit, the weekly job after each run, a migration
      when applied - and `start.R` catches anything left uncommitted. The
      metadata leaves the Box sync. Before Product 3, whose decisions rest on
      the metadata (see *Metadata into git* below)
-  3. The weekly job run from tagged releases (see below)
-  4. Coordinates on every Product 2 row (see *Where each reading was taken*
+  4. The weekly job run from tagged releases (see below)
+  5. Coordinates on every Product 2 row (see *Where each reading was taken*
      below), and `pressure` renamed `air_pressure`, then one rebuild, looked
      over with `browse_product()`
-  5. An offline snapshot (see below)
+  6. An offline snapshot (see below)
 - **v3** - Product 3 automatic and unattended: QC under declared parameters,
   gap filling by declared rules, and the first derived series, level, from
   Product 2 pressure and the barometric pairing table
 - **After v3** - the computed variables beyond level (discharge, storage and
   the rest), and v4, Product 4: the workflow for human decisions. Discharge
   sits here, resting on rating curves that are partly experimental
+
+**Local stations.** `local` means out of cellular service, with the data
+reaching ZentraCloud only when it is offloaded on site. But a station with a
+weak or failing connection can come back on its own, and nothing notices: its
+status goes on saying local after it is reporting again. Nothing breaks - the
+weekly job downloads every logger on the account whatever its status, and the
+silence check reads ZentraCloud, not the status - but the record is wrong.
+Two changes:
+
+- The to-do list notices a local station whose latest reading on ZentraCloud
+  is recent - "marked local but reached ZentraCloud 3 hours ago; consider
+  setting it back to online" - and leaves the change to the person. A status
+  is a person's account of the station, so it is never changed for them
+- A manual download at a local station no longer asks "Have you uploaded this
+  data to ZentraCloud?". An offload by Bluetooth to the phone uploads on its
+  own once the phone has a signal, with nobody doing it. The download asks
+  ZentraCloud instead whether readings up to the visit have arrived, and
+  only if they have not does it record the visit as awaiting the cloud
+
+In the same workflow: a ZL6 shared between a weather station and a soil
+moisture station is one download, but it is logged at one station only, and
+the other's record says nothing about the visit. When the logger downloaded
+serves another station too, the manual download offers to log it there as
+well, with the same date, details and person. A status change is the same
+case: the status is the logger's - a ZL6 out of cellular service is out for
+both its stations - but it is saved on one station's row, and the other goes
+on saying online. When the logger serves another station too, a status
+change offers to make the same change there, in the same save.
+
+And the view menu, which shows devices, ports, the maintenance log and the
+download log, gains the surveys: sensor heights, falls, reach and GNSS
+elevations, filtered by station and by kind, the way the others are.
+
+A survey is recorded as the higher point above the lower, so a sensor dug
+in below the bed is saved as the bed above the sensor. The to-do list looks
+only for the sensor above the bed, and goes on asking for a survey already
+made - sr1_hydro since November 2026. It should ask `survey_height()`, which
+follows the links both ways and through other points; the same for a
+weather sensor and the ground. Anything else reading a sensor height is
+checked for the same one-way reading at the same time.
 
 **Where each reading was taken.** A station that moves keeps its name - fb1
 is a site, and the network's history runs through it - but a reading taken

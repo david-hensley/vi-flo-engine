@@ -31,6 +31,16 @@ All notable changes to the VI-FLO Engine project are documented here.
   and expiry, which the to-do list could use in place of the typed date
   dropped in v2.9 - and that ZentraCloud keeps only 914 days of
   measurements, so the archive is the only copy of anything older
+- The ROADMAP puts local stations first in what is left of v2.10: the to-do
+  list will notice a local station that is reaching ZentraCloud again and
+  suggest setting it back to online, and a manual download will check
+  ZentraCloud for the offloaded data rather than ask whether it was uploaded,
+  since a phone offload uploads by itself. A manual download of a logger
+  shared between two stations, or a change to its status, will offer to
+  apply at both, and the metadata
+  manager's view menu will show the surveys as it does the other tables. A
+  sensor surveyed below the bed will stop showing on the to-do list as
+  unsurveyed
 - The ROADMAP plans coordinates on every Product 2 row for v2.10, so a
   relocated station's readings say where each was taken - and, in the same
   rebuild, `pressure` renamed `air_pressure`, so the barometer's reading is
