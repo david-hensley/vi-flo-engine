@@ -41,6 +41,12 @@ All notable changes to the VI-FLO Engine project are documented here.
   manager's view menu will show the surveys as it does the other tables. A
   sensor surveyed below the bed will stop showing on the to-do list as
   unsurveyed
+- The ROADMAP adds to v2.10's metadata manager step: a warning on opening
+  when the data root differs from Box, the HOBO export saved under the
+  device's own name, and station photos found, renamed and filed at the end
+  of a session that logged a visit, in a new top-level `photos/` folder kept
+  out of the metadata's git repository. The metadata-in-git step now has the
+  metadata manager pulling on opening and pushing on exit
 - The ROADMAP plans coordinates on every Product 2 row for v2.10, so a
   relocated station's readings say where each was taken - and, in the same
   rebuild, `pressure` renamed `air_pressure`, so the barometer's reading is

@@ -27,14 +27,18 @@ clock.
      `browse_product()` (done)
   2. Metadata manager: local stations that reach the cloud on their own,
      a shared logger's downloads and status changes logged at both its
-     stations, surveys in the view menu, and a sensor below the bed counted
-     as surveyed (see
-     *Local stations* below)
+     stations, surveys in the view menu, a sensor below the bed counted as
+     surveyed, a warning on opening when the data root differs from Box, the
+     HOBO export saved under its own name, and station photos filed for you
+     in a `photos/` folder of their own (see *Local stations* and *Station
+     photos* below)
   3. The metadata in git, so every version is a commit and any product can
      be rebuilt exactly as it was. Every writer commits its own changes - the
      metadata manager on exit, the weekly job after each run, a migration
      when applied - and `start.R` catches anything left uncommitted. The
-     metadata leaves the Box sync. Before Product 3, whose decisions rest on
+     metadata manager pulls when it opens, from the launcher as well as
+     `start.R`, and commits and pushes on exit; offline, it says so, commits
+     locally and pushes next time. The metadata leaves the Box sync. Before Product 3, whose decisions rest on
      the metadata (see *Metadata into git* below)
   4. The weekly job run from tagged releases (see below)
   5. Coordinates on every Product 2 row (see *Where each reading was taken*
@@ -87,6 +91,60 @@ made - sr1_hydro since November 2026. It should ask `survey_height()`, which
 follows the links both ways and through other points; the same for a
 weather sensor and the ground. Anything else reading a sensor height is
 checked for the same one-way reading at the same time.
+
+The launcher opens the metadata manager without `start.R`, so nothing says
+when this machine's data is behind Box - and on 28 November 2026 a session
+changed `known_unattributed.csv` before a pull, which then kept the local
+copy because it was newer. The launcher runs the same Box check `start.R`
+does, and warns before the menu when the two differ, naming the files. A
+dozen seconds, longer on a slow connection. Temporary: it goes when the
+metadata is in git, which pulls on opening, and the archive is on Hugging
+Face.
+
+The HOBO export is saved as `<device name>.csv`, the name HOBOware offers
+for a `.hobo` file of that name, so it can be saved without typing. The
+temporary `<serial>_raw_temp.csv` name existed so an abandoned export could
+never be taken for another logger's, but the ingest already reads the serial
+inside the file and refuses a mismatch. If that name is not found, the
+newest CSV saved in the folder since the instructions appeared is offered -
+"Use this file?" - and used only on a yes, the serial still checked. A stray
+space in a typed name stops mattering.
+
+**Station photos.** One photo per station per visit, named
+`station_id_YYYY-MM-DD` with the photo's own extension. They move out of
+`metadata/internal/station_photos` into a top-level `photos/` folder, as
+`photos/station_photos/`, by migration: photographs do not belong in the
+metadata's git repository, where every clone would carry every one forever.
+Like the archive they are never edited, only added to, so they sync with Box
+for now and go to Hugging Face with the archive. The move comes before the
+metadata goes into git, so no photo ever enters it.
+
+Filing them is mostly typing today: emailed one at a time, downloaded, moved,
+renamed by hand, filed. At the end of a session that logged a field visit,
+the metadata manager offers to file a photo for each station visited:
+
+- It looks in the Downloads folder and on the desktop, found wherever
+  Windows keeps it, OneDrive included
+- It ranks what is there rather than listing everything, since Downloads is
+  full of old pictures. Strongest is a photo taken on the visit's date, where
+  the file still carries the date it was taken; next, an image that arrived
+  on this machine since the visit and is not already filed
+- One clear candidate is offered on its own. Several are listed newest
+  first, with when each was taken or arrived, to pick by number - or the
+  digits of the phone's filename typed instead. None, and it says so and
+  takes the digits
+- The photo chosen opens in the computer's own photo viewer for a last look
+  before anything is renamed - `shell.exec()` on Windows, one line
+- "Rename to sr1_hydro_2026-11-25.jpg and file it?" On a yes the photo is
+  moved into `photos/station_photos/`. An existing photo is never
+  overwritten, and Enter skips a station
+- A ZL6 shared by a weather station and a soil moisture station gets one
+  photo, under the weather station's name. That convention is written in the
+  data documentation, not in the filename
+- The same steps are a menu item, for photos that arrive after the session;
+  it lists recent visits with no photo yet
+- Anyone whose photos arrive some other way gets the exact filename and the
+  folder for each visit, to file by hand
 
 **Where each reading was taken.** A station that moves keeps its name - fb1
 is a site, and the network's history runs through it - but a reading taken
