@@ -7,7 +7,7 @@ recollection, which meant rediscovering it each time — and carrying at least
 one item that had never existed. Anything genuinely finished is deleted rather
 than struck through; `CHANGELOG.md` is the record of what was done.
 
-Last reviewed: **2026-11-22**
+Last reviewed: **2026-11-28**
 
 ---
 
@@ -22,25 +22,43 @@ clock.
   as their own table, deployments that close their ports, one device naming
   rule, the unattributed-readings workflow, every metadata manager workflow
   tested end to end, and the Box orphan sweep in the sync tool
-- **v2.10** - in progress, in this order:
+- **v2.10** - in progress, in this order. The one list: anything agreed for
+  v2.10 goes here, and the sections below hold the detail
   1. Reading the products back and looking at them - `read_product()` and
      `browse_product()` (done)
-  2. Metadata manager: local stations that reach the cloud on their own,
-     a shared logger's downloads and status changes logged at both its
-     stations, surveys in the view menu, a sensor below the bed counted as
-     surveyed, a warning on opening when the data root differs from Box, the
-     HOBO export saved under its own name, and station photos filed for you
-     in a `photos/` folder of their own (see *Local stations* and *Station
-     photos* below)
-  3. The metadata in git, so every version is a commit and any product can
+  2. The metadata manager, and the weekly job (see *Local stations*,
+     *Station photos* and *Run the weekly job from a release* below)
+     1. A warning in the launcher when this machine's data differs from Box,
+        naming the files, before the menu opens (done)
+     2. Station photos moved to `photos/station_photos/`, by a migration run
+        once on each machine
+     3. The weekly job run from the newest release tag
+     4. A sensor below the bed counted as surveyed - and the same for a
+        weather sensor and the ground - with every other reading of a sensor
+        height checked for the same one-way reading
+     5. Surveys in the view menu
+     6. Manual downloads and status changes: a local station's offload asked
+        about - Bluetooth to a phone, or a cable to a computer - with
+        ZentraCloud checked for a phone offload; a shared logger's download
+        logged at both its stations, and a status change offered at both;
+        `last_visit` moved only by a field visit; and the to-do list noticing
+        a local station that reaches ZentraCloud again
+     7. The HOBO export saved under the device's own name, and the HOBO
+        import checked for pond stations before the ponds' first download
+     8. Station photos filed for you, at the end of a session that logged a
+        visit and from the menu
+  3. Field hydraulics: the prototype's one-off field measurements carried
+     forward, cross sections from the TruPulse, and FlowTracker gaugings
+     (see *Field hydraulics* below)
+  4. The metadata in git, so every version is a commit and any product can
      be rebuilt exactly as it was. Every writer commits its own changes - the
      metadata manager on exit, the weekly job after each run, a migration
      when applied - and `start.R` catches anything left uncommitted. The
      metadata manager pulls when it opens, from the launcher as well as
      `start.R`, and commits and pushes on exit; offline, it says so, commits
-     locally and pushes next time. The metadata leaves the Box sync. Before Product 3, whose decisions rest on
-     the metadata (see *Metadata into git* below)
-  4. The weekly job run from tagged releases (see below)
+     locally and pushes next time. The metadata leaves the Box sync. Before
+     Product 3, whose decisions rest on the metadata (see *Metadata into git*
+     below)
   5. Coordinates on every Product 2 row (see *Where each reading was taken*
      below), and `pressure` renamed `air_pressure`, then one rebuild, looked
      over with `browse_product()`
@@ -64,11 +82,15 @@ Two changes:
   is recent - "marked local but reached ZentraCloud 3 hours ago; consider
   setting it back to online" - and leaves the change to the person. A status
   is a person's account of the station, so it is never changed for them
-- A manual download at a local station no longer asks "Have you uploaded this
-  data to ZentraCloud?". An offload by Bluetooth to the phone uploads on its
-  own once the phone has a signal, with nobody doing it. The download asks
-  ZentraCloud instead whether readings up to the visit have arrived, and
-  only if they have not does it record the visit as awaiting the cloud
+- A manual download at a local station asks how the logger was offloaded:
+  by Bluetooth to a phone, or by cable to a computer. A phone offload uploads
+  on its own once the phone has a signal, with nobody doing it, so instead of
+  asking "Have you uploaded this data to ZentraCloud?" the download asks
+  ZentraCloud whether readings up to the visit have arrived. Only if they
+  have not does it record the visit as awaiting the cloud - a reminder that
+  clears itself once they do. A cable offload, which has never yet been
+  done, keeps today's question; it is designed properly the first time one
+  happens
 
 In the same workflow: a ZL6 shared between a weather station and a soil
 moisture station is one download, but it is logged at one station only, and
@@ -79,6 +101,11 @@ case: the status is the logger's - a ZL6 out of cellular service is out for
 both its stations - but it is saved on one station's row, and the other goes
 on saying online. When the logger serves another station too, a status
 change offers to make the same change there, in the same save.
+
+`last_visit` is moved by every maintenance entry, a status changed at a desk
+included, so a logger set to local after a look at ZentraCloud reads as
+visited that day - and offering the change at a shared logger's other station
+would spread the date there too. Only a field visit moves it.
 
 And the view menu, which shows devices, ports, the maintenance log and the
 download log, gains the surveys: sensor heights, falls, reach and GNSS
@@ -92,15 +119,6 @@ follows the links both ways and through other points; the same for a
 weather sensor and the ground. Anything else reading a sensor height is
 checked for the same one-way reading at the same time.
 
-The launcher opens the metadata manager without `start.R`, so nothing says
-when this machine's data is behind Box - and on 28 November 2026 a session
-changed `known_unattributed.csv` before a pull, which then kept the local
-copy because it was newer. The launcher runs the same Box check `start.R`
-does, and warns before the menu when the two differ, naming the files. A
-dozen seconds, longer on a slow connection. Temporary: it goes when the
-metadata is in git, which pulls on opening, and the archive is on Hugging
-Face.
-
 The HOBO export is saved as `<device name>.csv`, the name HOBOware offers
 for a `.hobo` file of that name, so it can be saved without typing. The
 temporary `<serial>_raw_temp.csv` name existed so an abandoned export could
@@ -110,14 +128,25 @@ newest CSV saved in the folder since the instructions appeared is offered -
 "Use this file?" - and used only on a yes, the serial still checked. A stray
 space in a typed name stops mattering.
 
-**Station photos.** One photo per station per visit, named
-`station_id_YYYY-MM-DD` with the photo's own extension. They move out of
-`metadata/internal/station_photos` into a top-level `photos/` folder, as
-`photos/station_photos/`, by migration: photographs do not belong in the
-metadata's git repository, where every clone would carry every one forever.
-Like the archive they are never edited, only added to, so they sync with Box
-for now and go to Hugging Face with the archive. The move comes before the
-metadata goes into git, so no photo ever enters it.
+**Station photos.** One photo per station per visit: the station as it was
+found, before anything was done to it. A new station is the exception, with
+its photo taken once the installation is finished. Named
+`station_id_YYYY-MM-DD` with the photo's own extension; JPEG for now, with
+HEIC only if it is ever needed.
+
+They move out of `metadata/internal/station_photos` into a top-level
+`photos/` folder, as `photos/station_photos/`: photographs do not belong in
+the metadata's git repository, where every clone would carry every one
+forever. Like the archive they are never edited, only added to, so they sync
+with Box for now and go to Hugging Face with the archive. The move comes
+before the metadata goes into git, so no photo ever enters it.
+
+The migration runs once on each machine, since each keeps its own datamap. It
+adds the photos folder to that machine's datamap, moves every photo across -
+or, where Box has already brought them, confirms they arrived intact - and
+deletes the old folder only when every photo is confirmed in the new one.
+Running it twice does nothing. `default_datamap.csv` gains the folder, so a
+new setup has it from the start.
 
 Filing them is mostly typing today: emailed one at a time, downloaded, moved,
 renamed by hand, filed. At the end of a session that logged a field visit,
@@ -145,6 +174,26 @@ the metadata manager offers to file a photo for each station visited:
   it lists recent visits with no photo yet
 - Anyone whose photos arrive some other way gets the exact filename and the
   folder for each visit, to file by hand
+
+**Field hydraulics.** Three kinds of field measurement with nowhere to go
+yet, designed in conversation when this step is reached:
+
+- *The prototype's one-off measurements.* The backfill dossiers carry forward
+  the streambed slope surveys, the channel cross sections, the roughness
+  values and the gaugings with their stage, since each was measured once and
+  there is no other record (`docs/backfill/README.md`). The surveys table
+  deliberately took nothing from before October 2026, so these are not in
+  VI-FLO yet
+- *Cross sections from the TruPulse*, a new import for its raw cross-section
+  files, starting with bta2
+- *FlowTracker gaugings* - the `.dat`, `.dis`, `.sum` and `.ctl` sets. Moved
+  forward from Product 3: a gauging can happen at any time, and the import
+  should exist before one does. Whether `discrete/hydro/flowtracker2/`
+  becomes `gaugings/` with an instrument column, since some early
+  measurements were not FlowTracker2, and what a gauging record needs to
+  hold, are settled here
+
+Not scheduled until they are needed: the Emlid Reach RS4, HYPROP and PARIO.
 
 **Where each reading was taken.** A station that moves keeps its name - fb1
 is a site, and the network's history runs through it - but a reading taken
@@ -182,19 +231,57 @@ earlier. One more reason for the offline snapshot below.
 
 **An offline snapshot.** A copy no cloud mistake or sync can reach, made by
 hand at a release and kept on an external drive. `save_snapshot()` writes one
-new folder, named for the release and the date - the engine code at that
+new folder, named for the release and the date - `vi-flo_v2.10.0_2027-01-15`
+- holding the engine code at that
 release, the metadata with its full history, the raw archive, and Product 2
 for convenience - with a list of every file and its checksum, the release
-tag and the metadata commit. It refuses an existing folder and never
+tag and the metadata commit. The release, the metadata commit and the raw
+archive together rebuild everything else. It refuses an existing folder and never
 overwrites anything, and checks the copy before calling it done;
 `check_snapshot()` confirms an old one is still intact. Needs the metadata in
 git and the releases, so it comes last in v2.10.
 
 **Run the weekly job from a release.** Today it runs the newest engine code,
 so a change to Product 2's code means the next run rebuilds the affected files
-on its own. Run from a tagged release instead, rebuilds happen only when the
-job is moved to the next release, and each file records which release built
-it. Done in v2.10, now that ingest has settled.
+on its own. Run from a tagged release instead, rebuilds happen only when a new
+release is tagged - tagging is the deliberate "rebuild now" - and each file
+records which release built it. Early in v2.10, so the job runs v2.9.0 while
+the rest of v2.10 lands on main.
+
+- The job runs the newest release tag on GitHub. Nothing names the release by
+  hand
+- It fetches that tag into a temporary folder, runs from it, and deletes it
+  afterwards. The engine folder on that machine, where code is also written
+  and committed, is never switched to an old release underneath anyone
+- The copy is checked against the tag's own list of files before anything
+  runs. Windows Defender once flagged the repository's download as a trojan,
+  most likely over the `.ps1` and `.bat` scripts in `tools/download`, and a
+  file it quarantines would be missing from the copy. Any file missing is
+  named, as possibly removed by antivirus, and the run stops
+- Whatever stops it - GitHub unreachable, no tag, a missing file - is
+  written to the run log and shown in the next session's report. That week
+  nothing is downloaded rather than run on other code; ZentraCloud keeps 914
+  days, so the next run catches up
+- A change to a metadata table's columns needs a release before any
+  metadata is saved in the new shape, or the job's older code would meet a
+  table it does not know. The job says so in plain words when that happens
+
+---
+
+## Dataset release
+
+The dataset that gets cited is released separately from the engine, and
+numbered on its own clock: a release is a fixed set of stations and dates,
+not whatever the engine holds that week.
+
+- A Zenodo DOI (or similar) for each release, its metadata pointing to
+  vi-flo.org with instructions for citing it, so the citations gather in one
+  place
+- The data hosted on vi-flo.org through Hugging Face, once the archive is
+  there (see *Where the archive lives*)
+- A data paper as the standing citation for the network and its software
+
+Not yet scheduled; it follows the move to Hugging Face.
 
 ---
 
@@ -263,7 +350,8 @@ station, with validity periods and a priority order, so a fallback when a
 weather station dies is deterministic rather than runtime cleverness.
 
 What does not exist is the file itself, or a prompt in the metadata manager
-asking for a pairing when a station is established. `site.correspondence.csv`
+asking for a pairing when a station is established. That prompt should offer
+the nearest weather station, and warn when it is more than 2 km away. `site.correspondence.csv`
 in the prototype archive recorded this; nothing in VI-FLO does yet.
 
 ### `decommissioned` and `removed` overlap in practice
@@ -352,6 +440,14 @@ it, makes every version a commit: the manifest gains one column, the metadata
 commit, and any product can be rebuilt exactly as it was. Do this before
 Product 3, whose human decisions will rest on the metadata.
 
+The per-table backups in `metadata/internal/backups/` stay out of the
+repository: once every session ends in a commit, they record nothing git does
+not. Each is a whole table as it stood at a dated moment, though, so they may
+first be replayed in date order as backdated commits, giving the repository a
+history from before the move - with gaps between sessions, and decided when
+the folder can be looked at. Then the folder is zipped once onto the offline
+snapshot drive and deleted by hand, and the engine stops writing them.
+
 ### HOBOlink level is recomputed, not carried
 
 A HOBOlink export holds the station's own computed water level alongside the
@@ -376,15 +472,6 @@ that. The six-month rule belongs here too: a station unvisited for more than
 six months is suspect, because a clean correction record can mean a
 well-behaved station or an unwatched one.
 
-### Gauging data
-
-The FlowTracker sets — `.dat`, `.dis`, `.sum`, `.ctl` quartets — have never
-been ingested. Two questions: whether `discrete/hydro/flowtracker2/` becomes
-`gaugings/` with an instrument column, since some early measurements were not
-FlowTracker2; and what a gauging record actually needs to hold.
-
-Deferred until Product 3, deliberately.
-
 ---
 
 ## Metadata manager
@@ -396,8 +483,6 @@ A wishlist from September, with the cheap items already folded in.
 - **Establishing an already-decommissioned station.** Turpentine Run 2 was
   entered by migration in October 2026 precisely because no such path exists.
 - **Sensor serial in `zentra_ports.csv`**, from what the API already reports.
-- **`last_visit` is set even when nobody visited.** A desk confirmation should
-  not move it.
 
 ### The monthly review
 
@@ -420,17 +505,6 @@ be the constraint now that the job runs on a desktop.
 ---
 
 ## Engineering
-
-### Workflow tests
-
-The suite drives workflows with scripted answers and checks what they leave
-in the metadata and logs, and GitHub runs it on every push. Removing a
-device, decommissioning, deleting a row, every survey and explaining
-unattributed readings are tested this way, end to end. Relocation, replacement, port changes and
-corrections are tested underneath, at the functions that save them, but not
-through their prompts. Establishing, relocating, replacing,
-correcting details and reactivating still want end-to-end tests - listed
-under v2.9 above.
 
 ### Multi-user
 

@@ -25,8 +25,38 @@ All notable changes to the VI-FLO Engine project are documented here.
   will read and browse the same way. Four years of a paired gauge read and
   draw in about a second and a half. In a file of their own, outside what a
   Product 2 build reaches, so adding them rebuilt nothing
+- **The launcher checks this machine's data against Box before the menu
+  opens.** It opens the metadata manager without `start.R`, so until now
+  nothing said when the data here was behind Box - and on 28 November a
+  session changed `known_unattributed.csv` before a pull, which then kept the
+  local copy because it was newer. The launcher now runs the same check
+  `start.R` does and prints it the same way. In sync, it says so in one line
+  and opens the menu; when Box cannot be reached, it says why and opens the
+  menu anyway. When the two differ, it names the files on each side and asks
+  "Open the metadata manager anyway?" - a no closes it, to be opened again
+  once the sync tool has brought the two in line. A dozen seconds, longer on
+  a slow connection. Temporary, like the rest of the Box check: it goes when
+  the metadata is in git, which pulls on opening
 
 ### Changed
+- The ROADMAP's v2.10 section is now one list, in order, holding everything
+  agreed for the release, with the detail in the sections below it. The
+  metadata manager step is split into its eight parts, and the weekly job's
+  move to tagged releases joins it, early, so the job runs v2.9.0 while the
+  rest of v2.10 lands. The job will fetch the newest release from GitHub into
+  a temporary folder, check the copy is complete - antivirus could remove a
+  file - and stop with the reason in the run log if anything is wrong. A new
+  step, field hydraulics, carries forward the prototype's one-off
+  measurements and adds TruPulse cross sections and FlowTracker gaugings,
+  moved forward from Product 3 so the import exists before the next gauging.
+  Also planned: a local station's offload asked about, Bluetooth or cable;
+  `last_visit` moved only by a field visit; the station photo convention,
+  one photo per visit of the station as found, or after installation for a
+  new station; the photos migration run once on each machine; the metadata
+  backups kept out of git, perhaps replayed first as its early history; the
+  offline snapshot's folder name; the barometric pairing prompt warning
+  beyond 2 km; and a section on the dataset release - its DOI, hosting and
+  data paper. The workflow-tests note, out of date since v2.9, is removed
 - The ROADMAP notes that ZentraCloud's v5 API reports subscription status
   and expiry, which the to-do list could use in place of the typed date
   dropped in v2.9 - and that ZentraCloud keeps only 914 days of

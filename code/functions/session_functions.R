@@ -195,7 +195,42 @@ print_session_status <- function(status) {
   }
 
   #### Box ####
-  b <- status$box
+  print_box_state(status$box)
+
+  #### Last download ####
+  r <- status$run
+  if (is.null(r)) {
+    label("Last download:"); cat("no runs recorded\n")
+  } else {
+    when <- tryCatch(as.POSIXct(r$started_utc, tz = "UTC"), error = function(e) NA)
+    if (is.na(when)) {
+      label("Last download:"); cat("unreadable run log\n")
+    } else {
+      days <- as.numeric(difftime(Sys.time(), when, units = "days"))
+      label("Last download:")
+      cat(format(when, "%Y-%m-%d"), "  (",
+          if (days < 1) "today" else paste0(round(days), "d ago"), ")",
+          if (!identical(r$status, "ok")) paste0("  - ", r$status) else "",
+          "\n", sep = "")
+      if (days > 8) cat("                   the archive is going stale\n")
+    }
+  }
+
+  cat("\n")
+  invisible(TRUE)
+}
+
+
+#' Renders how the data root stands against Box
+#'
+#' The same lines whether they come from start.R or from the launcher, so the
+#' two never describe one state in two ways.
+#'
+#' @param b List from box_data_state(), or NULL if Box was not checked
+#' @return Invisible TRUE
+print_box_state <- function(b) {
+  label <- function(x) cat("  ", format(x, width = 15), sep = "")
+
   if (is.null(b)) {
     label("Box:"); cat("not checked\n")
   } else if (!isTRUE(b$available)) {
@@ -235,28 +270,65 @@ print_session_status <- function(status) {
       show("on both but different:", b$files_differ, diff)
     }
   }
+  invisible(TRUE)
+}
 
-  #### Last download ####
-  r <- status$run
-  if (is.null(r)) {
-    label("Last download:"); cat("no runs recorded\n")
-  } else {
-    when <- tryCatch(as.POSIXct(r$started_utc, tz = "UTC"), error = function(e) NA)
-    if (is.na(when)) {
-      label("Last download:"); cat("unreadable run log\n")
-    } else {
-      days <- as.numeric(difftime(Sys.time(), when, units = "days"))
-      label("Last download:")
-      cat(format(when, "%Y-%m-%d"), "  (",
-          if (days < 1) "today" else paste0(round(days), "d ago"), ")",
-          if (!identical(r$status, "ok")) paste0("  - ", r$status) else "",
-          "\n", sep = "")
-      if (days > 8) cat("                   the archive is going stale\n")
-    }
+
+#' Whether a box_data_state() result shows the two copies differing
+#'
+#' @param b List from box_data_state()
+#' @return TRUE, FALSE, or NA when Box could not be checked
+box_differs <- function(b) {
+  if (is.null(b) || !isTRUE(b$available)) return(NA)
+  n <- function(x) if (is.null(x) || is.na(x)) 0 else x
+  n(b$missing_here) + n(b$missing_there) + n(b$differing) > 0
+}
+
+
+#' The Box check the launcher runs before opening the metadata manager
+#'
+#' The launcher opens the manager without start.R, so until now nothing said
+#' when this machine's data was behind Box. On 28 November 2026 a session
+#' changed known_unattributed.csv before a pull, and the pull then kept the
+#' local copy because it was newer: a copy pulls only what is newer, so an edit
+#' made on stale data wins. Saying so before the menu, and naming the files,
+#' is the whole remedy.
+#'
+#' Asks only when the copies differ. In sync it says so in one line and goes
+#' on; when Box cannot be reached it says that, and goes on too, since working
+#' offline is sometimes the point and this is a warning, not a lock.
+#'
+#' Temporary, like everything about Box here: it goes when the metadata is in
+#' git, which pulls on opening.
+#'
+#' @param state List from box_data_state(). Taken as an argument so it can be
+#'   given; by default the check is run here
+#' @return TRUE to open the menu, FALSE to stop
+launcher_box_check <- function(state = NULL) {
+  if (is.null(state)) {
+    cat("  Checking this machine's data against Box (a few seconds)...\n")
+    flush.console()
+    state <- box_data_state()
+    cat("\r", strrep(" ", 64), "\r", sep = "")
   }
 
-  cat("\n")
-  invisible(TRUE)
+  print_box_state(state)
+  if (!isTRUE(box_differs(state))) {
+    cat("\n")
+    return(TRUE)
+  }
+
+  cat("\n  This machine's data and Box differ. If the other machine has newer\n")
+  cat("  work, pull it with the sync tool before changing anything: an edit\n")
+  cat("  made on an out-of-date copy is kept over the newer one.\n\n")
+  answer <- ui_yes_no("Open the metadata manager anyway?", allow_quit = FALSE)
+  if (answer == "Y") {
+    cat("\n")
+    return(TRUE)
+  }
+  cat("\n  Not opened. Bring the two in line with the sync tool, then open the\n")
+  cat("  launcher again.\n\n")
+  FALSE
 }
 
 

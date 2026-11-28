@@ -1,7 +1,7 @@
 ################################################################################
 #  VI-FLO Metadata Manager - launcher
 #
-#  Double-clicking vi-flo-manager.Rproj opens RStudio here, and this file runs
+#  Double-clicking metadata-manager.Rproj opens RStudio here, and this file runs
 #  automatically at session start, dropping you straight into the manager.
 #
 #  This folder exists ONLY to launch the manager. Do not edit code from this
@@ -26,6 +26,16 @@ setHook("rstudio.sessionInit", function(newSession) {
   load_all_functions(quiet = TRUE)
 
   cat("\n")
+
+  # Whether this machine's data is behind Box, before anything can be changed
+  # on a stale copy. Asks only when the two differ; a check that cannot run
+  # says so and lets the menu open
+  go <- tryCatch(launcher_box_check(), error = function(e) {
+    cat("  ! Could not check against Box: ", conditionMessage(e), "\n\n", sep = "")
+    TRUE
+  })
+  if (!isTRUE(go)) return(invisible(NULL))
+
   if (exists("print_validation_line")) try(print_validation_line(), silent = TRUE)
   metadata_manager()
 
